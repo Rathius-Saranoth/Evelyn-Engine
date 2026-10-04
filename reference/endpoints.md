@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-04 10:36:02
+date modified: 2026-10-04 17:19:38
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -510,14 +510,23 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `POST /api/benchmark/run`
 * **Purpose**: Dispatches an evaluation benchmark run as an isolated subprocess managed by `task_manager`. Prepend-enqueues to the head of the task queue if a background heavy task is currently active.
-* **Payload**: JSON object `{"model": "gemma4:12b", "prompt_mode": "template" | "live", "routed": bool, "category": "pushback" | null}`.
-* **Returns**: JSON object `{"status": "started" | "enqueued", "model": "...", "prompt_mode": "...", "routed": bool, "waiting_for": str | null}`.
+* **Payload**: JSON object `{"model": "gemma4:12b", "prompt_mode": "template" | "live", "routed": bool, "category": "pushback" | null, "repeat": int}`.
+* **Returns**: JSON object `{"status": "started" | "enqueued", "model": "...", "prompt_mode": "...", "routed": bool, "repeat": int, "waiting_for": str | null}`.
 
 ### `POST /api/benchmark/cancel`
 * **Purpose**: Terminates any active or enqueued behavior benchmark run, cleans up subprocess handles, dequeues from the idle task queue, and resets runner state to idle.
 * **Returns**: JSON object `{"status": "idle", "message": "Benchmark run successfully cancelled."}`.
 
+### `POST /api/benchmark/clear_logs`
+* **Purpose**: Clears accumulated execution output stream logs from the in-memory runner state and resets the status to idle if completed or errored.
+* **Returns**: JSON object `{"status": "idle", "message": "Benchmark runner logs cleared."}`.
+
+### `POST /api/benchmark/clear_history`
+* **Purpose**: Clears all partitioned historical benchmark runs from `data/benchmark_history.json` and resets the pre-computed matrix store `reference/behavior_benchmark_matrix.json`.
+* **Returns**: JSON object `{"status": "ok", "message": "All benchmark history and matrix data cleared."}`.
+
 ---
+
 
 [evelyn_server.py]: ../evelyn_server.py "evelyn_server.py"
 [query_reformulator.py]: ../Evelyn/tools/query_reformulator.py "query_reformulator.py"

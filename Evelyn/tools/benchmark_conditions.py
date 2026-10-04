@@ -1,6 +1,6 @@
 # benchmark_conditions.py
 # date created: 2026-10-04 09:50:00
-# date modified: 2026-10-04 09:56:37
+# date modified: 2026-10-04 17:19:38
 # tags: #benchmark, #evaluation, #conditions, #scoring
 
 """
@@ -263,6 +263,7 @@ def evaluate_conditions(
             "misreport": bool(cond.get("misreport", cond["kind"] in MISREPORT_KINDS)),
             "passed": outcome,
             "evidence": evidence,
+            "judge_criterion": cond.get("judge_criterion"),
         })
     if only_category:
         results = [r for r in results if r["category"] == only_category]
@@ -275,6 +276,7 @@ def errored_conditions(case: dict, message: str, only_category: str | None = Non
         "id": c["id"], "kind": c["kind"], "category": c.get("category", ""),
         "label": c.get("label", c["id"]), "primary": bool(c.get("primary")),
         "misreport": False, "passed": False, "evidence": f"ERROR: {message}",
+        "judge_criterion": c.get("judge_criterion"),
     } for c in case.get("conditions", [])]
     return [r for r in out if not only_category or r["category"] == only_category]
 

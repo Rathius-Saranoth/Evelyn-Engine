@@ -1,6 +1,6 @@
 # test_benchmark_endpoints.py
 # date created: 2026-10-02 20:05:00
-# date modified: 2026-10-02 19:59:59
+# date modified: 2026-10-04 17:19:38
 # tags: #test, #benchmark, #api, #endpoints
 
 """Targeted integration tests for Evelyn continuous evaluation benchmark API endpoints."""
@@ -29,7 +29,26 @@ def test_benchmark_matrix_endpoint():
     data = response.json()
     assert "summaries" in data
     assert "details" in data
-    assert len(data["summaries"]) >= 1
+    assert "flat_details" in data
+    assert isinstance(data["summaries"], dict)
+    assert isinstance(data["flat_details"], list)
+
+
+def test_benchmark_clear_endpoints():
+    client = TestClient(app)
+    # Test clear_logs
+    res_logs = client.post("/api/benchmark/clear_logs", headers=_get_auth_headers())
+    assert res_logs.status_code == 200
+    assert res_logs.json()["status"] == "idle"
+
+    # Test clear_history
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_history_file = os.path.join(tmp_dir, "benchmark_history.json")
+        with patch.object(benchmark_store, "HISTORY_FILE", tmp_history_file):
+            res_hist = client.post("/api/benchmark/clear_history", headers=_get_auth_headers())
+            assert res_hist.status_code == 200
+            assert res_hist.json()["status"] == "ok"
+
 
 
 def test_benchmark_history_and_diff_endpoints():

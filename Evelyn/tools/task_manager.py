@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-10-04 10:36:02
+# date modified: 2026-10-04 17:19:38
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -105,7 +105,7 @@ DEFAULT_SOFT_TIMEOUTS = {
     "auto_journaler": 900.0,         # 15 minutes
     "ambient_reflector": 300.0,      # 5 minutes
     "refresh_memory": 1800.0,        # 30 minutes
-    "benchmark": 900.0,              # 15 minutes
+    "benchmark": 14400.0,            # 4 hours (accommodates multi-pass evaluations across 112 cases)
     "vault_map": 600.0,              # 10 minutes
     "sync": 1800.0,                  # 30 minutes
     "tag_librarian": 600.0,          # 10 minutes

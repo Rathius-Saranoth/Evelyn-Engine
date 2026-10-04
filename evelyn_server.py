@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-04 10:36:02
+# date modified: 2026-10-04 17:19:38
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8859,6 +8859,7 @@ _benchmark_run_state: dict[str, Any] = {
     "logs": [],
     "last_run_id": None,
     "error": None,
+    "started_at": 0.0,
 }
 
 
@@ -8867,6 +8868,7 @@ async def run_benchmark_task(
     prompt_mode: str = "template",
     routed: bool = True,
     category: str | None = None,
+    repeat: int = 1,
 ):
     """Run model behavior benchmark in an isolated worker subprocess."""
     import task_manager
@@ -8875,10 +8877,12 @@ async def run_benchmark_task(
         return
 
     phase_cat = f", category: {category}" if category else ""
+    phase_rep = f" ({repeat} passes)" if repeat > 1 else ""
     _benchmark_run_state["status"] = "running"
-    _benchmark_run_state["phase"] = f"Initializing benchmark ({model}, {prompt_mode}{phase_cat})..."
+    _benchmark_run_state["phase"] = f"Initializing benchmark ({model}, {prompt_mode}{phase_cat}{phase_rep})..."
     _benchmark_run_state["logs"] = []
     _benchmark_run_state["error"] = None
+    _benchmark_run_state["started_at"] = time.time()
 
     script_path = str(BASE_DIR / "scripts" / "benchmark_behavior.py")
     cmd = [
@@ -8894,6 +8898,8 @@ async def run_benchmark_task(
         cmd.append("--routed")
     if category:
         cmd.extend(["--category", category])
+    if repeat > 1:
+        cmd.extend(["--repeat", str(repeat)])
 
     task_manager.set_running("benchmark", phase=f"Benchmarking {model} ({prompt_mode}{phase_cat})")
     proc = None
@@ -8958,6 +8964,7 @@ class BenchmarkRunRequest(BaseModel):
     prompt_mode: str = "template"
     routed: bool = True
     category: str | None = None
+    repeat: int = 1
 
 
 @app.get("/api/benchmark/matrix")
@@ -9055,18 +9062,24 @@ async def get_benchmark_status(_: None = Depends(check_auth)):
     """Return the real-time execution status and recent logs for the benchmark runner."""
     from Evelyn.tools import task_manager
 
-    # Self-healing watchdog: check if process handle is actually alive
+    # Self-healing watchdog: check if process handle is actually alive (after 8s launch grace period)
     proc = task_manager._active_handles.get("benchmark")
-    if (proc is not None and proc.returncode is not None) or (
-        proc is None and task_manager.get_status("benchmark") == "running"
+    started_at = _benchmark_run_state.get("started_at", 0.0)
+    is_launching = (time.time() - started_at) < 8.0
+
+    if not is_launching and (
+        (proc is not None and getattr(proc, "returncode", None) is not None)
+        or (proc is None and task_manager.get_status("benchmark") == "running")
     ):
         task_manager.clear_running("benchmark", status="idle")
         if _benchmark_run_state.get("status") == "running":
             _benchmark_run_state["status"] = "idle"
             _benchmark_run_state["phase"] = "Idle"
 
-    is_running = task_manager.get_status("benchmark") == "running"
-    is_queued = task_manager.is_task_queued("benchmark")
+    is_running = (task_manager.get_status("benchmark") == "running") or (
+        _benchmark_run_state.get("status") == "running"
+    )
+    is_queued = task_manager.is_task_queued("benchmark") or (_benchmark_run_state.get("status") == "enqueued")
     return {
         "running": is_running,
         "queued": is_queued,
@@ -9088,6 +9101,39 @@ async def cancel_benchmark_run(_: None = Depends(check_auth)):
     return {"status": "idle", "message": "Benchmark run successfully cancelled."}
 
 
+@app.post("/api/benchmark/clear_logs")
+async def clear_benchmark_logs(_: None = Depends(check_auth)):
+    """Clear benchmark runner logs and reset runner status to idle if completed or errored."""
+    _benchmark_run_state["logs"] = []
+    if _benchmark_run_state.get("status") in ("completed", "error", "cancelled"):
+        _benchmark_run_state["status"] = "idle"
+        _benchmark_run_state["phase"] = "Idle"
+    return {"status": "idle", "message": "Benchmark runner logs cleared."}
+
+
+@app.post("/api/benchmark/clear_history")
+async def clear_benchmark_history(_: None = Depends(check_auth)):
+    """Clear all historical benchmark runs and reset pre-computed matrix results."""
+    from Evelyn.tools import benchmark_store
+
+    benchmark_store.clear_all_history()
+    matrix_path = BASE_DIR / "reference" / "behavior_benchmark_matrix.json"
+    empty_matrix = {
+        "timestamp": None,
+        "routed": True,
+        "cases_count": 0,
+        "summaries": {},
+        "details": {},
+    }
+    await asyncio.to_thread(
+        matrix_path.write_text,
+        json.dumps(empty_matrix, indent=2),
+        encoding="utf-8",
+    )
+    return {"status": "ok", "message": "All benchmark history and matrix data cleared."}
+
+
+
 @app.post("/api/benchmark/run")
 async def trigger_benchmark_run(
     req: BenchmarkRunRequest,
@@ -9102,6 +9148,7 @@ async def trigger_benchmark_run(
             "prompt_mode": req.prompt_mode,
             "routed": req.routed,
             "category": req.category,
+            "repeat": req.repeat,
             "manual": True,
         }
         task_manager.enqueue_idle_task("benchmark", metadata=meta, front=True)
@@ -9117,6 +9164,7 @@ async def trigger_benchmark_run(
             "prompt_mode": req.prompt_mode,
             "routed": req.routed,
             "category": req.category,
+            "repeat": req.repeat,
             "waiting_for": active_task,
             "queue_size": len(task_manager.get_idle_queue()),
         }
@@ -9127,6 +9175,7 @@ async def trigger_benchmark_run(
             prompt_mode=req.prompt_mode,
             routed=req.routed,
             category=req.category,
+            repeat=req.repeat,
         )
     )
     _server_background_tasks.add(t_bench)
@@ -9137,6 +9186,7 @@ async def trigger_benchmark_run(
         "prompt_mode": req.prompt_mode,
         "routed": req.routed,
         "category": req.category,
+        "repeat": req.repeat,
     }
 
 

@@ -913,7 +913,7 @@
         <div class="table-header-bar">
           <div class="table-title">
             <span>📋 Behavioral Test Cases & Model Matrix</span>
-            <span class="badge badge-purple" id="matrix-count-badge">25 Cases</span>
+            <span class="badge badge-purple" id="matrix-count-badge">0 Results</span>
           </div>
           <div style="font-size: 12px; color: var(--text-muted);">
             Click any row to drill down into input prompt, model reasoning, and tool calls
@@ -974,9 +974,10 @@
       <!-- Historical Runs Table -->
       <div class="table-card">
         <div class="table-header-bar">
-          <div class="table-title">
+          <div class="table-title" style="display: flex; align-items: center; gap: 10px; width: 100%;">
             <span>📜 Historical Evaluation Snapshots</span>
             <span class="badge badge-amber" id="history-table-badge">Select Source and Target to diff</span>
+            <button class="btn-nav" id="btn-clear-history" onclick="clearBenchmarkHistory()" title="Clear all historical benchmark runs and reset matrix" style="font-size: 11px; padding: 4px 10px; margin-left: auto;">🗑️ Clear Benchmarks</button>
           </div>
           <div style="font-size: 12px; color: var(--text-muted);">
             Each partition holds a rolling ring buffer of up to 30 snapshots
@@ -1127,7 +1128,7 @@
           <div style="display: flex; flex-direction: column; gap: 6px;">
             <label class="filter-label" for="run-scope-select">Evaluation Scope:</label>
             <select class="input-field" id="run-scope-select" style="min-width: 210px;" onchange="toggleRunnerScope()" title="Run canonical full-suite evaluation or fast isolated single-category probe">
-              <option value="full">Full Suite (25 Cases — Canonical)</option>
+              <option value="full">Full Suite (112 Cases — Canonical)</option>
               <option value="probe">Single Category Probe (Fast 10-15s)</option>
             </select>
           </div>
@@ -1153,6 +1154,16 @@
             <select class="input-field" id="run-prompt-select" style="min-width: 200px;" title="Select prompt source: clean archetype templates or live evolving persona">
               <option value="template">Template Baseline (Starter Templates)</option>
               <option value="live" selected>Live Persona (Active Profiles)</option>
+            </select>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="filter-label" for="run-repeat-select">Passes (Iterations):</label>
+            <select class="input-field" id="run-repeat-select" style="min-width: 140px;" title="Execute multiple consecutive passes to observe statistical consistency">
+              <option value="1" selected>1 Pass (Standard)</option>
+              <option value="3">3 Passes</option>
+              <option value="5">5 Passes (Recommended)</option>
+              <option value="10">10 Passes</option>
             </select>
           </div>
 
@@ -1382,14 +1393,16 @@
       const passed = s.passed || 0;
       const rate = s.pass_rate || (total > 0 ? passed / total : 0);
       const passRateEl = document.getElementById('kpi-model-pass-rate');
-      if (passRateEl) passRateEl.textContent = `${passed}/${total} (${(rate * 100).toFixed(1)}%)`;
+      if (passRateEl) passRateEl.textContent = total > 0 ? `${passed}/${total} (${(rate * 100).toFixed(1)}%)` : '--%';
 
       const passDescEl = document.getElementById('kpi-model-pass-desc');
       if (passDescEl) {
-        if (s.strict_cases) {
+        if (total > 0 && s.strict_cases) {
           passDescEl.textContent = `${targetModel} · ${s.strict_cases.passed}/${s.strict_cases.total} Strict Cases (${Math.round(s.strict_cases.pass_rate * 100)}%)`;
-        } else {
+        } else if (total > 0) {
           passDescEl.textContent = `${targetModel} ${targetModel === activeModel ? '· Active Live Model' : ''}`;
+        } else {
+          passDescEl.textContent = `${targetModel} · No runs recorded yet`;
         }
       }
 
@@ -1411,9 +1424,14 @@
             deltaEl.textContent = `Stable (0% Δ)`;
             deltaEl.className = 'badge badge-cyan';
           }
-        } else {
+        } else if (total > 0) {
           deltaEl.textContent = rate === 1.0 ? 'Optimal (100%)' : `${(rate * 100).toFixed(0)}% Baseline`;
           deltaEl.className = 'badge badge-emerald';
+        } else {
+          deltaEl.textContent = 'No Runs';
+          deltaEl.className = 'badge';
+          deltaEl.style.background = 'rgba(255,255,255,0.06)';
+          deltaEl.style.color = 'var(--text-dim)';
         }
       }
 
@@ -1462,6 +1480,9 @@
 
       // Models
       const models = Object.keys(matrixData.summaries);
+      if (models.length === 0 && matrixData.active_model) {
+        models.push(matrixData.active_model);
+      }
       let mHtml = `<div class="chip ${activeModelFilter === 'ALL' ? 'active' : ''}" onclick="filterByModel('ALL')" title="Show results for all profiled models">All Models</div>`;
       models.forEach(m => {
         mHtml += `<div class="chip ${activeModelFilter === m ? 'active' : ''}" onclick="filterByModel('${m}')" title="Filter by ${m}">${m}</div>`;
@@ -1532,7 +1553,10 @@
 
       const colSpan = showModelCol ? 7 : 6;
       if (filteredDetailsList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: var(--text-muted); padding: 30px;">No benchmark cases match the selected filters.</td></tr>`;
+        const emptyMsg = (allDetailsList.length === 0)
+          ? '✨ No benchmark runs recorded yet. Start an evaluation above to populate the behavioral matrix.'
+          : 'No benchmark cases match the selected filters.';
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: var(--text-muted); padding: 40px 20px;">${emptyMsg}</td></tr>`;
         return;
       }
 
@@ -1765,6 +1789,9 @@
       const modelSel = document.getElementById('swimlane-model-select');
       if (modelSel) {
         const models = Object.keys(matrixData.summaries);
+        if (models.length === 0 && activeModel) {
+          models.push(activeModel);
+        }
         const optionsHtml = models.map(m => {
           const isAct = (m === activeModel);
           const isSel = (m === targetModel);
@@ -1883,8 +1910,8 @@
         pointsMap[cat.key] = points;
 
         // Comparison delta calculation
-        let deltaHtml = `<span class="badge badge-cyan" title="Initial baseline recording">Baseline</span>`;
-        if (compareMode === 'BEST') {
+        let deltaHtml = `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-dim);" title="No prior benchmark run to compare against">No Baseline</span>`;
+        if (curTotal > 0 && compareMode === 'BEST') {
           if (points.length > 0) {
             const maxRate = Math.max(...points.map(p => p.rate));
             const diffPct = Math.round((curRate - maxRate) * 100);
@@ -1894,7 +1921,7 @@
               deltaHtml = `<span class="badge badge-rose" title="${diffPct}% below personal best">${diffPct}% vs PB</span>`;
             }
           }
-        } else if (baselineRun) {
+        } else if (curTotal > 0 && baselineRun) {
           let baseRate = null;
           if (baselineRun.results && baselineRun.results.length > 0) {
             const baseRes = baselineRun.results.filter(r => r.category === cat.key);
@@ -1918,12 +1945,14 @@
               deltaHtml = `<span class="badge badge-cyan" title="Score is stable compared to baseline">Stable (0%)</span>`;
             }
           }
+        } else if (curTotal > 0) {
+          deltaHtml = `<span class="badge badge-cyan" title="Initial baseline recording">Baseline</span>`;
         }
 
         // Health Badge
         let healthBadge = '';
         if (curTotal === 0) {
-          healthBadge = `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-dim);" title="No benchmark cases registered in this category">No Cases</span>`;
+          healthBadge = `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-dim);" title="No benchmark cases registered or evaluated yet">Awaiting Run</span>`;
         } else if (curRate === 1.0) {
           healthBadge = `<span class="badge badge-emerald" title="100% Pass Rate: Optimal adherence with zero observed failures">⭐ Optimal</span>`;
         } else if (curRate >= 0.8) {
@@ -1947,7 +1976,7 @@
             <td>
               <div class="swimlane-score-cell" title="${curPassed} of ${curTotal} condition checkpoints passed (${curTotal > 0 ? Math.round(curRate * 100) : 0}%) across ${casesInCat} test questions">
                 <span>${curTotal > 0 ? Math.round(curRate * 100) + '%' : '--%'}</span>
-                <span class="swimlane-score-fraction">(${curPassed}/${curTotal} conds · ${casesPassedInCat}/${casesInCat} cases)</span>
+                <span class="swimlane-score-fraction">${curTotal > 0 ? `(${curPassed}/${curTotal} conds · ${casesPassedInCat}/${casesInCat} cases)` : '(Awaiting run)'}</span>
               </div>
             </td>
             <td>${deltaHtml}</td>
@@ -2411,6 +2440,7 @@
       const scopeSel = document.getElementById('run-scope-select');
       const isProbe = (scopeSel && scopeSel.value === 'probe');
       const category = isProbe ? document.getElementById('run-category-select').value : null;
+      const repeat = parseInt(document.getElementById('run-repeat-select')?.value, 10) || 1;
 
       const btn = document.getElementById('btn-trigger-run');
       btn.disabled = true;
@@ -2420,7 +2450,7 @@
         const res = await fetch('/api/benchmark/run', {
           method: 'POST',
           headers: getHeaders(),
-          body: JSON.stringify({ model, prompt_mode: promptMode, routed, category }),
+          body: JSON.stringify({ model, prompt_mode: promptMode, routed, category, repeat }),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -2437,6 +2467,13 @@
           btn.textContent = '⏳ Enqueued...';
         } else {
           appendTerminalLog(`[LAUNCH] Benchmark task dispatched for ${model} (${promptMode}, scope=${isProbe ? 'probe:' + category : 'full'}, routed=${routed})`, 'term-green');
+          btn.disabled = true;
+          btn.textContent = '⏳ Evaluating...';
+          const badge = document.getElementById('runner-task-badge');
+          if (badge) {
+            badge.textContent = `Running: Initializing benchmark...`;
+            badge.className = 'badge badge-amber';
+          }
         }
         lastRenderedLogsLength = 0;
         lastRenderedLogSignature = '';
@@ -2454,6 +2491,8 @@
       pollBenchmarkStatus();
     }
 
+    let lastRunnerStatus = 'idle';
+
     async function pollBenchmarkStatus() {
       try {
         const res = await fetch('/api/benchmark/status', { headers: getHeaders() });
@@ -2464,36 +2503,46 @@
         const scopeSel = document.getElementById('run-scope-select');
         const isProbe = (scopeSel && scopeSel.value === 'probe');
 
+        const isRunning = Boolean(data.running || (data.state && data.state.status === 'running'));
+        const isQueued = Boolean(data.queued || (data.state && data.state.status === 'enqueued'));
+
         const cancelBtn = document.getElementById('btn-cancel-run');
-        if (data.running || data.queued) {
+        if (isRunning || isQueued) {
           if (cancelBtn) cancelBtn.style.display = 'inline-flex';
         } else {
           if (cancelBtn) cancelBtn.style.display = 'none';
         }
 
-        if (data.running) {
+        if (isRunning) {
           badge.textContent = `Running: ${data.state.phase || 'Evaluating...'}`;
           badge.className = 'badge badge-amber';
           btn.disabled = true;
-          btn.textContent = 'Evaluating...';
-        } else if (data.queued) {
+          btn.textContent = '⏳ Evaluating...';
+        } else if (isQueued) {
           badge.textContent = `Queued: Waiting for heavy task...`;
           badge.className = 'badge badge-purple';
           btn.disabled = true;
           btn.textContent = '⏳ Enqueued...';
         } else {
-          badge.textContent = `Status: ${data.state.status || 'Idle'}`;
-          badge.className = data.state.status === 'completed' ? 'badge badge-emerald' : 'badge badge-cyan';
+          const isDone = (data.state && data.state.status === 'completed');
+          badge.textContent = isDone ? 'Status: Completed' : 'Task Manager: Idle';
+          badge.className = isDone ? 'badge badge-emerald' : 'badge badge-cyan';
           btn.disabled = false;
           btn.textContent = isProbe ? '▶ Start Probe Evaluation' : '▶ Start Evaluation';
-          if (data.state.status === 'completed') {
+          if (isDone && lastRunnerStatus === 'running') {
             loadHistory();
             loadMatrix();
           }
         }
+        lastRunnerStatus = isRunning ? 'running' : (data.state.status || 'idle');
 
-        if (data.state && data.state.logs && data.state.logs.length) {
-          renderTerminalLogs(data.state.logs, data.running);
+        if (data.state && data.state.logs && data.state.logs.length > 0) {
+          renderTerminalLogs(data.state.logs, isRunning);
+        } else if (!isRunning && lastRenderedLogsLength === 0) {
+          const term = document.getElementById('runner-terminal');
+          if (term && (term.innerHTML.trim() === '' || term.innerHTML.includes('Continuous behavior evaluation engine initialized.'))) {
+            term.innerHTML = '<div class="term-line term-dim">// Continuous behavior evaluation engine initialized.</div><div class="term-line term-dim">// Click "Start Evaluation" to benchmark model or observe scheduled passes.</div>';
+          }
         }
       } catch (err) {
         console.warn('Status poll error:', err);
@@ -2579,10 +2628,40 @@
       term.scrollTop = term.scrollHeight;
     }
 
-    function clearTerminalLogs() {
+    async function clearTerminalLogs() {
       lastRenderedLogsLength = 0;
       lastRenderedLogSignature = '';
-      document.getElementById('runner-terminal').innerHTML = '<div class="term-line term-dim">// Terminal output cleared.</div>';
+      const term = document.getElementById('runner-terminal');
+      if (term) {
+        term.innerHTML = '<div class="term-line term-dim">// Terminal output cleared. Ready for next evaluation.</div>';
+      }
+      try {
+        await fetch('/api/benchmark/clear_logs', {
+          method: 'POST',
+          headers: getHeaders(),
+        });
+        await pollBenchmarkStatus();
+      } catch (err) {
+        console.warn('Failed to clear server logs:', err);
+      }
+    }
+
+    async function clearBenchmarkHistory() {
+      const confirmed = confirm(
+        '⚠️ Warning: Are you sure you want to delete all historical benchmark runs and reset the behavioral matrix?\n\nThis will permanently delete all stored benchmark snapshots and reset matrix scores. This action cannot be undone.'
+      );
+      if (!confirmed) return;
+      try {
+        const res = await fetch('/api/benchmark/clear_history', {
+          method: 'POST',
+          headers: getHeaders(),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await loadHistory();
+        await loadMatrix();
+      } catch (err) {
+        alert(`Failed to clear benchmarks: ${err.message}`);
+      }
     }
 
     function escapeHtml(str) {

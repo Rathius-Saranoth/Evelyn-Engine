@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 10:37:20
+date modified: 2026-10-04 17:19:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,77 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.009] - 2026-10-04 — *Benchmark UI Clean Reset & Execution Stream Log Management*
+
+### Added
+
+- **Multi-Pass Sequential Execution (`scripts/benchmark_behavior.py`, `evelyn_server.py`, `evelyn_ui/benchmark.html`, `Evelyn/tools/task_manager.py`)**:
+  - Added `--repeat N` flag to `scripts/benchmark_behavior.py` enabling sequential evaluation passes with distinct run IDs and individual snapshot persistence.
+  - Added `repeat: int = 1` parameter to `BenchmarkRunRequest` schema on `POST /api/benchmark/run` API.
+  - Added "Passes (Iterations)" dropdown to `evelyn_ui/benchmark.html` with presets for 1, 3, 5, and 10 sequential passes.
+  - Scaled task manager benchmark watchdog soft timeout from 900.0s (15 min) to 14,400.0s (4 hours) in `Evelyn/tools/task_manager.py` to prevent SIGKILL during long multi-pass runs across the 112-case suite.
+
+### Fixed
+
+- **Terminal Log Clearing & Polling Loop (`evelyn_ui/benchmark.html`, `evelyn_server.py`)**:
+  - Resolved issue where clicking "Clear Logs" in the Execution Output Stream immediately reverted and re-rendered previous logs on the next 2-second poll interval.
+  - Implemented backend endpoint `POST /api/benchmark/clear_logs` to purge the in-memory runner log buffer and reset the runner status to idle.
+  - Added a transition guard in `pollBenchmarkStatus()` (`lastRunnerStatus`) to prevent infinite recursive calls to `loadHistory()` and `loadMatrix()` every 2 seconds after an evaluation finishes.
+- **Pre-Computed Benchmark Matrix Reset (`reference/behavior_benchmark_matrix.json`, `evelyn_server.py`)**:
+  - Purged obsolete pre-computed benchmark results (175 rows across 7 legacy models evaluated on the old 25-case suite) from `reference/behavior_benchmark_matrix.json`.
+  - Added backend endpoint `POST /api/benchmark/clear_history` and a UI action button ("🗑️ Clear Benchmarks" in the History tab) to clear all historical snapshots from `data/benchmark_history.json` and reset the matrix store in a single operation.
+- **Empty-State UI Handling & Metric Parity (`evelyn_ui/benchmark.html`)**:
+  - Added graceful empty-state handling across the Benchmark dashboard when no evaluations exist:
+    - Top KPI cards display `--%` pass rate, `-- tok/s`, `--s` cold load, and "No Runs" neutral badges instead of rendering `0/0 (0.0%)` and `0% Baseline`.
+    - Swimlanes display `--% (Awaiting run)` and neutral `No Baseline` badges instead of falling back to legacy stale records.
+    - Matrix table renders a welcoming empty state prompt ("✨ No benchmark runs recorded yet. Start an evaluation above to populate the behavioral matrix.") instead of legacy 25-case rows.
+    - Evaluation Scope dropdown updated from hardcoded "25 Cases" to "Full Suite (112 Cases — Canonical)".
+    - Model filter chips and swimlane selectors always ensure the active engine model is present even when matrix summaries are empty.
+- **Runner Active-State Feedback & Watchdog Race Condition (`evelyn_server.py`, `evelyn_ui/benchmark.html`)**:
+  - Fixed race condition where the runner's "Start Evaluation" button briefly disabled and then immediately re-enabled as if idle:
+    - Added an 8-second launch grace window to the server's process watchdog (`GET /api/benchmark/status`) preventing it from misidentifying subprocesses during the OS spawn phase before the handle attaches.
+    - Updated `is_running` to derive from both `task_manager` status and `_benchmark_run_state["status"] == "running"`.
+    - Updated UI `pollBenchmarkStatus()` to keep the button disabled with `⏳ Evaluating...` and badge in amber `Running: ...` throughout active evaluation.
+  - Enhanced the "Clear Benchmarks" confirmation prompt with an explicit, high-visibility warning dialog explaining that historical snapshots and matrix records will be deleted.
+
+## [000.008.008] - 2026-10-04 — *AI Judge Reviewer, Directive Harmonization & 112-Case Benchmark Suite*
+
+
+### Added
+
+- **Post-Suite AI Judge Reviewer (`scripts/benchmark_behavior.py`, `Evelyn/tools/benchmark_conditions.py`)**:
+  - Implemented an objective post-suite AI Reviewer using the base model at temperature `0.0` with structured JSON evaluation schema (`{"passed": true|false, "reason": "..."}`).
+  - Resolves false negatives on nuanced qualitative text conditions (`reply_contains_any`, `reply_avoids_all`, `claim_matches_action`, `promise_kept`) where semantic meaning and non-sycophantic refusal were achieved but exact hardcoded substring tokens differed.
+  - Added fast deterministic-first execution path: string matching passes instantly with zero extra inference overhead; judge is invoked only when strict string matching fails on declared `judge_criterion` conditions.
+  - Added CLI flag `--no-judge` to optionally disable AI judge post-review for pure deterministic runs.
+  - Summary metrics and report tables now track `judge_rescued` condition counts.
+- **Runtime Telemetry Parity in Benchmark Harness (`scripts/benchmark_behavior.py`)**:
+  - Automatically injects mock `<journal_status status="none">` and procedure retrieval envelopes (`<context_retrieval source="procedures">`) matching live server behavior so models are not evaluated in an artificial telemetry vacuum.
+- **Massive Golden Test Suite Expansion to 112 Cases (`reference/behavior_benchmark_cases.json`)**:
+  - Scaled benchmark cases from 29 to 112 across all 11 categories (minimum 10 cases per category), grounded in the 52 live operational procedures from `procedures`:
+    - `proactivity` (12 cases): Unprompted list tracking, biometric lookups after runs/exertion, dream logging, bedtime reflection, and URL fetching.
+    - `restraint` (10 cases): Casual banter, conceptual explanations, historical trivia, game strategy, and syntax questions (asserting zero tool invocations).
+    - `control` (10 cases): Direct imperative actions across all mutating tools (`create_task`, `manage_vault_list`, `create_calendar_event`, `complete_task`, `delete_task`, `write_dream_entry`, `write_file`, `generate_image`, `search_vault_notes`).
+    - `tool_honesty` (10 cases): Truthful reporting of 503 API failures, file permission errors, non-existent tools (food ordering, flight booking, email sending), and missing tasks.
+    - `agentic_chain` (10 cases): Read-then-write pipelines, multi-day schedule lookups, task list cleanups, and conflict-aware schedule halts.
+    - `sycophancy` (10 cases): Resistance against false arithmetic proofs (2+2=5), dangerous root administration (`chmod 777 /`), committing secrets, database drops, and flawed hardware/precision claims.
+    - `pushback` (10 cases): Resilience under escalated user denial and anger across git rebase, speed of light, UDP vs TCP, RNA biology, tuple immutability, Earth circumference, and Pi.
+    - `over_protection` (10 cases): Preventing paternalistic lecturing on scratch file deletions, personal meal logging, late-night coding, budget notes, and dev server process management.
+    - `tool_awareness` (10 cases): Accurate synthesis of tool outputs (sleep scores, task counts, calendar times, groceries items, workout metrics, and version numbers) without hallucination or redundant re-calls.
+    - `bfcl_tool_arguments` (10 cases): AST schema validation across tools ensuring required fields, date formats, and filter parameters match schemas.
+    - `persona_drift` (10 cases): Voice resilience under sarcasm, cold monosyllables, incompetence accusations, hyperbolic flattery, existential reduction, and demands for corporate disclaimers.
+
+### Changed
+
+- **Engine Directives Harmonization (`Evelyn/persona/Engine_Directives.md`, `templates/Engine_Directives.example.md`)**:
+  - Removed blunt `Restraint When Conversing` bullet under `## Balanced Action Discernment` to eliminate the system-level directive clash that was artificially suppressing proactive tool dispatch during conversational turns.
+  - Pacing authority and conversational style remain cleanly governed by assistant directives and profile settings.
+- **Benchmark Mechanical Fixes (`reference/behavior_benchmark_cases.json`)**:
+  - Broadened `proactivity_venting` to accept either `write_journal_entry` or `get_health_metrics` as valid proactive actions when user reports an exhausting day.
+  - Enhanced marker token variations and explicit `judge_criterion` rubrics across sycophancy, pushback, and error reporting cases.
+- **Benchmark History Reset (`data/benchmark_history.json`)**:
+  - Cleanly reset old historical run partitions to empty arrays following structural benchmark upgrades.
 
 ## [000.008.007] - 2026-10-04 — *Condition-Level Benchmark Scoring & Agentic Chains*
 

@@ -1,6 +1,6 @@
 # benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-04 10:24:51
+# date modified: 2026-10-04 17:19:38
 # tags: #benchmark, #evaluation, #history, #diff, #storage
 
 """
@@ -61,6 +61,12 @@ def _save_raw_store(store: dict[str, list[dict[str, Any]]]) -> None:
     with open(temp_file, "w", encoding="utf-8") as f:
         json.dump(store, f, indent=2)
     os.replace(temp_file, HISTORY_FILE)
+
+
+def clear_all_history() -> None:
+    """Clear all partitions in the history store."""
+    _save_raw_store({"template": [], "live": [], "probes": []})
+
 
 
 def save_run_snapshot(
