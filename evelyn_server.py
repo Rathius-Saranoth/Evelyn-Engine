@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-02 21:26:22
+# date modified: 2026-10-04 09:56:37
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8974,11 +8974,13 @@ async def get_benchmark_matrix(_: None = Depends(check_auth)):
         cases_map: dict[str, dict[str, Any]] = {}
         if cases_path.exists():
             cases_raw = await asyncio.to_thread(cases_path.read_text, encoding="utf-8")
-            cases_list = json.loads(cases_raw)
+            cases_parsed = json.loads(cases_raw)
+            cases_list = cases_parsed.get("cases", []) if isinstance(cases_parsed, dict) else cases_parsed
             for c in cases_list:
-                cid = c.get("id")
-                if cid:
-                    cases_map[cid] = c
+                if isinstance(c, dict):
+                    cid = c.get("id")
+                    if cid:
+                        cases_map[cid] = c
 
         from Evelyn.tools import benchmark_store
 

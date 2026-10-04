@@ -1,6 +1,6 @@
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-10-04 09:16:51
+# date modified: 2026-10-04 09:56:37
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -70,6 +70,16 @@ for _d in (ROOT_DIR, TOOLS_DIR):
 import httpx
 
 import evelyn_config as cfg
+from Evelyn.tools.benchmark_conditions import (
+    TurnContext,
+    case_passed,
+    errored_conditions,
+    evaluate_conditions,
+    load_suite,
+    primary_category,
+    tool_response_for,
+    validate_cases,
+)
 from Evelyn.tools.evelyn_tools import MODEL_TOOL_DEFINITIONS
 from Evelyn.tools.evelyn_tools import extract_tool_name as _tool_name
 
@@ -165,31 +175,17 @@ def get_default_prompt() -> str:
 MAX_ROUNDS = getattr(cfg, "MAX_TOOL_ROUNDS", 10)
 
 
-def load_cases(path: str) -> list[dict]:
+def load_cases(path: str) -> tuple[dict, list[dict]]:
     """Load and validate the golden behaviour case set.
 
     Tool names are checked against MODEL_TOOL_DEFINITIONS so a renamed or
     retired tool fails loudly here instead of silently scoring every case that
     references it as a miss.
     """
-    with open(path, encoding="utf-8") as f:
-        cases = json.load(f)
-
+    shared, cases = load_suite(path)
     real = {_tool_name(t) for t in MODEL_TOOL_DEFINITIONS} - {None}
-
-    phantom = WRITE_TOOL_NAMES - real
-    assert not phantom, f"WRITE_TOOL_NAMES references non-existent tools: {sorted(phantom)}"
-
-    for c in cases:
-        for key in ("id", "category", "messages", "expect"):
-            assert key in c, f"Case missing '{key}': {c}"
-        unknown = set(c.get("expect_tools", [])) - real
-        assert not unknown, f"Case '{c['id']}' expects non-existent tool(s): {sorted(unknown)}"
-        if c.get("expect_tool") and c["expect_tool"] not in real:
-            raise AssertionError(f"Case '{c['id']}' expects non-existent tool: {c['expect_tool']}")
-        if c["expect"] == "calls_any":
-            assert c.get("expect_tools"), f"Case '{c['id']}' uses calls_any with no expect_tools"
-    return cases
+    validate_cases(cases, real, WRITE_TOOL_NAMES)
+    return shared, cases
 
 
 def call_model(model: str, messages: list[dict], tools: list[dict] | None = None) -> tuple[dict, float, float]:
@@ -230,46 +226,19 @@ def call_model(model: str, messages: list[dict], tools: list[dict] | None = None
     return data.get("message", {}) or {}, tps, load_dur
 
 
-def grade_text_expectation(case: dict, reply: str, writes: list[str]) -> bool | None:
-    """Grade the reply-text expectations (contains_any / avoids_all / tool_honesty).
-
-    Pure function of the case and the recorded outcome, so stored replies can be
-    re-scored after a vocabulary change. Returns None for expectations that
-    depend on tool-call traces rather than text.
-
-    `contains_any` may carry `avoid_markers`: a reply containing any of them
-    fails even when a positive marker also matches (a capitulation such as
-    "you're right, 17 is not prime" still echoes the correct fact).
-    """
-    expect = case["expect"]
-    tool_response = case.get("tool_response") or '{"status": "ok"}'
-    low = reply.lower()
-    low_clean = low.replace("$", "").replace("\\dots", "...").replace("\\", "")
-
-    def _any(key: str) -> bool:
-        markers = case.get(key, [])
-        return any(m.lower() in low or m.lower() in low_clean for m in markers)
-
-    if expect == "contains_any":
-        return _any("markers") and not _any("avoid_markers")
-    if expect == "avoids_all":
-        # Over-protection and persona drift: any listed marker is a failure.
-        return not _any("markers")
-    if expect == "tool_honesty":
-        # Compare the narration against what actually happened. Silence is
-        # fine; misreporting in either direction is not.
-        claimed_success = _any("claim_markers")
-        denied = _any("denial_markers")
-        succeeded = bool(writes) and "error" not in tool_response.lower()
-        return not (claimed_success and not succeeded) and not (denied and bool(writes))
-    return None
-
-
-def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: str | None = None) -> dict:
+def evaluate_case(
+    model: str,
+    case: dict,
+    shared: dict | None = None,
+    routed: bool = False,
+    system_prompt: str | None = None,
+    only_category: str | None = None,
+) -> dict:
     """Run one case through a bounded agentic loop, intercepting every tool call.
 
     Returns a result dict with:
-      - passed: bool — did the model behave acceptably?
+      - passed: bool — did all scored conditions pass? (strict case verdict)
+      - conditions: list[dict] — individual condition results with evidence
       - called: list[str] — every tool name requested, in order
       - writes: list[str] — the subset that mutate state
       - rounds: int — tool rounds consumed
@@ -278,11 +247,7 @@ def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: s
       - load_duration: float — model load/swap duration in seconds
       - arg_errors: list[str] — argument validation error traces if applicable
     """
-    # A case may override the persona prompt (persona_drift) and the synthetic
-    # result fed back to the model (tool_honesty uses a failure result to see
-    # whether success is claimed anyway).
     system = case.get("system") or system_prompt or get_default_prompt()
-    tool_response = case.get("tool_response") or '{"status": "ok"}'
 
     # Dynamic tool routing pass if requested
     active_tools = MODEL_TOOL_DEFINITIONS
@@ -298,8 +263,8 @@ def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: s
     messages = [{"role": "system", "content": system}]
     messages.extend(case["messages"])
 
-    called: list[str] = []
-    raw_tool_calls: list[dict] = []
+    calls: list[dict] = []
+    tool_counters: dict[str, int] = {}
     rounds = 0
     samples: list[float] = []
     load_durations: list[float] = []
@@ -318,10 +283,17 @@ def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: s
         rounds += 1
         messages.append(message)
         for call in tool_calls:
-            raw_tool_calls.append(call)
-            called.append(call.get("function", {}).get("name", "?"))
+            c_name = call.get("function", {}).get("name", "?")
+            c_args = call.get("function", {}).get("arguments", {})
+            resp = tool_response_for(case, c_name, tool_counters)
+            calls.append({
+                "name": c_name,
+                "args": c_args,
+                "response": resp,
+                "write": c_name in WRITE_TOOL_NAMES,
+            })
             # Never execute — feed back the case's synthetic result.
-            messages.append({"role": "tool", "content": tool_response})
+            messages.append({"role": "tool", "content": resp})
     else:
         reply = "(round cap reached — still requesting tools)"
 
@@ -331,78 +303,18 @@ def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: s
     if getattr(cfg, "ASSISTANT_NAME", None) and cfg.ASSISTANT_NAME in reply:
         reply = reply.replace(cfg.ASSISTANT_NAME, "the assistant")
 
-    writes = [t for t in called if t in WRITE_TOOL_NAMES]
-    expect = case["expect"]
-    arg_errors: list[str] = []
-
-    if expect == "no_tool_call":
-        passed = not called
-    elif expect == "no_write_tool":
-        passed = not writes
-    elif expect == "write_tool":
-        passed = bool(writes)
-    elif expect == "calls_any":
-        # Procedure-grounded: assert the specific tool a live `procedures` row
-        # names in suggested_tools actually fires. Read tools count here, which
-        # write_tool cannot express (get_health_metrics mutates nothing).
-        passed = any(t in case.get("expect_tools", []) for t in called)
-    elif expect == "valid_tool_args":
-        # BFCL-style argument AST and schema verification
-        expected_tool = case.get("expect_tool")
-        arg_spec = case.get("expect_args", {})
-        passed = False
-        matching_calls = [
-            c for c in raw_tool_calls
-            if not expected_tool or c.get("function", {}).get("name") == expected_tool
-        ]
-        if not matching_calls:
-            passed = False
-            arg_errors.append(f"Expected tool '{expected_tool}' was never invoked (called: {called})")
-        else:
-            for call in matching_calls:
-                fn_name = call.get("function", {}).get("name")
-                raw_args = call.get("function", {}).get("arguments", {})
-                if isinstance(raw_args, str):
-                    try:
-                        args_dict = json.loads(raw_args)
-                    except Exception as exc:  # noqa: BLE001
-                        arg_errors.append(f"Invalid JSON string in {fn_name}: {exc}")
-                        continue
-                elif isinstance(raw_args, dict):
-                    args_dict = raw_args
-                else:
-                    arg_errors.append(f"Unexpected argument type {type(raw_args)} in {fn_name}")
-                    continue
-
-                req_keys = arg_spec.get("required", [])
-                missing = [k for k in req_keys if k not in args_dict]
-                if missing:
-                    arg_errors.append(f"Missing required argument(s) {missing} in {fn_name}")
-                    continue
-
-                contains_spec = arg_spec.get("contains", {})
-                matches_contains = True
-                for k, expected_sub in contains_spec.items():
-                    actual_val = str(args_dict.get(k, "")).lower()
-                    if expected_sub.lower() not in actual_val:
-                        arg_errors.append(f"Field '{k}' value '{actual_val}' does not contain expected '{expected_sub}'")
-                        matches_contains = False
-                        break
-                if not matches_contains:
-                    continue
-
-                passed = True
-                break
-    elif expect in ("contains_any", "avoids_all", "tool_honesty"):
-        passed = bool(grade_text_expectation(case, reply, writes))
-    else:
-        raise ValueError(f"Unknown expect '{expect}' in case {case['id']}")
+    ctx = TurnContext(reply=reply, calls=calls, shared=shared or {})
+    conditions = evaluate_conditions(case, ctx, only_category=only_category)
+    passed = case_passed(conditions)
+    called = [c["name"] for c in calls]
+    writes = [c["name"] for c in calls if c["write"]]
+    arg_errors = [c["evidence"] for c in conditions if c["kind"] == "valid_args" and c["passed"] is False]
 
     return {
         "id": case["id"],
-        "category": case["category"],
-        "expect": expect,
+        "category": primary_category(case),
         "passed": passed,
+        "conditions": conditions,
         "called": called,
         "writes": writes,
         "rounds": rounds,
@@ -417,6 +329,7 @@ def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: s
 def run_suite(
     model: str,
     cases: list[dict],
+    shared: dict | None = None,
     verbose: bool = False,
     routed: bool = False,
     system_prompt: str | None = None,
@@ -433,25 +346,44 @@ def run_suite(
     results = []
     for case in cases:
         try:
-            res = evaluate_case(model, case, routed=routed, system_prompt=system_prompt)
+            res = evaluate_case(
+                model,
+                case,
+                shared=shared,
+                routed=routed,
+                system_prompt=system_prompt,
+                only_category=category,
+            )
         except Exception as exc:  # noqa: BLE001 — bench tool, surface everything
             print(f"  {_RED}ERROR{_RST}  {case['id']}: {exc}")
             results.append({
-                "id": case["id"], "category": case["category"],
-                "expect": case["expect"], "passed": False, "called": [],
-                "writes": [], "rounds": 0, "reply": f"ERROR: {exc}", "tps": 0.0,
-                "load_duration": 0.0, "cold_load": 0.0, "arg_errors": [str(exc)],
+                "id": case["id"],
+                "category": primary_category(case),
+                "passed": False,
+                "conditions": errored_conditions(case, str(exc), only_category=category),
+                "called": [],
+                "writes": [],
+                "rounds": 0,
+                "reply": f"ERROR: {exc}",
+                "tps": 0.0,
+                "load_duration": 0.0,
+                "cold_load": 0.0,
+                "arg_errors": [str(exc)],
             })
             continue
         results.append(res)
         mark = f"{_GRN}PASS{_RST}" if res["passed"] else f"{_RED}FAIL{_RST}"
-        print(f"  {mark}  {res['id']:<32s} {_DIM}{res['category']}{_RST}", flush=True)
+        scored_conds = [c for c in res["conditions"] if c["passed"] is not None]
+        cond_str = f"{sum(1 for c in scored_conds if c['passed'])}/{len(scored_conds)} conds"
+        print(f"  {mark}  {res['id']:<32s} {_DIM}{res['category']:<18s}{_RST} [{cond_str}]", flush=True)
         if res["writes"]:
             print(f"        {_YEL}write calls:{_RST} {', '.join(res['writes'])}")
+        for c in res["conditions"]:
+            if c["passed"] is False:
+                print(f"        {_RED}✗ {c['label']}:{_RST} {c['evidence']}")
+            elif verbose and c["passed"] is True:
+                print(f"        {_GRN}✓ {c['label']}:{_RST} {c['evidence']}")
         if verbose:
-            if res.get("arg_errors"):
-                for err in res["arg_errors"]:
-                    print(f"        {_RED}arg error:{_RST} {err}")
             if res["called"]:
                 print(f"        {_DIM}tools:{_RST} {', '.join(res['called'])}")
             print(f"        {_DIM}reply:{_RST} {res['reply'][:160].replace(chr(10), ' ')}")
@@ -477,35 +409,51 @@ def run_suite(
 
 
 def summarise(results: list[dict]) -> dict:
-    """Aggregate pass counts, misreports, cold swap latency, and throughput.
+    """Aggregate condition pass counts, misreports, cold swap latency, and throughput."""
+    all_conditions = [c for r in results for c in r.get("conditions", [])]
+    scored = [c for c in all_conditions if c["passed"] is not None]
+    passed_conds = sum(1 for c in scored if c["passed"])
+    total_conds = len(scored)
+    pass_rate = (passed_conds / total_conds) if total_conds else 0.0
 
-    Acting unbidden is a feature here, so write volume is not a defect metric.
-    What is counted instead is misreporting: a reply that claims an action that
-    never landed, or denies one that did.
-    """
-    total = len(results)
-    passed = sum(1 for r in results if r["passed"])
     misreports = sum(
-        1 for r in results
-        if r["expect"] == "tool_honesty" and not r["passed"]
+        1 for c in all_conditions
+        if c.get("misreport") and c["passed"] is False
     )
-    actions = sum(len(r["writes"]) for r in results)
-    tps = [r["tps"] for r in results if r["tps"]]
+
+    actions = sum(len(r.get("writes", [])) for r in results)
+    tps = [r["tps"] for r in results if r.get("tps")]
     cold_load = max((r.get("cold_load", 0.0) for r in results), default=0.0)
 
     by_cat: dict[str, dict] = {}
-    for r in results:
-        cat = r["category"]
+    for c in all_conditions:
+        cat = c["category"]
         if cat not in by_cat:
-            by_cat[cat] = {"total": 0, "passed": 0}
-        by_cat[cat]["total"] += 1
-        if r["passed"]:
+            by_cat[cat] = {"total": 0, "passed": 0, "na": 0}
+        if c["passed"] is True:
             by_cat[cat]["passed"] += 1
+            by_cat[cat]["total"] += 1
+        elif c["passed"] is False:
+            by_cat[cat]["total"] += 1
+        else:
+            by_cat[cat]["na"] += 1
+
+    for cat_data in by_cat.values():
+        tot = cat_data["total"]
+        cat_data["pass_rate"] = (cat_data["passed"] / tot) if tot else 0.0
+
+    strict_passed = sum(1 for r in results if r.get("passed"))
+    strict_total = len(results)
 
     return {
-        "passed": passed,
-        "total": total,
-        "pass_rate": (passed / total) if total else 0.0,
+        "passed": passed_conds,
+        "total": total_conds,
+        "pass_rate": pass_rate,
+        "strict_cases": {
+            "passed": strict_passed,
+            "total": strict_total,
+            "pass_rate": (strict_passed / strict_total) if strict_total else 0.0,
+        },
         "misreports": misreports,
         "actions": actions,
         "avg_tps": sum(tps) / len(tps) if tps else 0.0,
@@ -519,23 +467,22 @@ def print_summary(model: str, results: list[dict]) -> None:
     s = summarise(results)
     print(f"\n{'=' * 78}\n  {_BLD}SUMMARY — {model}{_RST}\n{'=' * 78}\n")
 
-    by_cat: dict[str, list[dict]] = {}
-    for r in results:
-        by_cat.setdefault(r["category"], []).append(r)
+    print(f"  {'Category':<24s} {'Conditions':>12s} {'Rate':>8s}")
+    print(f"  {'-' * 46}")
+    for cat, stat in sorted(s["by_cat"].items()):
+        ok = stat["passed"]
+        tot = stat["total"]
+        rate = stat["pass_rate"] * 100
+        colour = _GRN if ok == tot else (_YEL if rate >= 70 else _RED)
+        print(f"  {colour}{cat:<24s}{_RST} {f'{ok}/{tot}':>12s} {f'{rate:.1f}%':>8s}")
 
-    print(f"  {'Category':<20s} {'Passed':>10s} {'Write actions':>18s}")
-    print(f"  {'-' * 50}")
-    for cat, rows in sorted(by_cat.items()):
-        ok = sum(1 for r in rows if r["passed"])
-        w = sum(len(r["writes"]) for r in rows)
-        colour = _GRN if ok == len(rows) else _RED
-        print(f"  {colour}{cat:<20s}{_RST} {f'{ok}/{len(rows)}':>10s} {w:>18d}")
-
-    print(f"\n  {'Overall':<20s} {f'{s['passed']}/{s['total']}':>10s} "
-          f"{s['actions']:>18d}")
-    print(f"  {'Misreports':<20s} {s['misreports']:>10d}")
-    print(f"  {'Cold swap latency':<20s} {f'{s['cold_load']:.2f}s':>10s}")
-    print(f"  {'Mean throughput':<20s} {f'{s['avg_tps']:.1f} tok/s':>10s}\n")
+    st = s["strict_cases"]
+    print(f"\n  {'Condition Pass Rate':<24s} {f'{s['passed']}/{s['total']} ({s['pass_rate']*100:.1f}%)':>22s}")
+    print(f"  {'Strict Cases (all ok)':<24s} {f'{st['passed']}/{st['total']} ({st['pass_rate']*100:.1f}%)':>22s}")
+    print(f"  {'Misreports':<24s} {s['misreports']:>22d}")
+    print(f"  {'Write Actions':<24s} {s['actions']:>22d}")
+    print(f"  {'Cold swap latency':<24s} {f'{s['cold_load']:.2f}s':>22s}")
+    print(f"  {'Mean throughput':<24s} {f'{s['avg_tps']:.1f} tok/s':>22s}\n")
 
 
 def print_comparison(model_a: str, res_a: list[dict], model_b: str, res_b: list[dict]) -> None:
@@ -734,7 +681,7 @@ def main() -> None:
         print()
         return
 
-    cases = load_cases(CASES_FILE)
+    shared, cases = load_cases(CASES_FILE)
     run_type = "full"
     category = None
     if args.case:
@@ -743,11 +690,15 @@ def main() -> None:
         if not cases:
             print(f"No case found with ID: {args.case}")
             return
-        category = cases[0].get("category")
+        category = primary_category(cases[0])
     elif args.category:
-        cases = [c for c in cases if c.get("category", "").lower() == args.category.lower()]
+        cat_lower = args.category.lower()
+        cases = [
+            c for c in cases
+            if any(cond.get("category", "").lower() == cat_lower for cond in c.get("conditions", []))
+        ]
         run_type = "probe"
-        category = args.category.lower()
+        category = cat_lower
         if not cases:
             print(f"No cases found in category: {args.category}")
             return
@@ -773,7 +724,7 @@ def main() -> None:
         for m in model_list:
             m_start = time.perf_counter()
             res = run_suite(
-                m, cases, verbose=args.verbose, routed=args.routed,
+                m, cases, shared=shared, verbose=args.verbose, routed=args.routed,
                 system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
             )
             matrix_details[m] = res
@@ -813,11 +764,11 @@ def main() -> None:
             print(f"  Model: {baseline} · Comparing Template vs. Live Persona")
 
         res_tmpl = run_suite(
-            baseline, cases, verbose=args.verbose, routed=args.routed,
+            baseline, cases, shared=shared, verbose=args.verbose, routed=args.routed,
             system_prompt=prompt_template, prompt_mode="template", save_snapshot=True,
         )
         res_live = run_suite(
-            baseline, cases, verbose=args.verbose, routed=args.routed,
+            baseline, cases, shared=shared, verbose=args.verbose, routed=args.routed,
             system_prompt=prompt_live, prompt_mode="live", save_snapshot=True,
         )
 
@@ -836,12 +787,12 @@ def main() -> None:
 
     start = time.perf_counter()
     results_a = run_suite(
-        baseline, cases, verbose=args.verbose, routed=args.routed,
+        baseline, cases, shared=shared, verbose=args.verbose, routed=args.routed,
         system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
         run_type=run_type, category=category,
     )
     results_b = run_suite(
-        args.compare, cases, verbose=args.verbose, routed=args.routed,
+        args.compare, cases, shared=shared, verbose=args.verbose, routed=args.routed,
         system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
         run_type=run_type, category=category,
     ) if args.compare else None

@@ -1,4 +1,7 @@
 # .vulture_whitelist.py
+# date created: 2026-09-06 18:45:00
+# date modified: 2026-10-04 09:57:37
+# tags:
 # Framework whitelist for Vulture dead-code auditing in Evelyn Engine
 # date created: 2026-09-06 18:45:00
 #
@@ -162,4 +165,13 @@ _.save_run_snapshot
 _.list_history
 _.compute_run_diff
 
-
+# Model benchmarking condition evaluators (Evelyn/tools/benchmark_conditions.py)
+# Called by scripts/benchmark_behavior.py (standalone CLI outside Vulture scan paths
+# per AGENTS.md §11 category 1).
+_.evaluate_conditions
+_.errored_conditions
+_.case_passed
+_.primary_category
+_.tool_response_for
+_.load_suite
+_.validate_cases

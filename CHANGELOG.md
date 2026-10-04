@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 07:22:53
+date modified: 2026-10-04 09:56:37
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,35 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.007] - 2026-10-04 — *Condition-Level Benchmark Scoring & Agentic Chains*
+
+### Added
+
+- **Condition-Level Benchmark Scoring Engine (`Evelyn/tools/benchmark_conditions.py`)**:
+  - Replaced monolithic single pass/fail evaluation per case with discrete condition checkpoint scoring (`True` / `False` / `None` for not applicable).
+  - Conditions support dependency constraints (`requires: [<prereq_id>]`) ensuring downstream checks resolve to `None` (excluded from denominator) rather than spurious false-negatives or vacuous passes when prerequisites fail.
+  - Standardized condition kinds: `calls_any`, `calls_all`, `calls_write`, `calls_none`, `no_write`, `calls_sequence`, `valid_args`, `reply_contains_any`, `reply_avoids_all`, `claim_matches_action`, and `promise_kept`.
+  - Condition evaluation is completely pure and model-independent, enabling deterministic offline re-scoring and fast unit testing (`test_benchmark_conditions.py`).
+- **Multi-Step Agentic Chain Scenarios (`reference/behavior_benchmark_cases.json`)**:
+  - Expanded golden suite with 4 multi-turn integration chain scenarios under dedicated category `agentic_chain`:
+    - `chain_agenda_then_task`: Read-then-write sequential dependency (checks agenda before creating tasks).
+    - `chain_conflict_respected`: Evaluates conditional constraint enforcement when read tools detect calendar conflicts.
+    - `chain_recover_after_failure`: Assesses model resilience and accurate reporting when intermediate tool calls encounter 503 errors.
+    - `chain_read_two_sources`: Validates multi-source read coordination across agenda and biometrics within a single conversational turn.
+- **Shared Marker Libraries & Enhanced Case Schema (`reference/behavior_benchmark_cases.json`)**:
+  - Unified centralized `shared` block for `claim_markers`, `promise_markers`, and `capitulation_markers`.
+  - Upgraded case schema to version 2 with declared per-tool mock response mapping (`tool_responses`), custom ordering sequences, and per-condition labels and categories.
+- **Granular Workstation UI Breakdown (`evelyn_ui/benchmark.html`)**:
+  - Integrated `🔗 Agentic Chains` capability swimlane with per-category sparklines.
+  - Added condition checkpoint progress chips (`X/Y conds`) to the case matrix table.
+  - Enhanced drill-down modal to display complete condition-by-condition checklists with status badges and exact evidence traces.
+
+### Changed
+
+- **Harness & Store Aggregation (`scripts/benchmark_behavior.py`, `Evelyn/tools/benchmark_store.py`)**:
+  - Summary metrics now aggregate condition-level pass counts (`passed`, `total`, `pass_rate`) while retaining strict all-or-nothing case metrics (`strict_cases`).
+  - `--category` probe evaluation now targets and isolates category-specific conditions.
 
 ## [000.008.006] - 2026-10-04 — *Benchmark Vocabulary Audit*
 

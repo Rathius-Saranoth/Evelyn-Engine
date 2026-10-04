@@ -1284,6 +1284,7 @@
       { key: 'over_protection', title: '⚖️ Anti-Nanny & Voice', desc: 'Avoids paternalistic lecturing, unsolicited disclaimers, or groveling' },
       { key: 'proactivity', title: '⚡ Autonomous Proactivity', desc: 'Auto-captures tasks, health metrics, and journal entries on implicit cues' },
       { key: 'tool_honesty', title: '🎯 Tool Honesty & Truth', desc: 'Truthfully reports tool outcomes and API errors without fabricating' },
+      { key: 'agentic_chain', title: '🔗 Agentic Chains', desc: 'Read-then-write workflows, error recovery, and multi-source reasoning' },
       { key: 'bfcl_tool_arguments', title: '🧩 Schema Validation', desc: 'Valid JSON parameters and schema compliance for complex tool calls' },
       { key: 'restraint', title: '🛑 Operational Restraint', desc: 'Direct conversational replies with zero unwanted write actions' },
       { key: 'tool_awareness', title: '👁️ Tool Result Awareness', desc: 'Notices and utilizes returned tool execution results in conversational response' },
@@ -1540,6 +1541,14 @@
           ? `<td><span class="badge" style="background: rgba(245, 158, 11, 0.12); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); font-family: var(--font-mono); font-size: 11px;">${escapeHtml(r.model || '-')}</span></td>`
           : '';
 
+        let condBadge = '';
+        if (r.conditions && Array.isArray(r.conditions) && r.conditions.length > 0) {
+          const scored = r.conditions.filter(x => x.passed !== null);
+          const passed = scored.filter(x => x.passed === true);
+          const condColor = passed.length === scored.length ? 'var(--emerald)' : (passed.length > 0 ? 'var(--amber)' : 'var(--rose)');
+          condBadge = `<div style="margin-top: 3px;"><span class="badge" style="font-size: 10px; background: rgba(255,255,255,0.06); color: ${condColor};" title="Condition Checkpoint Score: ${passed.length} of ${scored.length} passed">${passed.length}/${scored.length} conds</span></div>`;
+        }
+
         return `
           <tr class="clickable" onclick="openCaseModal(${idx})" title="Click to view full test prompt, rationale, and model reply">
             ${modelCell}
@@ -1549,6 +1558,7 @@
             <td style="font-size: 12px;">
               <div style="color: var(--text-main); font-weight: 500;" title="Evaluation Rule: ${escapeHtml(ruleType)}">${escapeHtml(ruleLabel)}</div>
               <div style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(ruleType)}</div>
+              ${condBadge}
             </td>
             <td style="font-family: var(--font-mono); font-size: 12px; color: var(--cyan);">${escapeHtml(calledTools)}</td>
             <td>${statusBadge}</td>
@@ -1594,12 +1604,12 @@
       if (c.passed) {
         verdictBox.style.background = 'rgba(16, 185, 129, 0.12)';
         verdictBox.style.border = '1px solid rgba(16, 185, 129, 0.35)';
-        verdictTitle.innerHTML = `<span style="color: var(--emerald);">✔ PASSED</span>`;
+        verdictTitle.innerHTML = `<span style="color: var(--emerald);">✔ PASSED (All Conditions Satisfied)</span>`;
         verdictDetail.textContent = c.verdict_detail || 'Evaluation criteria satisfied.';
       } else {
         verdictBox.style.background = 'rgba(244, 63, 94, 0.12)';
         verdictBox.style.border = '1px solid rgba(244, 63, 94, 0.35)';
-        verdictTitle.innerHTML = `<span style="color: var(--rose);">✖ FAILED</span>`;
+        verdictTitle.innerHTML = `<span style="color: var(--rose);">✖ FAILED (Condition Violations Detected)</span>`;
         verdictDetail.textContent = c.verdict_detail || 'Evaluation criteria failed.';
       }
 
@@ -1612,11 +1622,42 @@
 
       // Expected Rule & Behavior
       const expectedEl = document.getElementById('modal-expected');
-      expectedEl.innerHTML = `
-        <div style="font-weight: 600; color: #fff;">${escapeHtml(c.human_expect || c.expected || 'None specified')}</div>
-        <div style="font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); margin-top: 2px;">Rule: ${escapeHtml(c.rule || c.expected || 'rule')}</div>
-        <div style="font-size: 12px; color: var(--cyan); margin-top: 4px;">${escapeHtml(c.criteria || '')}</div>
-      `;
+      if (c.conditions && Array.isArray(c.conditions) && c.conditions.length > 0) {
+        let condHtml = `
+          <div style="font-weight: 600; color: #fff; margin-bottom: 6px;">Condition Checkpoints (${c.conditions.length})</div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+        `;
+        c.conditions.forEach(cond => {
+          let badge = '';
+          if (cond.passed === true) {
+            badge = `<span class="badge badge-emerald" style="font-size: 10px;">✔ PASS</span>`;
+          } else if (cond.passed === false) {
+            badge = `<span class="badge badge-rose" style="font-size: 10px;">✖ FAIL</span>`;
+          } else {
+            badge = `<span class="badge" style="font-size: 10px; background: rgba(255,255,255,0.08); color: var(--text-muted);">— N/A</span>`;
+          }
+          condHtml += `
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 6px 10px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <span style="font-weight: 500; font-size: 12px; color: var(--text-main);">${escapeHtml(cond.label || cond.id)}</span>
+                ${badge}
+              </div>
+              <div style="font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); margin-top: 2px;">
+                kind: <span style="color: var(--cyan);">${escapeHtml(cond.kind)}</span> | category: <span style="color: var(--purple);">${escapeHtml(cond.category || '-')}</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">${escapeHtml(cond.evidence || '')}</div>
+            </div>
+          `;
+        });
+        condHtml += `</div>`;
+        expectedEl.innerHTML = condHtml;
+      } else {
+        expectedEl.innerHTML = `
+          <div style="font-weight: 600; color: #fff;">${escapeHtml(c.human_expect || c.expected || 'None specified')}</div>
+          <div style="font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); margin-top: 2px;">Rule: ${escapeHtml(c.rule || c.expected || 'rule')}</div>
+          <div style="font-size: 12px; color: var(--cyan); margin-top: 4px;">${escapeHtml(c.criteria || '')}</div>
+        `;
+      }
 
       // Markers List
       const markersList = document.getElementById('modal-markers-list');

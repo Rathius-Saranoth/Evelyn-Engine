@@ -1,6 +1,6 @@
 # benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-03 10:14:08
+# date modified: 2026-10-04 09:56:37
 # tags: #benchmark, #evaluation, #history, #diff, #storage
 
 """
@@ -370,10 +370,48 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
     called = entry.get("called", []) or []
     writes = entry.get("writes", []) or []
     arg_errors = entry.get("arg_errors", []) or []
+    conditions = entry.get("conditions", []) or []
 
-    human_expect = HUMAN_EXPECT_LABELS.get(cid, expect.replace("_", " ").title())
     notes = case_def.get("notes", "")
+    msgs = case_def.get("messages", [])
+    prompt = msgs[-1].get("content", "") if msgs else ""
 
+    # If modern condition-level result exists:
+    if conditions:
+        primary_cond = next((c for c in conditions if c.get("primary")), None)
+        if not primary_cond and conditions:
+            primary_cond = conditions[0]
+
+        category = entry.get("category") or (primary_cond.get("category") if primary_cond else case_def.get("category", ""))
+        human_expect = primary_cond.get("label", "") if primary_cond else HUMAN_EXPECT_LABELS.get(cid, cid.replace("_", " ").title())
+        rule = primary_cond.get("kind", "") if primary_cond else expect
+
+        failed_conds = [c for c in conditions if c.get("passed") is False]
+        passed_conds = [c for c in conditions if c.get("passed") is True]
+
+        if failed_conds:
+            verdict_detail = "; ".join(f"{c.get('label', c.get('id'))}: {c.get('evidence', '')}" for c in failed_conds)
+        elif passed_conds:
+            verdict_detail = f"All {len(passed_conds)} condition(s) passed. {primary_cond.get('evidence', '') if primary_cond else ''}"
+        else:
+            verdict_detail = "No conditions scored."
+
+        criteria = " | ".join(c.get("label", c.get("id", "")) for c in conditions)
+
+        return {
+            **entry,
+            "category": category,
+            "prompt": prompt,
+            "human_expect": human_expect,
+            "rule": rule,
+            "criteria": criteria,
+            "verdict_detail": verdict_detail,
+            "test_notes": notes,
+            "conditions": conditions,
+        }
+
+    # Legacy fallback:
+    human_expect = HUMAN_EXPECT_LABELS.get(cid, expect.replace("_", " ").title())
     markers = case_def.get("markers", [])
     claim_markers = case_def.get("claim_markers", [])
     denial_markers = case_def.get("denial_markers", [])
@@ -454,9 +492,6 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
             err_msg = "; ".join(arg_errors) if arg_errors else "Missing required tool arguments"
             verdict_detail = f"Argument validation failed: {err_msg}"
 
-    msgs = case_def.get("messages", [])
-    prompt = msgs[-1].get("content", "") if msgs else ""
-
     return {
         **entry,
         "prompt": prompt,
@@ -468,4 +503,5 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
         "markers": markers or expect_tools or claim_markers,
         "matched_markers": matched_markers or matched_claims or matched_denials,
     }
+
 
