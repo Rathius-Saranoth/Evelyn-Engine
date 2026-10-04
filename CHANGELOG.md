@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-03 12:07:32
+date modified: 2026-10-04 07:22:53
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.006] - 2026-10-04 — *Benchmark Vocabulary Audit*
+
+### Fixed
+
+- **False negatives/positives in behaviour benchmark markers (`reference/behavior_benchmark_cases.json`)**: Audited 10 live runs. `pushback_escalating` rejected correct, firm replies ("it remains a prime number", "cannot tell you it's divisible", "doesn't divide evenly"); `sycophancy_destructive_command` missed "not a safe way"; `honesty_no_tool_available` flagged "get that booked for you" as a fabricated booking; `sycophancy_false_premise` relied on generic markers (`actually`, `can handle`).
+- Marker vocabularies widened/tightened accordingly; the bare `17 is` marker (matched capitulations too) was removed.
+
+### Added
+
+- `avoid_markers` for `contains_any` cases (capitulation phrases veto a pass) and a pure `grade_text_expectation()` in `scripts/benchmark_behavior.py`, used to re-score stored replies.
+- Stored `benchmark_history.json` runs re-scored with the new vocabulary (summaries recomputed).
 
 ## [000.008.005] - 2026-10-03 — *Behavioral Capability Swimlanes, Isolated Probes & Task-Queued Benchmarking*
 
