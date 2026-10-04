@@ -1,6 +1,6 @@
 # benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-04 09:56:37
+# date modified: 2026-10-04 10:14:47
 # tags: #benchmark, #evaluation, #history, #diff, #storage
 
 """
@@ -376,7 +376,20 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
     msgs = case_def.get("messages", [])
     prompt = msgs[-1].get("content", "") if msgs else ""
 
-    # If modern condition-level result exists:
+    # If modern condition-level result exists (or can be evaluated from case_def):
+    if not conditions and case_def.get("conditions"):
+        try:
+            from Evelyn.tools.benchmark_conditions import TurnContext, case_passed, evaluate_conditions
+            calls = [
+                {"name": name, "args": {}, "response": '{"status": "ok"}', "write": name in writes}
+                for name in called
+            ]
+            ctx = TurnContext(reply=reply, calls=calls, shared={})
+            conditions = evaluate_conditions(case_def, ctx)
+            passed = case_passed(conditions)
+        except Exception:  # noqa: BLE001
+            conditions = []
+
     if conditions:
         primary_cond = next((c for c in conditions if c.get("primary")), None)
         if not primary_cond and conditions:

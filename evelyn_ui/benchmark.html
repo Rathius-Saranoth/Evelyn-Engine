@@ -769,13 +769,13 @@
 
     <!-- KPI Metric Cards (Active Model Focused) -->
     <div class="kpi-grid">
-      <div class="kpi-card" style="--accent-gradient: var(--emerald);" title="Model overall pass rate across the behavioral evaluation suite">
+      <div class="kpi-card" style="--accent-gradient: var(--emerald);" title="Model overall checkpoint pass rate across all evaluated behavioral conditions">
         <div class="kpi-title">
-          <span>Model Pass Rate</span>
+          <span>Condition Pass Rate</span>
           <span class="badge badge-emerald" id="kpi-pass-delta">+0.0% vs prev</span>
         </div>
         <div class="kpi-value" id="kpi-model-pass-rate">--%</div>
-        <div class="kpi-desc" id="kpi-model-pass-desc">Active Target Model</div>
+        <div class="kpi-desc" id="kpi-model-pass-desc">Condition Checkpoints</div>
       </div>
 
       <div class="kpi-card" style="--accent-gradient: var(--primary);" title="Sustained token generation throughput under active tool prompts">
@@ -1375,7 +1375,7 @@
       const s = matrixData.summaries[targetModel] || matrixData.summaries[activeModel] || {};
 
       // 1. Pass Rate & Delta
-      const total = s.total || 25;
+      const total = s.total || 0;
       const passed = s.passed || 0;
       const rate = s.pass_rate || (total > 0 ? passed / total : 0);
       const passRateEl = document.getElementById('kpi-model-pass-rate');
@@ -1383,7 +1383,11 @@
 
       const passDescEl = document.getElementById('kpi-model-pass-desc');
       if (passDescEl) {
-        passDescEl.textContent = `${targetModel} ${targetModel === activeModel ? '· Active Live Model' : ''}`;
+        if (s.strict_cases) {
+          passDescEl.textContent = `${targetModel} · ${s.strict_cases.passed}/${s.strict_cases.total} Strict Cases (${Math.round(s.strict_cases.pass_rate * 100)}%)`;
+        } else {
+          passDescEl.textContent = `${targetModel} ${targetModel === activeModel ? '· Active Live Model' : ''}`;
+        }
       }
 
       const deltaEl = document.getElementById('kpi-pass-delta');
@@ -1558,10 +1562,12 @@
             <td style="font-size: 12px;">
               <div style="color: var(--text-main); font-weight: 500;" title="Evaluation Rule: ${escapeHtml(ruleType)}">${escapeHtml(ruleLabel)}</div>
               <div style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(ruleType)}</div>
-              ${condBadge}
             </td>
             <td style="font-family: var(--font-mono); font-size: 12px; color: var(--cyan);">${escapeHtml(calledTools)}</td>
-            <td>${statusBadge}</td>
+            <td>
+              ${statusBadge}
+              ${condBadge}
+            </td>
           </tr>
         `;
       }).join('');
@@ -1805,35 +1811,54 @@
         let curPassed = 0;
         let curRate = 0;
 
-        if (latestRun && latestRun.results && latestRun.results.length > 0) {
-          const catResults = latestRun.results.filter(r => r.category === cat.key);
-          if (catResults.length > 0) {
-            curTotal = catResults.length;
-            curPassed = catResults.filter(r => r.passed).length;
-            curRate = curPassed / curTotal;
-          }
-        } else if (latestRun && latestRun.summary && latestRun.summary.by_cat && latestRun.summary.by_cat[cat.key]) {
+        const catCases = (latestRun && latestRun.results && latestRun.results.length > 0)
+          ? latestRun.results.filter(r => r.category === cat.key)
+          : allDetailsList.filter(d => (d.model === targetModel) && d.category === cat.key);
+        const casesInCat = catCases.length;
+        const casesPassedInCat = catCases.filter(r => r.passed).length;
+
+        if (latestRun && latestRun.summary && latestRun.summary.by_cat && latestRun.summary.by_cat[cat.key]) {
           const catStat = latestRun.summary.by_cat[cat.key];
           curTotal = catStat.total || 0;
           curPassed = catStat.passed || 0;
           curRate = curTotal > 0 ? (curPassed / curTotal) : 0;
-        } else {
-          const curCases = allDetailsList.filter(d => (d.model === targetModel) && d.category === cat.key);
-          curTotal = curCases.length;
-          curPassed = curCases.filter(d => d.passed).length;
-          curRate = curTotal > 0 ? (curPassed / curTotal) : 0;
+        } else if (catCases.length > 0) {
+          const catConds = catCases.flatMap(r => (r.conditions || []).filter(c => c.category === cat.key && c.passed !== null));
+          if (catConds.length > 0) {
+            curTotal = catConds.length;
+            curPassed = catConds.filter(c => c.passed === true).length;
+            curRate = curTotal > 0 ? (curPassed / curTotal) : 0;
+          } else {
+            curTotal = casesInCat;
+            curPassed = casesPassedInCat;
+            curRate = curTotal > 0 ? (curPassed / curTotal) : 0;
+          }
         }
 
-        // Historical points for sparkline
+        // Historical points for sparkline (tracking condition checkpoint pass rate)
         const points = [];
         modelRuns.forEach(h => {
-          const catRes = (h.results || []).filter(r => r.category === cat.key);
-          if (catRes.length > 0) {
-            const p = catRes.filter(r => r.passed).length;
+          let p = 0;
+          let tot = 0;
+          if (h.summary && h.summary.by_cat && h.summary.by_cat[cat.key]) {
+            p = h.summary.by_cat[cat.key].passed || 0;
+            tot = h.summary.by_cat[cat.key].total || 0;
+          } else {
+            const catRes = (h.results || []).filter(r => r.category === cat.key);
+            const catConds = catRes.flatMap(r => (r.conditions || []).filter(c => c.category === cat.key && c.passed !== null));
+            if (catConds.length > 0) {
+              p = catConds.filter(c => c.passed === true).length;
+              tot = catConds.length;
+            } else {
+              p = catRes.filter(r => r.passed).length;
+              tot = catRes.length;
+            }
+          }
+          if (tot > 0) {
             points.push({
-              rate: p / catRes.length,
+              rate: p / tot,
               passed: p,
-              total: catRes.length,
+              total: tot,
               ts: h.timestamp || 0,
               dt: h.datetime || '',
               run_id: h.run_id || '',
@@ -1917,9 +1942,9 @@
               </div>
             </td>
             <td>
-              <div class="swimlane-score-cell">
-                <span>${Math.round(curRate * 100)}%</span>
-                <span class="swimlane-score-fraction">(${curPassed}/${curTotal})</span>
+              <div class="swimlane-score-cell" title="${curPassed} of ${curTotal} condition checkpoints passed (${curTotal > 0 ? Math.round(curRate * 100) : 0}%) across ${casesInCat} test questions">
+                <span>${curTotal > 0 ? Math.round(curRate * 100) + '%' : '--%'}</span>
+                <span class="swimlane-score-fraction">(${curPassed}/${curTotal} conds · ${casesPassedInCat}/${casesInCat} cases)</span>
               </div>
             </td>
             <td>${deltaHtml}</td>
