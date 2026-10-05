@@ -4809,7 +4809,7 @@
     }
 
     function parseProposalReason(reasonStr) {
-      if (!reasonStr) return { summary: '', added: [], modified: [], removed: [], rejections_summary: null, rejected: [], candidate_ledger: '' };
+      if (!reasonStr) return { summary: '', added: [], modified: [], removed: [], pruned: [], rejections_summary: null, rejected: [], candidate_ledger: '' };
       try {
         const parsed = JSON.parse(reasonStr);
         if (typeof parsed === 'object' && parsed !== null) {
@@ -4818,25 +4818,29 @@
             added: Array.isArray(parsed.added) ? parsed.added : [],
             modified: Array.isArray(parsed.modified) ? parsed.modified : [],
             removed: Array.isArray(parsed.removed) ? parsed.removed : [],
+            pruned: Array.isArray(parsed.pruned) ? parsed.pruned : [],
             rejections_summary: parsed.rejections_summary || null,
             rejected: Array.isArray(parsed.rejected) ? parsed.rejected : [],
             candidate_ledger: parsed.candidate_ledger || ''
           };
         }
       } catch (_) {}
-      return { summary: String(reasonStr), added: [], modified: [], removed: [], rejections_summary: null, rejected: [], candidate_ledger: '' };
+      return { summary: String(reasonStr), added: [], modified: [], removed: [], pruned: [], rejections_summary: null, rejected: [], candidate_ledger: '' };
     }
 
     function renderReasonBadges(parsed) {
       const badges = [];
       if (parsed.added && parsed.added.length > 0) {
-        badges.push(`<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 11px;">+${parsed.added.length} Added</span>`);
+        badges.push(`<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 11px;" title="Facts added to the proposed document">+${parsed.added.length} Added</span>`);
       }
       if (parsed.modified && parsed.modified.length > 0) {
-        badges.push(`<span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 11px;">~${parsed.modified.length} Modified</span>`);
+        badges.push(`<span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 11px;" title="Existing facts modified or promoted in the proposed document">~${parsed.modified.length} Modified</span>`);
       }
       if (parsed.removed && parsed.removed.length > 0) {
-        badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;">-${parsed.removed.length} Removed</span>`);
+        badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;" title="Existing facts removed from the proposed document">-${parsed.removed.length} Removed</span>`);
+      }
+      if (parsed.pruned && parsed.pruned.length > 0) {
+        badges.push(`<span class="badge" style="background: rgba(156, 163, 175, 0.2); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.4); font-size: 11px;" title="Facts pruned deterministically during evolution to ensure the document stays within its word budget limit">✂️ ${parsed.pruned.length} Pruned (Budget)</span>`);
       }
 
       if (parsed.rejected && parsed.rejected.length > 0) {
@@ -4845,16 +4849,16 @@
         const domainCount = parsed.rejections_summary ? (parsed.rejections_summary.domain_violation || 0) : 0;
 
         if (conflictCount > 0) {
-          badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;">⚠️ ${conflictCount} Conflict${conflictCount > 1 ? 's' : ''} Blocked</span>`);
+          badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;" title="Candidate facts blocked due to conflicting with established core facts">⚠️ ${conflictCount} Conflict${conflictCount > 1 ? 's' : ''} Blocked</span>`);
         }
         if (dupeCount > 0) {
-          badges.push(`<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px;">🚫 ${dupeCount} Duplicate${dupeCount > 1 ? 's' : ''} Filtered</span>`);
+          badges.push(`<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px;" title="Candidate facts filtered because they duplicate established precedent">🚫 ${dupeCount} Duplicate${dupeCount > 1 ? 's' : ''} Filtered</span>`);
         }
         if (domainCount > 0) {
-          badges.push(`<span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 11px;">🛑 ${domainCount} Domain Violation${domainCount > 1 ? 's' : ''} Blocked</span>`);
+          badges.push(`<span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 11px;" title="Candidate facts blocked due to crossing target profile boundaries">🛑 ${domainCount} Domain Violation${domainCount > 1 ? 's' : ''} Blocked</span>`);
         }
         if (conflictCount === 0 && dupeCount === 0 && domainCount === 0) {
-          badges.push(`<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px;">⚠️ ${parsed.rejected.length} Rejected</span>`);
+          badges.push(`<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px;" title="Candidate facts rejected by validation criteria">⚠️ ${parsed.rejected.length} Rejected</span>`);
         }
       }
 
@@ -4863,7 +4867,8 @@
       const allChanges = [
         ...(parsed.added || []).map(x => `<li style="color: #4ade80; margin-bottom: 2px;"><strong>+ Added:</strong> ${escapeHtml(x)}</li>`),
         ...(parsed.modified || []).map(x => `<li style="color: #38bdf8; margin-bottom: 2px;"><strong>~ Modified:</strong> ${escapeHtml(x)}</li>`),
-        ...(parsed.removed || []).map(x => `<li style="color: #f87171; margin-bottom: 2px;"><strong>- Removed:</strong> ${escapeHtml(x)}</li>`)
+        ...(parsed.removed || []).map(x => `<li style="color: #f87171; margin-bottom: 2px;"><strong>- Removed:</strong> ${escapeHtml(x)}</li>`),
+        ...(parsed.pruned || []).map(x => `<li style="color: #9ca3af; margin-bottom: 2px;"><strong>✂️ Pruned (Budget):</strong> ${escapeHtml(x)}</li>`)
       ].join('');
 
       const rejectedList = (parsed.rejected || []).map(r => {
@@ -4899,7 +4904,7 @@
           ${allChanges ? `
             <details style="margin-top: 8px; font-size: 12px; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 6px 10px;">
               <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;">
-                Itemized Ledger Changes (${(parsed.added.length + parsed.modified.length + parsed.removed.length)})
+                Itemized Ledger Changes (${(parsed.added.length + parsed.modified.length + parsed.removed.length + (parsed.pruned ? parsed.pruned.length : 0))})
               </summary>
               <ul style="margin: 6px 0 0 16px; padding: 0; line-height: 1.5;">${allChanges}</ul>
             </details>

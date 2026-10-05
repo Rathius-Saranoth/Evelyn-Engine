@@ -1,6 +1,6 @@
 # profile_ledger.py
 # date created: 2026-09-12 09:40:00
-# date modified: 2026-09-29 19:15:09
+# date modified: 2026-10-04 21:21:15
 # tags: #profile, #ledger, #facts, #persona, #evolution
 
 """
@@ -19,6 +19,7 @@ Exports:
     compile_clean_markdown()    — Serializes sections to clean *.md format (tier tags stripped).
     apply_ledger_delta()        — Applies structured added/modified/removed operations.
     prune_ledger_to_budget()    — Deterministically prunes Tier 3/Tier 2 items to fit word budget.
+    diff_ledgers()              — Computes true added, modified, removed, and budget-pruned items.
     get_ledger_filename()       — Maps 'User_Profile.md' -> 'User_Profile_facts.md'.
     get_profile_filename()      — Maps 'User_Profile_facts.md' -> 'User_Profile.md'.
 """
@@ -461,3 +462,92 @@ def reconcile_ledger_with_presentation(ledger_content: str, presentation_markdow
         reconciled_sections[sec_header] = reconciled_items
 
     return render_ledger(ledger_fm, reconciled_sections)
+
+
+def diff_ledgers(
+    baseline: dict[str, list[LedgerItem]],
+    current: dict[str, list[LedgerItem]],
+    before_prune: dict[str, list[LedgerItem]] | None = None,
+) -> dict[str, list[str]]:
+    """Compute the true ground-truth delta between a baseline and candidate ledger.
+
+    Differentiates between actual additions, modifications, removals, and items
+    pruned to fit word budgets.
+
+    Args:
+        baseline: Original sections mapping header -> list[LedgerItem].
+        current: Final candidate sections after delta application and budget pruning.
+        before_prune: Optional sections state after delta application but before budget pruning.
+
+    Returns:
+        dict[str, list[str]]:
+            - 'added': Items present in current that were not in baseline.
+            - 'modified': Items present in both whose fact or tier changed.
+            - 'removed': Items present in baseline that were intentionally removed.
+            - 'pruned': Items removed by word budget pruning.
+    """
+    added: list[str] = []
+    modified: list[str] = []
+    removed: list[str] = []
+    pruned: list[str] = []
+
+    def _item_key(item: LedgerItem) -> str:
+        return item.label.strip().lower() if item.label else item.fact.strip().lower()
+
+    # Build section-keyed lookups: header -> {key: LedgerItem}
+    base_map: dict[str, dict[str, LedgerItem]] = {
+        sec: {_item_key(it): it for it in items} for sec, items in baseline.items()
+    }
+    curr_map: dict[str, dict[str, LedgerItem]] = {
+        sec: {_item_key(it): it for it in items} for sec, items in current.items()
+    }
+
+    # 1. Detect additions and modifications in current relative to baseline
+    for sec, items in current.items():
+        base_items = base_map.get(sec, {})
+        for item in items:
+            k = _item_key(item)
+            label_disp = item.label or item.fact[:40]
+            if k not in base_items:
+                # Check if it was moved from another section
+                moved = any(k in items_map for s, items_map in base_map.items() if s != sec)
+                if not moved:
+                    added.append(f"[{sec}] {label_disp}")
+                else:
+                    modified.append(f"[{sec}] {label_disp}")
+            else:
+                base_item = base_items[k]
+                if base_item.fact.strip() != item.fact.strip() or base_item.tier != item.tier:
+                    modified.append(f"[{sec}] {label_disp}")
+
+    # 2. Detect budget pruning (if before_prune provided)
+    pruned_keys: set[tuple[str, str]] = set()
+    if before_prune is not None:
+        for sec, items in before_prune.items():
+            curr_items = curr_map.get(sec, {})
+            for item in items:
+                k = _item_key(item)
+                if k not in curr_items:
+                    label_disp = item.label or item.fact[:40]
+                    pruned.append(f"[{sec}] {label_disp}")
+                    pruned_keys.add((sec, k))
+
+    # 3. Detect removals from baseline
+    for sec, items in baseline.items():
+        curr_items = curr_map.get(sec, {})
+        for item in items:
+            k = _item_key(item)
+            label_disp = item.label or item.fact[:40]
+            if k not in curr_items:
+                # Check if it was moved to another section in current
+                moved = any(k in items_map for s, items_map in curr_map.items() if s != sec)
+                if not moved and (sec, k) not in pruned_keys:
+                    removed.append(f"[{sec}] {label_disp}")
+
+    return {
+        "added": added,
+        "modified": modified,
+        "removed": removed,
+        "pruned": pruned,
+    }
+

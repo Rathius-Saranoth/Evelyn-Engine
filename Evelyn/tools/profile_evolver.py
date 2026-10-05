@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-10-03 07:46:08
+# date modified: 2026-10-04 21:21:15
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -2346,9 +2346,23 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     # ---------------------------------------------------------------------------
     # Evaluation of Changes & Budget Pruning
     # ---------------------------------------------------------------------------
-    has_changelog_changes = any(cumulative_changelog[k] for k in ("added", "modified", "removed"))
-    sections_changed = (current_sections != baseline_sections)
-    has_changes = has_changelog_changes or sections_changed
+    before_prune_sections = {
+        h: [profile_ledger.LedgerItem(it.section, it.tier, it.label, it.fact) for it in items]
+        for h, items in current_sections.items()
+    }
+
+    # Deterministic Word Budget Pruning on Authoritative Ledger
+    current_sections, pruned_count = profile_ledger.prune_ledger_to_budget(current_sections, target_limit)
+    if pruned_count > 0:
+        print(
+            f"[PROFILE EVOLVER] {filename}: Deterministically pruned {pruned_count} lower-tier items to fit budget ({target_limit}w limit).",
+            flush=True,
+        )
+
+    # Reconcile true ground-truth changelog against baseline ledger
+    true_changelog = profile_ledger.diff_ledgers(baseline_sections, current_sections, before_prune_sections)
+
+    has_changes = any(true_changelog[k] for k in ("added", "modified", "removed")) or (current_sections != baseline_sections)
 
     if not has_changes:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
@@ -2375,14 +2389,6 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"{len(new_entries)} entries evaluated; no core changes{rejections_note}",
         )
         return False
-
-    # Deterministic Word Budget Pruning on Authoritative Ledger
-    current_sections, pruned_count = profile_ledger.prune_ledger_to_budget(current_sections, target_limit)
-    if pruned_count > 0:
-        print(
-            f"[PROFILE EVOLVER] {filename}: Deterministically pruned {pruned_count} lower-tier items to fit budget ({target_limit}w limit).",
-            flush=True,
-        )
 
     # ---------------------------------------------------------------------------
     # Presentation Layer Synthesis
@@ -2502,12 +2508,14 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
     # Package Proposal with Structured Reason & Candidate Ledger
     summary_parts = []
-    if cumulative_changelog["added"]:
-        summary_parts.append(f"Added {len(cumulative_changelog['added'])} facts")
-    if cumulative_changelog["modified"]:
-        summary_parts.append(f"Updated {len(cumulative_changelog['modified'])} facts")
-    if cumulative_changelog["removed"]:
-        summary_parts.append(f"Removed {len(cumulative_changelog['removed'])} facts")
+    if true_changelog["added"]:
+        summary_parts.append(f"Added {len(true_changelog['added'])} facts")
+    if true_changelog["modified"]:
+        summary_parts.append(f"Updated {len(true_changelog['modified'])} facts")
+    if true_changelog["removed"]:
+        summary_parts.append(f"Removed {len(true_changelog['removed'])} facts")
+    if true_changelog["pruned"]:
+        summary_parts.append(f"{len(true_changelog['pruned'])} pruned (budget)")
     if cumulative_changelog["rejected"]:
         summary_parts.append(f"{len(cumulative_changelog['rejected'])} rejected")
     summary_text = (
@@ -2535,9 +2543,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
     reason_payload = {
         "summary": summary_text,
-        "added": cumulative_changelog["added"],
-        "modified": cumulative_changelog["modified"],
-        "removed": cumulative_changelog["removed"],
+        "added": true_changelog["added"],
+        "modified": true_changelog["modified"],
+        "removed": true_changelog["removed"],
+        "pruned": true_changelog["pruned"],
         "rejections_summary": rejections_summary,
         "rejected": capped_rejected,
         "candidate_ledger": candidate_ledger_text,

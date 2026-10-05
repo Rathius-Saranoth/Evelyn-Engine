@@ -1,6 +1,6 @@
 # test_profile_ledger.py
 # date created: 2026-09-12 09:40:00
-# date modified: 2026-09-29 19:15:09
+# date modified: 2026-10-04 21:21:15
 # tags: #testing, #ledger, #profile, #persona
 
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 from Evelyn.tools.profile_ledger import (
     apply_ledger_delta,
     compile_clean_markdown,
+    diff_ledgers,
     get_ledger_filename,
     get_profile_filename,
     parse_ledger,
@@ -236,3 +237,84 @@ title: User_Profile.md
     # 5. Technical Preferences intact
     assert "## Technical Preferences" in reconciled
     assert "* [Tier 1] **Python**: Loves modern Python with type hints." in reconciled
+
+
+def test_diff_ledgers_basic():
+    _, baseline = parse_ledger(SAMPLE_LEDGER_TEXT)
+
+    delta = {
+        "added": [
+            {
+                "section": "## Identity & Presence",
+                "tier": 2,
+                "label": "Analytical Rigor",
+                "fact": "Meticulous verification of documentation.",
+            }
+        ],
+        "modified": [
+            {
+                "section": "## Identity & Presence",
+                "label": "Steady Co-Pilot",
+                "new_fact": "Refined co-pilot observation.",
+            }
+        ],
+        "removed": [
+            {
+                "section": "## Identity & Presence",
+                "label": "Minor Detail",
+            }
+        ],
+    }
+
+    updated, _ = apply_ledger_delta(baseline, delta)
+    changelog = diff_ledgers(baseline, updated)
+
+    assert any("Analytical Rigor" in x for x in changelog["added"])
+    assert any("Steady Co-Pilot" in x for x in changelog["modified"])
+    assert any("Minor Detail" in x for x in changelog["removed"])
+    assert changelog["pruned"] == []
+
+
+def test_diff_ledgers_with_budget_pruning():
+    _, baseline = parse_ledger(SAMPLE_LEDGER_TEXT)
+
+    # Add several Tier 3 items to blow the budget
+    delta = {
+        "added": [
+            {
+                "section": "## Identity & Presence",
+                "tier": 1,
+                "label": "Essential Fact",
+                "fact": "Core high priority item.",
+            },
+            {
+                "section": "## Persona & Appearance",
+                "tier": 3,
+                "label": "Disposable Fact A",
+                "fact": "Very long verbose filler text designed to exceed word limits quickly and trigger pruning.",
+            },
+            {
+                "section": "## Persona & Appearance",
+                "tier": 3,
+                "label": "Disposable Fact B",
+                "fact": "More verbose filler text that should be deterministically dropped by word budget pruning.",
+            },
+        ]
+    }
+
+    before_prune, _ = apply_ledger_delta(baseline, delta)
+    # Take a deep copy of before_prune to pass to diff_ledgers
+    before_prune_snapshot = {h: list(items) for h, items in before_prune.items()}
+
+    # Prune to a small word limit (e.g. 35 words) so Tier 3 items are trimmed
+    pruned_sections, final_word_count = prune_ledger_to_budget(before_prune, target_words=35)
+    assert final_word_count <= 35, "Word count should adhere to budget"
+
+    changelog = diff_ledgers(baseline, pruned_sections, before_prune=before_prune_snapshot)
+
+    # Essential Fact survived pruning and is in added
+    assert any("Essential Fact" in x for x in changelog["added"])
+    # Disposable facts should NOT be in added, they should be in pruned!
+    assert not any("Disposable Fact" in x for x in changelog["added"])
+    assert any("Disposable Fact" in x for x in changelog["pruned"])
+

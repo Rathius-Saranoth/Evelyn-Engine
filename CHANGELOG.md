@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 21:07:25
+date modified: 2026-10-04 21:21:15
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.012] - 2026-10-04 — *Profile Evolver Budget Pruning Reconciliation & Diff Parity*
+
+### Fixed
+
+- **Profile Evolver Proposal Diff & Reason Parity (`Evelyn/tools/profile_ledger.py`, `Evelyn/tools/profile_evolver.py`, `evelyn_ui/dev.html`)**:
+  - Resolved discrepancy where evolution proposals reported high additions counts (e.g. "+7 Added") in the proposal summary and reason payload while the visual diff only reflected a single added line.
+  - Implemented `diff_ledgers(baseline, current, before_prune)` in `profile_ledger.py` to deterministically calculate true post-evolution deltas against the baseline document, isolating actual surviving additions, modifications, and removals from facts pruned by word budget enforcement.
+  - Updated `profile_evolver.py` to snapshot pre-prune ledger sections, reconcile cumulative evolution deltas with `diff_ledgers()`, and populate a dedicated `pruned` changelog bucket in the proposal reason payload.
+  - Guarded against staging empty proposals when all candidate additions across thematic passes are trimmed by budget constraints.
+  - Enhanced `evelyn_ui/dev.html` to parse `pruned` entries, render a dedicated `✂️ N Pruned (Budget)` badge, and itemize pruned facts in the proposal review card with descriptive tooltips.
+  - Added unit test coverage in `Evelyn/tests/test_profile_ledger.py` verifying true diff calculation and budget pruning segregation.
 
 ## [000.008.011] - 2026-10-04 — *Profile Evolver Telemetry Deduplication & Legacy Directives State Migration*
 
