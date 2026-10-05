@@ -1024,7 +1024,7 @@ def score_bullet_tier(filename: str, section: str, bullet_text: str) -> int:
     unlabelled bullets (the compiled narrative documents).
 
     Args:
-        filename: Document basename (e.g. 'User_Profile.md' or 'System_Directives.md').
+        filename: Document basename (e.g. 'User_Profile.md' or 'Assistant_Directives.md').
         section: Section header (e.g. '## Identity & Core Values').
         bullet_text: Full markdown bullet text.
 
@@ -1347,6 +1347,13 @@ STATUS_LABELS = {
 }
 
 
+LEGACY_DOCUMENT_MAP: dict[str, str] = {
+    "System_Directives.md": getattr(cfg, "PERSONA_FILE_ASSISTANT_DIRECTIVES", "Assistant_Directives.md"),
+    "Evelyn_Narrative_Persona.md": cfg.PERSONA_FILE_ASSISTANT,
+    "User_Narrative_Profile.md": cfg.PERSONA_FILE_USER,
+}
+
+
 def _load_evolution_state() -> dict:
     """Load evolution state from disk.
 
@@ -1373,18 +1380,41 @@ def _load_evolution_state() -> dict:
             with open(_STATE_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict) and "last_run_per_doc" in data:
-                # Merge — guarantee all keys exist for sub-dicts
-                for k in doc_keys:
-                    if k not in data["last_run_per_doc"]:
-                        data["last_run_per_doc"][k] = 0.0
-                if "draft_cursor_per_doc" not in data:
-                    data["draft_cursor_per_doc"] = dict.fromkeys(doc_keys, 0.0)
-                else:
-                    for k in doc_keys:
-                        if k not in data["draft_cursor_per_doc"]:
-                            data["draft_cursor_per_doc"][k] = 0.0
-                if "last_status_per_doc" not in data:
+                # 1. Migrate legacy document keys across all state sub-dicts
+                for leg_k, canon_k in LEGACY_DOCUMENT_MAP.items():
+                    for sec in ("last_run_per_doc", "draft_cursor_per_doc"):
+                        if sec in data and isinstance(data[sec], dict) and leg_k in data[sec]:
+                            val = data[sec].pop(leg_k)
+                            data[sec][canon_k] = max(data[sec].get(canon_k, 0.0), val)
+                    if (
+                        "last_status_per_doc" in data
+                        and isinstance(data["last_status_per_doc"], dict)
+                        and leg_k in data["last_status_per_doc"]
+                    ):
+                        leg_st = data["last_status_per_doc"].pop(leg_k)
+                        if (
+                            canon_k not in data["last_status_per_doc"]
+                            or (
+                                isinstance(leg_st, dict)
+                                and isinstance(data["last_status_per_doc"].get(canon_k), dict)
+                                and leg_st.get("timestamp", 0.0) > data["last_status_per_doc"][canon_k].get("timestamp", 0.0)
+                            )
+                        ):
+                            data["last_status_per_doc"][canon_k] = leg_st
+
+                # 2. Guarantee canonical keys exist and prune untracked/obsolete keys
+                for sec in ("last_run_per_doc", "draft_cursor_per_doc"):
+                    if sec not in data or not isinstance(data[sec], dict):
+                        data[sec] = dict.fromkeys(doc_keys, 0.0)
+                    else:
+                        data[sec] = {k: data[sec].get(k, 0.0) for k in doc_keys}
+
+                if "last_status_per_doc" not in data or not isinstance(data["last_status_per_doc"], dict):
                     data["last_status_per_doc"] = {}
+                else:
+                    data["last_status_per_doc"] = {
+                        k: v for k, v in data["last_status_per_doc"].items() if k in doc_keys
+                    }
                 return data
     except (OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[PROFILE EVOLVER] Warning: could not load state file: {e}", flush=True)
@@ -1398,6 +1428,7 @@ def _save_evolution_state(state: dict) -> None:
         state: State dictionary to persist.
     """
     try:
+        doc_keys = set(DOCUMENT_CATEGORIES.keys())
         on_disk = {}
         if os.path.exists(_STATE_FILE):
             with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(_STATE_FILE, encoding="utf-8") as f:
@@ -1405,19 +1436,44 @@ def _save_evolution_state(state: dict) -> None:
                 if isinstance(loaded, dict):
                     on_disk = loaded
 
+        # Migrate and prune on_disk before merging to prevent resurrecting legacy or untracked keys
+        for leg_k, canon_k in LEGACY_DOCUMENT_MAP.items():
+            for sec in ("last_run_per_doc", "draft_cursor_per_doc"):
+                if sec in on_disk and isinstance(on_disk[sec], dict) and leg_k in on_disk[sec]:
+                    val = on_disk[sec].pop(leg_k)
+                    on_disk[sec][canon_k] = max(on_disk[sec].get(canon_k, 0.0), val)
+            if (
+                "last_status_per_doc" in on_disk
+                and isinstance(on_disk["last_status_per_doc"], dict)
+                and leg_k in on_disk["last_status_per_doc"]
+            ):
+                leg_st = on_disk["last_status_per_doc"].pop(leg_k)
+                if (
+                    canon_k not in on_disk["last_status_per_doc"]
+                    or (
+                        isinstance(leg_st, dict)
+                        and isinstance(on_disk["last_status_per_doc"].get(canon_k), dict)
+                        and leg_st.get("timestamp", 0.0) > on_disk["last_status_per_doc"][canon_k].get("timestamp", 0.0)
+                    )
+                ):
+                    on_disk["last_status_per_doc"][canon_k] = leg_st
+
         # Merge top-level sub-dicts to prevent clobbering concurrent resolutions
         for section in ("last_run_per_doc", "draft_cursor_per_doc", "last_status_per_doc"):
             disk_sec = on_disk.get(section, {})
             mem_sec = state.get(section, {})
             if isinstance(disk_sec, dict) and isinstance(mem_sec, dict):
                 if section in ("last_run_per_doc", "draft_cursor_per_doc"):
-                    merged = dict(disk_sec)
+                    merged = {k: v for k, v in disk_sec.items() if k in doc_keys}
                     for k, v in mem_sec.items():
-                        merged[k] = max(merged.get(k, 0.0), v)
+                        if k in doc_keys:
+                            merged[k] = max(merged.get(k, 0.0), v)
                     state[section] = merged
                 elif section == "last_status_per_doc":
-                    merged = dict(disk_sec)
+                    merged = {k: v for k, v in disk_sec.items() if k in doc_keys}
                     for k, v in mem_sec.items():
+                        if k not in doc_keys:
+                            continue
                         if k not in merged:
                             merged[k] = v
                         else:
@@ -1579,11 +1635,25 @@ def get_profile_evolution_statuses() -> dict:
                 }
             state_modified = True
 
-    if state_modified:
-        state["last_status_per_doc"] = statuses
+    # Filter and order strictly by canonical tracked documents
+    ordered_statuses = {}
+    display_order = [
+        cfg.PERSONA_FILE_ASSISTANT,
+        cfg.PERSONA_FILE_USER,
+        cfg.PERSONA_FILE_DIRECTIVES,
+    ]
+    for doc in display_order:
+        if doc in statuses:
+            ordered_statuses[doc] = statuses[doc]
+    for doc, st in statuses.items():
+        if doc in DOCUMENT_CATEGORIES and doc not in ordered_statuses:
+            ordered_statuses[doc] = st
+
+    if state_modified or set(statuses.keys()) != set(ordered_statuses.keys()):
+        state["last_status_per_doc"] = ordered_statuses
         _save_evolution_state(state)
 
-    return statuses
+    return ordered_statuses
 
 
 def advance_doc_run_timestamp(
@@ -2032,7 +2102,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     4. Deterministically prunes lower-tier items to strictly adhere to word budgets via profile_ledger.prune_ledger_to_budget().
     5. Synthesizes/compiles the presentation layer:
        - Assistant_Profile.md: Transformed into rich, continuous first-person narrative prose.
-       - User_Profile.md & System_Directives.md: Clean markdown compiled with tier markers stripped.
+       - User_Profile.md & Assistant_Directives.md: Clean markdown compiled with tier markers stripped.
     6. Stages a proposal in memory_db with candidate ledger and structured delta reason.
 
     Args:

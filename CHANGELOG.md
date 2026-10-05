@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 20:58:47
+date modified: 2026-10-04 21:07:25
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.011] - 2026-10-04 — *Profile Evolver Telemetry Deduplication & Legacy Directives State Migration*
+
+### Fixed
+
+- **Profile Evolver Duplicate Directives Telemetry (`Evelyn/tools/profile_evolver.py`, `evelyn_ui/dev.html`, `data/evelyn_evolution_state.json`)**:
+  - Resolved issue on the Dev UI Profile Evolver card where "Assistant Directives" appeared twice due to historical presence of `System_Directives.md` alongside renamed `Assistant_Directives.md` in `data/evelyn_evolution_state.json`.
+  - Added `LEGACY_DOCUMENT_MAP` to `profile_evolver.py` to transparently migrate timestamps, cursor offsets, and status entries from legacy filenames (`System_Directives.md`, `Evelyn_Narrative_Persona.md`, `User_Narrative_Profile.md`) into canonical persona filenames on state load and persist.
+  - Hardened `_load_evolution_state()` and `_save_evolution_state()` to prune unmanaged and obsolete keys, preventing legacy keys from resurrecting during concurrent resolution merges.
+  - Enhanced `get_profile_evolution_statuses()` to strictly filter and return only canonical documents managed in `DOCUMENT_CATEGORIES` in deterministic presentation order (`Assistant_Profile.md`, `User_Profile.md`, `Assistant_Directives.md`), persisting healed states when obsolete keys are purged.
+  - Added frontend deduplication and legacy alias suppression in `evelyn_ui/dev.html` so duplicate display titles are never rendered in the Profile Evolver status list.
+  - Added comprehensive test coverage in `Evelyn/tests/test_profile_evolution_status.py` verifying legacy key migration, unmanaged document pruning, and telemetry deduplication.
 
 ## [000.008.010] - 2026-10-04 — *Benchmark AST Condition Harmonization & Task Module Identity Fix*
 

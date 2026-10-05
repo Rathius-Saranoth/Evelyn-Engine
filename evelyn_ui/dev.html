@@ -1582,8 +1582,23 @@
             'NEVER_RUN': '#6b7280'           // dark gray
           };
 
-          const rows = Object.entries(t.doc_statuses).map(([docName, st]) => {
+          const legacyDocMap = {
+            'System_Directives.md': 'Assistant_Directives.md',
+            'Core_Directives.md': 'Engine_Directives.md',
+            'Evelyn_Narrative_Persona.md': 'Assistant_Profile.md',
+            'User_Narrative_Profile.md': 'User_Profile.md',
+          };
+          const renderedNames = new Set();
+          const rows = Object.entries(t.doc_statuses).filter(([docName]) => {
+            const canonical = legacyDocMap[docName];
+            if (canonical && t.doc_statuses[canonical]) {
+              return false;
+            }
+            return true;
+          }).map(([docName, st]) => {
             const shortName = docIcons[docName] || docName.replace('.md', '');
+            if (renderedNames.has(shortName)) return '';
+            renderedNames.add(shortName);
             const color = docColorMap[st.code] || 'var(--text-dim)';
             const timeStr = st.timestamp ? new Date(st.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             return `
@@ -1595,7 +1610,7 @@
                 </span>
               </div>
             `;
-          }).join('');
+          }).filter(Boolean).join('');
 
           taskDetailsHtml = `<div style="margin-top: 4px; padding-top: 2px;">${rows}</div>`;
         } else if (t.key === 'extractor' && t.sub_status) {
