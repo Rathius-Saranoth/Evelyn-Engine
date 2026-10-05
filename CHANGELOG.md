@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 17:19:38
+date modified: 2026-10-04 20:58:47
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,21 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.010] - 2026-10-04 — *Benchmark AST Condition Harmonization & Task Module Identity Fix*
+
+### Fixed
+
+- **Task Manager Module Identity Discrepancy (`evelyn_server.py`)**:
+  - Fixed split-module reference where `run_benchmark_task()` imported `task_manager` unqualified while server route handlers imported `from Evelyn.tools import task_manager`.
+  - Resolved issue where `_active_handles["benchmark"]` was attached to a separate module instance in `sys.modules`, causing the server watchdog to occasionally misidentify active subprocess handles as missing.
+- **Benchmark Suite AST Argument Schema Harmonization (`reference/behavior_benchmark_cases.json`)**:
+  - Harmonized 4 benchmark test conditions with Evelyn's canonical Python tool signatures in `Evelyn/tools/evelyn_tools.py`, eliminating false negatives:
+    - `control_manage_vault_list_add`: Corrected required parameter expectation from `list_name` to `name`.
+    - `bfcl_tool_args_create_calendar_event`: Corrected required parameters from Google-style `summary` / `start_time` to Evelyn's `title` / `start_at`.
+    - `bfcl_tool_args_get_recent_workouts`: Corrected condition to require `days` rather than an unsupported `date` parameter.
+    - `bfcl_tool_args_write_dream_entry`: Corrected condition to validate `title` rather than `dream_content`.
+  - Rescored all 5 historical multi-pass snapshots in `data/benchmark_history.json` and synchronized `reference/behavior_benchmark_matrix.json`.
 
 ## [000.008.009] - 2026-10-04 — *Benchmark UI Clean Reset & Execution Stream Log Management*
 

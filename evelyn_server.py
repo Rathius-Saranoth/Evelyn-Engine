@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-04 17:19:38
+# date modified: 2026-10-04 20:58:47
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8871,7 +8871,7 @@ async def run_benchmark_task(
     repeat: int = 1,
 ):
     """Run model behavior benchmark in an isolated worker subprocess."""
-    import task_manager
+    from Evelyn.tools import task_manager
 
     if is_any_heavy_task_running():
         return

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-04 17:19:38
+# date modified: 2026-10-04 20:58:47
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.009"
-__version_info__ = (0, 8, 9)
-__version_name__ = "Benchmark UI Clean Reset & Execution Stream Log Management"
+__version__ = "000.008.010"
+__version_info__ = (0, 8, 10)
+__version_name__ = "Benchmark AST Condition Harmonization & Task Module Identity Fix"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

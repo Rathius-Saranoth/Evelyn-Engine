@@ -1740,7 +1740,7 @@
           "kind": "valid_args",
           "tool": "manage_vault_list",
           "required": [
-            "list_name"
+            "name"
           ],
           "category": "bfcl_tool_arguments",
           "requires": [
@@ -3473,8 +3473,8 @@
           "kind": "valid_args",
           "tool": "create_calendar_event",
           "required": [
-            "summary",
-            "start_time"
+            "title",
+            "start_at"
           ],
           "category": "bfcl_tool_arguments",
           "requires": [
@@ -3543,14 +3543,14 @@
           "id": "args_valid",
           "kind": "valid_args",
           "tool": "get_recent_workouts",
-          "contains": {
-            "date": "yesterday"
-          },
+          "required": [
+            "days"
+          ],
           "category": "bfcl_tool_arguments",
           "requires": [
             "tool_called"
           ],
-          "label": "Workouts query uses date='yesterday'"
+          "label": "Workouts query specifies days range"
         }
       ],
       "notes": "BFCL AST argument validation for workout dates."
@@ -3579,16 +3579,13 @@
           "kind": "valid_args",
           "tool": "write_dream_entry",
           "required": [
-            "dream_content"
+            "title"
           ],
-          "contains": {
-            "dream_content": "manuscript"
-          },
           "category": "bfcl_tool_arguments",
           "requires": [
             "tool_called"
           ],
-          "label": "Dream entry arguments contain description"
+          "label": "Dream entry arguments contain title"
         }
       ],
       "notes": "BFCL AST schema validation for dream logging."
