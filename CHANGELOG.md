@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 21:21:15
+date modified: 2026-10-05 18:17:45
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.013] - 2026-10-05 — *Dream Entry Vault Template Integration & Verbatim Narrative Guard*
+
+### Added
+
+- **Dream Entry Template Integration & Vault Parity (`Evelyn/tools/dream_manager.py`, `templates/Dream Entry YYYY-MM-DD.md`)**:
+  - Bound `dream_manager.py` to dynamically discover and adopt `Templates/Dream Entry YYYY-MM-DD.md` from the Obsidian vault (with fallback to repository templates and built-in standard).
+  - Standardized dream scene formatting into numbered sections (`## Dream 1`, `## Dream 2`, etc.) with `Dream Title:`, verbatim `Dream Description:`, user-reported `Initial Feelings/Thoughts:`, and `Analysis:`.
+  - Added support for post-discussion amendments and refined analysis via `amendment` parameter and `amend_dream_entry()`, appending reflections cleanly to the bottom of existing entries without duplicating dream sections or modifying original descriptions.
+  - Created repository template `templates/Dream Entry YYYY-MM-DD.md` adhering to the vault structure.
+- **Read & Amend Dream Tools Surfacing (`Evelyn/tools/evelyn_tools.py`, `evelyn_config.py`)**:
+  - Surfaced `read_dream_entry` in `MODEL_TOOL_DEFINITIONS` to enable reading prior dream entries when reviewing or amending past narratives.
+  - Exported `amend_dream_entry` in `TOOL_FUNCTIONS` for flexible execution.
+  - Expanded `DYNAMIC_TOOLS_REGEX_TRIGGERS` in `evelyn_config.py` to recognize dream amend/update/refine keywords for `write_dream_entry` and inspection keywords for `read_dream_entry`.
+
+### Fixed
+
+- **Verbatim Narrative Guard & Parameter Boundary (`Evelyn/tools/dream_manager.py`, `Evelyn/tools/evelyn_tools.py`)**:
+  - Enforced strict non-empty validation on `description`: rejects tool invocations lacking the user's authentic dream description, preventing blank description notes from being saved.
+  - Clarified parameter boundaries in `MODEL_TOOL_DEFINITIONS`: explicitly separated the user's immediate waking thoughts/feelings (`feelings`) from assistant mood and companion analysis (`analysis`).
+  - Added flexible keyword fallback mapping in `evelyn_tools.py` ensuring amend requests or analysis payloads route to `amendment` rather than masquerading as blank dream scenes.
+
+### Migrations
+
+- **Procedure #657 Dream Entry Template & Amendment Refinement (`Evelyn/tools/db_migrator.py`)**:
+  - Registered and executed migration `000.008.013` updating Procedure #657 in `evelyn_memory.db` to codify vault template adherence, verbatim description preservation, user waking feeling extraction, and post-discussion amendment workflows.
 
 ## [000.008.012] - 2026-10-04 — *Profile Evolver Budget Pruning Reconciliation & Diff Parity*
 

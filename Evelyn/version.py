@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-04 21:21:15
+# date modified: 2026-10-05 18:17:20
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.012"
-__version_info__ = (0, 8, 12)
-__version_name__ = "Profile Evolver Budget Pruning Reconciliation & Diff Parity"
+__version__ = "000.008.013"
+__version_info__ = (0, 8, 13)
+__version_name__ = "Dream Entry Vault Template Integration & Verbatim Narrative Guard"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

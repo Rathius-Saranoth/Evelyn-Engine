@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-02 17:02:06
+# date modified: 2026-10-05 18:17:20
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -345,8 +345,12 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(workouts?|exercises?|training|gym|lifts?|cardio|runs?|walks?)\b",
     ],
     "write_dream_entry": [
-        r"\b(dream|dreamscape|night\s+vision)\b.*?\b(log|write|record|journal)\b",
-        r"\b(log|write|record|journal)\b.*?\b(dream|dreamscape|night\s+vision)\b",
+        r"\b(dream|dreamscape|night\s+vision)\b.*?\b(log|write|record|journal|amend|update|refine)\b",
+        r"\b(log|write|record|journal|amend|update|refine)\b.*?\b(dream|dreamscape|night\s+vision)\b",
+    ],
+    "read_dream_entry": [
+        r"\b(read|view|inspect|show|check|review)\b.*?\b(dream|dreamscape|dream\s+entry|dream\s+journal)\b",
+        r"\b(dream|dreamscape|dream\s+entry|dream\s+journal)\b.*?\b(read|view|inspect|show|check|review)\b",
     ],
 }
 

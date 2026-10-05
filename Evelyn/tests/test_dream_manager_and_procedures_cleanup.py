@@ -1,6 +1,6 @@
 # test_dream_manager_and_procedures_cleanup.py
 # date created: 2026-08-29 07:48:00
-# date modified: 2026-08-29 07:48:00
+# date modified: 2026-10-05 18:17:20
 # tags: #tests, #dreams, #procedures, #consolidation
 
 """
@@ -55,10 +55,11 @@ def test_create_dream_entry_new_note(temp_vault_dir):
     assert not any(str(t).upper().startswith("CY-") for t in meta["tags"])
     assert "flying" in meta["tags"]
     assert "dream" in meta["tags"]
-    assert "## Dream Title: Floating Cities" in body
+    assert "## Dream 1" in body
+    assert "Dream Title: Floating Cities" in body
     assert "Dream Description: I was flying between floating glass towers above clouds." in body
     assert "Initial Feelings/Thoughts: Peaceful and curious" in body
-    assert "Analytical Notes: Related to architectural design interest." in body
+    assert "Analysis: Related to architectural design interest." in body
 
 
 def test_create_dream_entry_append_note(temp_vault_dir):
@@ -90,9 +91,43 @@ def test_create_dream_entry_append_note(temp_vault_dir):
     meta, body = parse_frontmatter(content)
     assert "first-dream" in meta["tags"]
     assert "second-dream" in meta["tags"]
-    assert "## Dream Title: First Dream" in body
-    assert "## Dream Title: Second Dream" in body
+    assert "## Dream 1" in body
+    assert "Dream Title: First Dream" in body
+    assert "## Dream 2" in body
+    assert "Dream Title: Second Dream" in body
     assert "Dream Description: Second dream narrative with different elements." in body
+
+
+def test_create_dream_entry_requires_description(temp_vault_dir):
+    """Test that creating a dream entry without a description is rejected."""
+    result = dream_manager.create_dream_entry(
+        title="Dream Without Description",
+        description="",
+        date_str="2026-08-29",
+    )
+    assert "requires the user's raw dream narrative in 'description'" in result
+
+
+def test_create_dream_entry_amendment(temp_vault_dir):
+    """Test appending an amendment or refined analysis to an existing dream note."""
+    dream_manager.create_dream_entry(
+        title="Initial Dream",
+        description="Original dream text.",
+        date_str="2026-08-29",
+        analysis="Initial notes.",
+    )
+
+    res = dream_manager.amend_dream_entry(
+        amendment="Refined analysis: The user and companion discussed the symbolism of the bridge.",
+        date_str="2026-08-29",
+    )
+    assert "Successfully appended amendment" in res
+
+    dream_file = os.path.join(temp_vault_dir, "Dream Journal", "Dream Entries", "Dream Entry 2026-08-29.md")
+    with open(dream_file, encoding="utf-8") as f:
+        content = f.read()
+
+    assert "Refined analysis: The user and companion discussed the symbolism of the bridge." in content
 
 
 def test_evelyn_tools_write_dream_entry(temp_vault_dir):
@@ -105,6 +140,13 @@ def test_evelyn_tools_write_dream_entry(temp_vault_dir):
         tags="library, books, search"
     )
     assert "Successfully created new dream entry" in res
+
+    # Test amending via evelyn_tools
+    amend_res = evelyn_tools.write_dream_entry(
+        date="2026-08-30",
+        amendment="Discussion note: Represents navigating extensive documentation.",
+    )
+    assert "Successfully appended amendment" in amend_res
 
 
 def test_procedure_search_scoring(monkeypatch):

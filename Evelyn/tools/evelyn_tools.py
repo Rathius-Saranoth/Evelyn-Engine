@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-10-02 17:26:33
+# date modified: 2026-10-05 18:17:20
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -170,34 +170,54 @@ def write_dream_entry(
     feelings: str = "",
     tags: str = "",
     analysis: str = "",
+    amendment: str = "",
     **kwargs,
 ) -> str:
-    """Compose and save a structured Dream Entry note for the user in the Obsidian vault.
+    """Compose and save a structured Dream Entry note for the user in the Obsidian vault using the Dream Entry template.
 
     Args:
-        title: Descriptive title for this specific dream scene/narrative.
-        description: Raw, untouched dream narrative from the user.
+        title: Descriptive title for this specific dream scene/narrative. If omitted, defaults to 'Recall Failure'.
+        description: Mandatory raw, untouched dream narrative from the user.
         date: Optional date string in YYYY-MM-DD format (defaults to current date).
-        feelings: Optional initial feelings, immediate waking thoughts, or mood.
+        feelings: Optional initial feelings, immediate waking thoughts, or mood directly from the user upon waking.
         tags: Comma-separated list of atomic lowercase subject tags (e.g. 'anxiety, flying, ocean'; zero slashes, singular count nouns).
-        analysis: Optional thematic or cross-referencing analysis notes.
+        analysis: Optional thematic or companion analytical notes.
+        amendment: Optional refined analysis or post-discussion updates to append to the bottom of the entry.
         **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Confirmation message or path to the saved dream entry note.
     """
     _reload()
-    title = title or str(kwargs.get("dream_title") or kwargs.get("name") or "Untitled Dream")
+    title = title or str(kwargs.get("dream_title") or kwargs.get("name") or "")
     description = description or str(
-        kwargs.get("body") or kwargs.get("text") or kwargs.get("narrative") or kwargs.get("dream_description") or ""
+        kwargs.get("body") or kwargs.get("text") or kwargs.get("dream_description") or ""
     )
     date = date or str(kwargs.get("date_str") or "")
-    feelings = feelings or str(kwargs.get("initial_feelings") or kwargs.get("thoughts") or kwargs.get("mood") or "")
+    feelings = feelings or str(kwargs.get("initial_feelings") or kwargs.get("thoughts") or "")
     tags = tags or str(kwargs.get("tag_list") or kwargs.get("tag_string") or "")
     analysis = analysis or str(kwargs.get("analytical_notes") or kwargs.get("notes") or "")
+    amendment = amendment or str(
+        kwargs.get("refined_analysis") or kwargs.get("addition") or kwargs.get("update") or ""
+    )
 
-    if not description.strip() and not title.strip():
-        return "Error: write_dream_entry called with completely blank description and title. Aborted."
+    mode = str(kwargs.get("mode") or "").strip().lower()
+    if not amendment and (mode == "amend" or "narrative" in kwargs):
+        candidate = str(kwargs.get("amendment") or kwargs.get("narrative") or kwargs.get("analysis") or "")
+        if candidate and (mode == "amend" or not description):
+            amendment = candidate
+
+    if amendment.strip():
+        return dream_manager.create_dream_entry(
+            date_str=date,
+            amendment=amendment,
+        )
+
+    if not description.strip():
+        return (
+            "Error: write_dream_entry requires the user's raw dream narrative in 'description'. "
+            "Please supply the user's authentic dream description verbatim."
+        )
 
     tag_list = [t.strip() for t in tags.split(",")] if tags.strip() else []
     return dream_manager.create_dream_entry(
@@ -208,6 +228,12 @@ def write_dream_entry(
         tags=tag_list,
         analysis=analysis,
     )
+
+
+def amend_dream_entry(amendment: str, date: str = "", **kwargs) -> str:
+    """Append an amendment or refined analysis to an existing dream entry note."""
+    _reload()
+    return dream_manager.amend_dream_entry(amendment=amendment, date_str=date)
 
 
 def read_dream_entry(date: str = "", **kwargs) -> str:
@@ -3308,25 +3334,29 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_dream_entry",
             "description": (
-                f"Compose and save a structured Dream Entry note for {cfg.USER_NAME} in the Obsidian Vault Dream archive. "
-                f"Preserves {cfg.USER_NAME}'s raw, untouched dream narrative under 'Dream Description:' with a descriptive title, initial feelings/thoughts, tags, and optional analysis. "
-                f"If a dream note already exists for the given date, appends the new dream section to preserve multiple dreams on the same calendar day. "
-                "Use when asked to log a dream, and also without being asked when they simply recount one in conversation."
+                f"Compose and save a structured Dream Entry note for {cfg.USER_NAME} in the Obsidian Vault Dream archive "
+                "using the Dream Entry template. "
+                f"Preserves {cfg.USER_NAME}'s raw, untouched dream narrative under 'Dream Description:' with a descriptive title, "
+                f"{cfg.USER_NAME}'s initial feelings/thoughts upon waking, tags, and companion analysis. "
+                "If a dream note already exists for the given date, appends the new numbered dream section (e.g. '## Dream 2') "
+                "or appends an amendment/refined analysis to the bottom of the entry. "
+                "Use when asked to log a dream, proactively when a dream is recounted in conversation, "
+                "or when amending/refining analysis after discussion."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Descriptive title for this specific dream scene/narrative (e.g. 'Ice Caverns, Rising Lava, Rescuing People').",
+                        "description": "Descriptive title for this specific dream scene/narrative (e.g. 'Ice Caverns, Rising Lava, Rescuing People'). If unknown, omit or use 'Recall Failure'.",
                     },
                     "description": {
                         "type": "string",
-                        "description": f"Raw, untouched dream description and narrative provided by {cfg.USER_NAME}.",
+                        "description": f"Mandatory raw, untouched dream description and narrative recounted by {cfg.USER_NAME}. Never omit.",
                     },
                     "feelings": {
                         "type": "string",
-                        "description": "Initial feelings, immediate waking thoughts, mood, or emotional context associated with the dream.",
+                        "description": f"Initial feelings, immediate waking thoughts, or mood reported directly by {cfg.USER_NAME} upon waking (NOT the assistant's mood).",
                     },
                     "date": {
                         "type": "string",
@@ -3334,14 +3364,38 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "analysis": {
                         "type": "string",
-                        "description": "Optional thematic or cross-referencing analysis notes (correlations with waking life, symbols, recurring themes).",
+                        "description": "Companion analytical notes, symbolic patterns, or thematic observations gathered so far.",
+                    },
+                    "amendment": {
+                        "type": "string",
+                        "description": "Optional refined analysis, updates, or post-discussion reflections to append to the bottom of an existing dream entry.",
                     },
                     "tags": {
                         "type": "string",
                         "description": "Comma-separated atomic subject tags for the dream (e.g. 'anxiety, flying, ocean'). Lowercase singular nouns, zero slashes.",
                     },
                 },
-                "required": ["title", "description"],
+                "required": ["description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_dream_entry",
+            "description": (
+                f"Read a Dream Entry note from the Obsidian Vault Dream archive by date. "
+                f"Use to review {cfg.USER_NAME}'s recorded dreams, inspect prior dream narratives, "
+                "or check previous analysis before amending or discussing."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "Date of the dream entry note in YYYY-MM-DD format (defaults to current date if omitted).",
+                    },
+                },
             },
         },
     },
@@ -4205,6 +4259,7 @@ TOOL_FUNCTIONS = {
     "read_journal_entry": read_journal_entry,
     "read_recent_journal_entries": read_recent_journal_entries,
     "write_dream_entry": write_dream_entry,
+    "amend_dream_entry": amend_dream_entry,
     "read_dream_entry": read_dream_entry,
     "search_vault": search_vault,
     "search_vault_notes": search_vault_notes,

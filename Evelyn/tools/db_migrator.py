@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-10-01 17:55:24
+# date modified: 2026-10-05 18:17:20
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6433,6 +6433,57 @@ def migrate_000_007_002_procedure_1034_journal_evaluation_gate(
         )
 
 
+def migrate_000_008_013_procedure_657_dream_entry_template(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.008.013: Update Procedure #657 for Dream Entry template structure and amendment workflow."""
+    cursor = conn.cursor()
+    now = time.time()
+    user_name = getattr(cfg, "USER_NAME", "the user")
+
+    trigger = f"When {user_name} shares, describes, or asks to log, analyze, or amend a dream entry"
+    steps = (
+        "1. Structure by Vault Template: Ground the entry in the Dream Entry template structure "
+        "(Dream Title, Dream Description, Initial Feelings/Thoughts, Analysis).\n"
+        f"2. Preserve Verbatim Narrative: Extract {user_name}'s authentic dream description without alteration "
+        "and pass it as 'description' to write_dream_entry. Never omit the user's authentic dream narrative.\n"
+        f"3. Capture Waking Feelings: Extract {user_name}'s reported waking thoughts, emotional state, or lingering feelings "
+        "into 'feelings'. Never substitute assistant mood or persona reactions here.\n"
+        "4. Generate Scene Title: Formulate an evocative title for the dream narrative in 'title', or default to 'Recall Failure' if unnamed.\n"
+        "5. Synthesize Companion Analysis: Populate 'analysis' with analytical notes, symbolic patterns, or waking-life parallels.\n"
+        f"6. Post-Discussion Amendments: When {user_name} offers further reflections or requests amendments after discussion, "
+        "call write_dream_entry with amendment='...' (or amend_dream_entry) to append the refined analysis to the bottom of the entry "
+        "without altering the original description or creating blank duplicate dreams."
+    )
+    pitfalls = (
+        "Never omit the user's raw dream narrative in 'description'; never call write_dream_entry with only analytical notes. "
+        "Do not confuse assistant mood with the user's initial waking feelings/thoughts. "
+        "Never use write_journal_entry for dream entries (reserve write_journal_entry exclusively for Evelyn's personal daily reflections). "
+        "Do not overwrite existing dream entries on the same date—append new dreams as numbered sections or append refined analysis via 'amendment'."
+    )
+    verification = (
+        "write_dream_entry generates or updates a structured Dream Entry note adhering to the template with the user's description intact and companion analysis separated."
+    )
+    tags = "dream, reflection, journaling, subconscious, memory"
+    suggested_tools = "write_dream_entry, read_dream_entry"
+
+    cursor.execute(
+        """UPDATE procedures
+           SET trigger_pattern = ?, steps = ?, pitfalls = ?, verification = ?, tags = ?, suggested_tools = ?, updated_at = ?
+           WHERE id = 657""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now),
+    )
+    if cursor.rowcount == 0:
+        cursor.execute(
+            """INSERT INTO procedures
+               (id, trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+               VALUES (657, ?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+            (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now),
+        )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -7021,6 +7072,13 @@ MIGRATIONS: list[Migration] = [
         version="000.007.002",
         name="procedure_1034_journal_evaluation_gate",
         up_fn=migrate_000_007_002_procedure_1034_journal_evaluation_gate,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.008.013",
+        name="procedure_657_dream_entry_template",
+        up_fn=migrate_000_008_013_procedure_657_dream_entry_template,
         post_sync_chroma=False,
     ),
 ]

@@ -1,17 +1,18 @@
 # dream_manager.py
 # date created: 2026-08-29 07:45:00
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-10-05 18:17:20
 # tags: #dreams, #management, #entries, #vault, #protocols
 
 """
 dream_manager.py — Dream entry creation and retrieval for Evelyn.
 
 Manages the user's dream records, stored as structured markdown files inside
-the Obsidian Vault (Dream Entries archive).
+the Obsidian Vault (Dream Entries archive) adhering to the Dream Entry template.
 
-Preserves raw user descriptions intact, captures initial feelings/thoughts,
+Preserves raw user descriptions intact, captures initial waking feelings/thoughts,
 tags, and handles multiple dreams per calendar date by appending structured
-sections with updated frontmatter.
+sections (Dream 1, Dream 2...) with updated frontmatter. Supports appending
+post-discussion amendments and refined analysis.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 import datetime
 import importlib
 import os
+import re
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
 from Evelyn.tools.frontmatter_utils import (
@@ -73,37 +75,107 @@ def _resolve_dream_filepath(date_str: str) -> str | None:
     return None
 
 
+def _resolve_dream_template() -> tuple[dict, str]:
+    """Find and parse the canonical Dream Entry template, or fall back to standard template."""
+    if not os.environ.get("PYTEST_CURRENT_TEST") and not getattr(cfg, "DISABLE_HOT_RELOAD", False):
+        importlib.reload(cfg)
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", os.path.expanduser("~/obsidian_vault"))
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+    candidates = [
+        os.path.join(vault_base, "Templates", "Dream Entry YYYY-MM-DD.md"),
+        os.path.join(vault_base, "templates", "Dream Entry YYYY-MM-DD.md"),
+        os.path.join(repo_root, "templates", "Dream Entry YYYY-MM-DD.md"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                with open(c, encoding="utf-8") as f:
+                    content = f.read()
+                meta, body = parse_frontmatter(content)
+                return meta, body
+            except OSError:
+                pass
+
+    # Built-in fallback matching the canonical vault template structure
+    default_meta = {
+        "title": "{{title}}",
+        "aliases": [],
+        "tags": ["dream"],
+        "icon": [],
+        "type": ["dream"],
+    }
+    default_body = (
+        "# {{title}}\n\n"
+        "## Dream 1\n\n"
+        "Dream Title: <to be found> If no title: Recall Failure\n\n"
+        "Dream Description: <to be found>\n\n"
+        "Initial Feelings/Thoughts: <to be found>\n\n"
+        "Analysis: <to be conducted>\n"
+    )
+    return default_meta, default_body
+
+
 def create_dream_entry(
-    title: str,
-    description: str,
+    title: str = "",
+    description: str = "",
     date_str: str = "",
     feelings: str = "",
     tags: list[str] | str | None = None,
     analysis: str = "",
+    amendment: str = "",
 ) -> str:
-    """Compose and save a structured Dream Entry note for the user in the Obsidian vault.
+    """Compose and save a structured Dream Entry note for the user in the Obsidian vault using the Dream Entry template.
 
     Args:
-        title: Descriptive title for this specific dream scene/narrative.
-        description: Raw, untouched dream description from the user.
+        title: Descriptive title for this specific dream scene/narrative. If omitted, defaults to 'Recall Failure'.
+        description: Mandatory raw, untouched dream description and narrative recounted by the user.
         date_str: Optional date string (YYYY-MM-DD). Defaults to current date.
-        feelings: Optional initial feelings, immediate waking thoughts, or mood.
+        feelings: Optional initial feelings, immediate waking thoughts, or mood directly from the user upon waking.
         tags: Optional tag list or comma-separated string of atomic lowercase subject tags (zero slashes, singular count nouns).
-        analysis: Optional thematic or cross-referencing analysis notes.
+        analysis: Optional companion analytical notes, symbolic patterns, or thematic observations.
+        amendment: Optional refined analysis or post-discussion updates to append to the bottom of the entry.
 
     Returns:
         str: Confirmation message with the destination note filepath.
     """
-    if not title.strip() and not description.strip():
-        return "Error: write_dream_entry called with empty title and description. Aborted."
-
     now = datetime.datetime.now(datetime.UTC).astimezone()
     target_date_str = date_str.strip() if date_str and date_str.strip() else now.strftime("%Y-%m-%d")
+    now_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    title_clean = title.strip() or "Untitled Dream"
+    filepath = _resolve_dream_filepath(target_date_str)
+    if not filepath:
+        target_dir = _resolve_dream_dir()
+        filepath = os.path.join(target_dir, f"Dream Entry {target_date_str}.md")
+
+    # Handle post-discussion amendment / analysis refinement
+    if amendment and amendment.strip():
+        if not os.path.exists(filepath):
+            return f"Error: Cannot append amendment because no dream entry note exists for date {target_date_str}."
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                existing_text = f.read()
+
+            existing_meta, existing_body = parse_frontmatter(existing_text)
+            existing_meta["date modified"] = now_timestamp
+            new_body = existing_body.rstrip() + "\n\n" + amendment.strip() + "\n"
+            rendered_content = render_frontmatter(existing_meta, body=new_body)
+            write_file_with_frontmatter(filepath, rendered_content)
+            return f"Successfully appended amendment to dream entry: {filepath}"
+        except OSError as e:
+            return f"Error updating existing dream entry note: {e}"
+
+    # Guard: description is mandatory for dream recordings
+    if not description.strip():
+        return (
+            "Error: write_dream_entry requires the user's raw dream narrative in 'description'. "
+            "Please supply the user's authentic dream description verbatim. Aborted."
+        )
+
+    title_clean = title.strip() or "Recall Failure"
     description_clean = description.strip()
-    feelings_clean = feelings.strip()
-    analysis_clean = analysis.strip()
+    feelings_clean = feelings.strip() or "<to be found>"
+    analysis_clean = analysis.strip() or "<to be conducted>"
 
     # Parse and clean tags
     # Tags reach the vault through the canonical normaliser (taxonomy §5); stripping '#'
@@ -127,24 +199,6 @@ def create_dream_entry(
     if "dream" not in [t.lower() for t in clean_tags]:
         clean_tags.append("dream")
 
-    target_dir = _resolve_dream_dir()
-    filename = f"Dream Entry {target_date_str}.md"
-    filepath = os.path.join(target_dir, filename)
-
-    now_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-
-    # Construct the section block for this dream
-    section_lines = [
-        f"## Dream Title: {title_clean}",
-        "",
-        f"Dream Description: {description_clean}",
-        "",
-        f"Initial Feelings/Thoughts: {feelings_clean}",
-    ]
-    if analysis_clean:
-        section_lines.extend(["", f"Analytical Notes: {analysis_clean}"])
-    dream_section = "\n".join(section_lines)
-
     if os.path.exists(filepath):
         try:
             with open(filepath, encoding="utf-8") as f:
@@ -167,32 +221,68 @@ def create_dream_entry(
             existing_meta["tags"] = existing_tags
             existing_meta["date modified"] = now_timestamp
 
-            # Append new section to existing body
-            new_body = existing_body.rstrip() + "\n\n" + dream_section + "\n"
+            # Count existing dreams to number this new dream section accurately
+            existing_dream_headers = re.findall(r"^##\s+Dream(?:\s+(\d+)|\s+Title:)?", existing_body, re.MULTILINE)
+            next_dream_num = len(existing_dream_headers) + 1
+
+            new_dream_section = (
+                f"## Dream {next_dream_num}\n\n"
+                f"Dream Title: {title_clean}\n\n"
+                f"Dream Description: {description_clean}\n\n"
+                f"Initial Feelings/Thoughts: {feelings_clean}\n\n"
+                f"Analysis: {analysis_clean}"
+            )
+
+            new_body = existing_body.rstrip() + "\n\n" + new_dream_section + "\n"
             rendered_content = render_frontmatter(existing_meta, body=new_body)
             write_file_with_frontmatter(filepath, rendered_content)
-            return f"Successfully appended dream '{title_clean}' to existing note: {filepath}"
+            return f"Successfully appended dream '{title_clean}' as Dream {next_dream_num} to existing note: {filepath}"
         except OSError as e:
             return f"Error updating existing dream entry note: {e}"
     else:
-        # Create new note
+        # Create new note based on template
+        template_meta, _ = _resolve_dream_template()
         new_meta = {
             "title": f"Dream Entry {target_date_str}",
-            "aliases": [],
-            "type": ["dream"],
+            "aliases": template_meta.get("aliases", []),
             "tags": clean_tags,
             OCCURRED_PROPERTY: occurred,
-            "icon": [],
+            "type": template_meta.get("type", ["dream"]),
+            "icon": template_meta.get("icon", []),
             "date created": now_timestamp,
             "date modified": now_timestamp,
         }
-        new_body = f"# Dream Entry {target_date_str}\n\n{dream_section}\n"
+        for k in ("motif", "setting"):
+            if k in template_meta:
+                new_meta[k] = template_meta[k]
+
+        new_body = (
+            f"# Dream Entry {target_date_str}\n\n"
+            f"## Dream 1\n\n"
+            f"Dream Title: {title_clean}\n\n"
+            f"Dream Description: {description_clean}\n\n"
+            f"Initial Feelings/Thoughts: {feelings_clean}\n\n"
+            f"Analysis: {analysis_clean}\n"
+        )
         try:
             rendered_content = render_frontmatter(new_meta, body=new_body)
             write_file_with_frontmatter(filepath, rendered_content)
             return f"Successfully created new dream entry '{title_clean}': {filepath}"
         except OSError as e:
             return f"Error creating dream entry note: {e}"
+
+
+def amend_dream_entry(amendment: str, date_str: str = "") -> str:
+    """Append an amendment or refined analysis to an existing dream entry note.
+
+    Args:
+        amendment: Refined analysis, notes, or reflections to append to the entry.
+        date_str: Optional date string (YYYY-MM-DD). Defaults to current date.
+
+    Returns:
+        str: Confirmation message.
+    """
+    return create_dream_entry(date_str=date_str, amendment=amendment)
 
 
 def read_dream_entry(date_str: str = "") -> str:
