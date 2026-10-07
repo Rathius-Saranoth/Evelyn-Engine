@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-06 19:40:21
+date modified: 2026-10-06 21:47:29
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.017] - 2026-10-06 — *Operational Procedure Controlled Tag Taxonomy & Zero-Slash Governance*
+
+### Fixed
+
+- **Procedure Extraction Tagging & Zero-Slash Invariant Alignment (`Evelyn/tools/fact_extractor.py`)**:
+  - Replaced deprecated legacy prompt directive (`skill/x, procedure/y`) in `_build_procedure_extraction_prompt()` with strict Zero-Slash Invariant rules and atomic post-coordinate examples (`conversation, cadence`), preventing extraction of pre-coordinated and container-prefixed tags (`communication/style`, `procedure/brevity`).
+  - Hardened `_parse_procedures_yaml()` to strip deprecated container prefixes (`skill/`, `procedure/`, `protocol/`, `system/`, `workflow/`, `task/`, `rule/`, `type/`, `motif/`, `setting/`, `event/`), decompose hierarchical slashes into flat atomic coordinates, filter container/umbrella terms via `is_umbrella_term()`, canonicalize tags through `taxonomy_db.canonicalize_tags()`, and quarantine unregistered terms into the review queue.
+  - Aligned `write_extracted_procedures()` to enforce tag admission quarantine via `withhold_unregistered_tags()` matching the fact extraction pipeline.
+- **Procedure Consolidation Split & Merge Tag Sanitization (`Evelyn/tools/procedure_consolidator.py`)**:
+  - Updated `generate_procedure_split_proposal()` prompt rules and YAML examples from legacy `skill/x, procedure/y` to flat atomic coordinates (`file, documentation`, `task, reminder`).
+  - Added tag sanitization and container prefix stripping to split procedure items in `generate_procedure_split_proposal()`.
+  - Removed fallback injection of the generic container tag `"procedure"` in `synthesize_procedure_merge_proposal()`.
+- **Procedure Tag Librarian Audit & Backfill Support (`Evelyn/tools/tag_librarian.py`)**:
+  - Upgraded `audit_single_procedure_tags()` to decompose pre-coordinated slashes across existing and suggested tags into flat subject atoms, ensuring multi-level terms like `communication/style` cleanly separate into `communication` and `style`.
+  - Added procedure support to `backfill_admitted_term()`, allowing approved tags in the admission queue to update both `context_entries` and `procedures` when referenced in `source_ids`.
+- **Vocabulary Container Invariants (`evelyn_config.py`)**:
+  - Expanded `TAXONOMY_CONTAINER_TERMS` to include non-subject facet words (`type`, `types`, `motif`, `motifs`, `setting`, `settings`, `event`, `events`) and operational container markers (`skill`, `skills`, `procedure`, `procedures`, `protocol`, `protocols`, `workflow`, `workflows`, `task`, `tasks`, `rule`, `rules`, `guideline`, `guidelines`), ensuring container words cannot be admitted as subject tags.
+- **Database Curation (`evelyn_memory.db`)**:
+  - Audited and cleaned Procedure #2592 (along with recent procedures #2586–#2591 and #1104), converting all pre-coordinated/slashed container tags into flat controlled terms (e.g., #2592 `communication, style, brevity`), eliminating all slashes from the `procedures` table.
+
+### Added
+
+- **Regression Test Coverage (`Evelyn/tests/test_prompts_teach_the_standard.py`, `Evelyn/tests/test_procedures_upgrade.py`)**:
+  - Added `skill/`, `procedure/`, `protocol/`, and `workflow/` container prefixes to `FORBIDDEN_EXAMPLES` in `test_prompts_teach_the_standard.py`.
+  - Added `test_parse_procedures_yaml_zero_slash_invariant()` in `test_procedures_upgrade.py` verifying that legacy container prefixes and slashes are cleanly stripped and decomposed by the YAML parser.
 
 ## [000.008.016] - 2026-10-06 — *Zero-Latency Paralinguistic Audio Tagging & Stage Direction Silencing*
 

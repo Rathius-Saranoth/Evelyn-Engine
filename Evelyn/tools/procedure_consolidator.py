@@ -1,6 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-10-06 21:47:29
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -29,13 +29,14 @@ import httpx
 import yaml
 
 import evelyn_config as cfg
-from Evelyn.tools import backlog_drainer, memory_db, task_manager
+from Evelyn.tools import backlog_drainer, memory_db, task_manager, taxonomy_db
 from Evelyn.tools.procedure_matcher import (
     SYNONYM_GROUPS,
     calculate_procedure_similarity,
     extract_procedure_keywords,
     identify_cluster_master,
 )
+from Evelyn.tools.tag_librarian import is_excluded_tag, is_umbrella_term, normalize_tag_format
 
 # Backwards compatibility exports
 _extract_keywords = extract_procedure_keywords
@@ -335,7 +336,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
                 cleaned_t = t.strip()
                 if cleaned_t and cleaned_t.lower() not in ("procedure", "merged", "merge", "consolidated", "none"):
                     source_tags_set.add(cleaned_t)
-    inherited_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else "procedure"
+    inherited_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else ""
 
     proc_texts = [
         f"Procedure ID #{p['id']}:\n"
@@ -464,7 +465,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
             # Remove purely generic tags if specific tags exist
             if len(combined) > 1:
                 combined = {t for t in combined if t.lower() not in ("procedure", "merged", "merge", "split", "consolidated", "none")}
-            final_tags = ", ".join(sorted(combined)) if combined else "procedure"
+            final_tags = ", ".join(sorted(combined)) if combined else ""
 
         # Build merged procedure dict for storage as JSON/YAML in merged_observation
         merged_dict = {
@@ -516,7 +517,8 @@ async def generate_procedure_split_proposal(proc: dict) -> int | None:
         "2. CLEAN TRIGGER PATTERNS: State clean operational scenarios without noisy parenthetical lists of example phrases.\n"
         "3. STEPS: Describe functional execution, data to gather, parameters to set, and tools to invoke concisely.\n"
         "4. SUGGESTED TOOLS: Assign the exact tool name(s) from Active Tools.\n"
-        "5. PITFALLS: Explicitly forbid simulating tool execution via raw text (e.g. '[Tools Executed: ...]') and forbid hesitating or withholding tool calls.\n\n"
+        "5. PITFALLS: Explicitly forbid simulating tool execution via raw text (e.g. '[Tools Executed: ...]') and forbid hesitating or withholding tool calls.\n"
+        "6. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Format 'tags' as flat subject terms separated by commas (e.g. 'file, documentation' or 'task, reminder'). Slashes (`/`), colons, and container prefixes (`skill/`, `procedure/`, `workflow/`, `protocol/`, `system/`) are STRICTLY FORBIDDEN. Name specific subjects, never containers.\n\n"
         "Output ONLY a YAML block in this exact structure:\n\n"
         "```yaml\n"
         f"topic: \"Split Procedure #{proc_id}\"\n"
@@ -528,14 +530,14 @@ async def generate_procedure_split_proposal(proc: dict) -> int | None:
         "    suggested_tools: \"write_file\"\n"
         "    pitfalls: \"Common mistakes to avoid\"\n"
         "    verification: \"Verification check\"\n"
-        "    tags: \"skill/x, procedure/y\"\n"
+        "    tags: \"file, documentation\"\n"
         "  - trigger_pattern: \"When Y happens\"\n"
         "    steps: |\n"
         "      1. Step for second rule.\n"
         "    suggested_tools: \"create_task\"\n"
         "    pitfalls: \"None\"\n"
         "    verification: \"Verification check\"\n"
-        "    tags: \"skill/z, procedure/w\"\n"
+        "    tags: \"task, reminder\"\n"
         "```\n\n"
         f"COMPOUND PROCEDURE TO SPLIT:\n"
         f"Procedure ID #{proc_id}:\n"
@@ -581,12 +583,37 @@ async def generate_procedure_split_proposal(proc: dict) -> int | None:
         reason = parsed.get("reason", f"Decomposed compound procedure #{proc_id} into distinct atomic operational rules.")
 
         for p_item in parsed.get("procedures", []):
-            if isinstance(p_item, dict) and "suggested_tools" in p_item:
+            if not isinstance(p_item, dict):
+                continue
+            if "suggested_tools" in p_item:
                 tools_val = p_item.get("suggested_tools") or ""
                 if isinstance(tools_val, list):
                     p_item["suggested_tools"] = ", ".join([str(t).strip() for t in tools_val if str(t).strip()])
                 else:
                     p_item["suggested_tools"] = str(tools_val).strip()
+
+            raw_tags = str(p_item.get("tags") or "").strip()
+            container_words = {
+                "skill", "skills", "procedure", "procedures", "protocol", "protocols",
+                "system", "systems", "workflow", "workflows", "rule", "rules", "task", "tasks",
+                "type", "types", "motif", "motifs", "setting", "settings", "event", "events",
+            }
+            container_prefixes = tuple(f"{w}/" for w in container_words)
+            raw_parts = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+            clean_split_tags: list[str] = []
+            for t in raw_parts:
+                for cp in container_prefixes:
+                    if t.lower().startswith(cp):
+                        t = t[len(cp):]
+                subparts = [p.strip() for p in t.split("/") if p.strip()] if "/" in t and not is_excluded_tag(t) else [t]
+                for sub in subparts:
+                    norm = normalize_tag_format(sub)
+                    if norm and norm not in container_words and not is_umbrella_term(norm):
+                        canon = taxonomy_db.canonicalize_tags([norm])
+                        c = canon[0] if canon else norm
+                        if c and c not in clean_split_tags:
+                            clean_split_tags.append(c)
+            p_item["tags"] = ", ".join(clean_split_tags)
 
         prop_id = memory_db.insert_proposal(
             type="procedure_split",

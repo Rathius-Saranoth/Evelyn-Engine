@@ -1,6 +1,6 @@
 # test_prompts_teach_the_standard.py
 # date created: 2026-09-23 08:00:00
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-10-06 21:47:29
 # tags: #test, #prompts, #taxonomy, #regression
 
 """Every prompt that asks a model for tags must teach the §5 format (v000.006.210).
@@ -67,6 +67,14 @@ FORBIDDEN_EXAMPLES = [
     "home/coffee/espresso",
     "health/sleep/routine",
     "John_Smith",
+    "skill/x",
+    "procedure/y",
+    "skill/z",
+    "procedure/w",
+    "skill/",
+    "procedure/",
+    "protocol/",
+    "workflow/",
 ]
 
 

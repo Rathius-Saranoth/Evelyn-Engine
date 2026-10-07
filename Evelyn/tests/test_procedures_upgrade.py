@@ -1,6 +1,6 @@
 # test_procedures_upgrade.py
 # date created: 2026-08-28 07:37:20
-# date modified: 2026-10-02 17:10:55
+# date modified: 2026-10-06 21:47:29
 # tags:
 
 import os
@@ -126,6 +126,8 @@ procedures:
 
     item2 = parsed[1]
     assert item2["suggested_tools"] == "manage_vault_list, web_search"
+    assert item1["tags"] == "dream, journal"
+    assert "procedure/" not in item2["tags"]
 
 
 def test_parse_procedures_yaml_unclosed_fence():
@@ -457,6 +459,34 @@ def test_all_specific_purpose_tools_have_live_procedure_coverage():
 
     missing_tools = [st for st in specific_tools if st not in covered_tools]
     assert not missing_tools, f"The following specific-purpose tools lack live starter procedure coverage: {missing_tools}"
+
+
+def test_parse_procedures_yaml_zero_slash_invariant():
+    """Verify procedure tags decompose slashes, strip container prefixes, and enforce Zero-Slash Invariant."""
+    from Evelyn.tools import fact_extractor
+
+    raw_yaml = """```procedures
+procedures:
+  - trigger_pattern: "When the user asks to scale back the length of conversations"
+    steps: |
+      1. Keep answers concise.
+      2. Avoid long musings.
+    suggested_tools: "None"
+    tags: "communication/style, procedure/brevity, skill/chat, workflow/cadence"
+```"""
+    parsed = fact_extractor._parse_procedures_yaml(raw_yaml)
+    assert len(parsed) == 1
+    tags = parsed[0]["tags"]
+    assert "/" not in tags
+    assert "procedure" not in [t.strip() for t in tags.split(",")]
+    assert "skill" not in [t.strip() for t in tags.split(",")]
+    assert "workflow" not in [t.strip() for t in tags.split(",")]
+    tag_list = [t.strip() for t in tags.split(",")]
+    assert "communication" in tag_list
+    assert "style" in tag_list
+    assert "brevity" in tag_list
+    assert "cadence" in tag_list
+
 
 
 

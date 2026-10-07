@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-10-06 21:47:29
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -43,6 +43,7 @@ import evelyn_config as cfg  # [[evelyn_config.py]]
 from Evelyn.tools import backlog_drainer, chroma_rag, taxonomy_db
 from Evelyn.tools.tag_librarian import (
     is_excluded_tag,
+    is_umbrella_term,
     normalize_tag_format,
     propose_tag_admission,
     strip_subject_duplicate_tags,
@@ -997,6 +998,11 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
         "- web_search, start_research: Web searches and multi-source research\n"
         "- generate_image: FLUX image generation\n"
         "- sync_google_tasks, sync_google_calendar, sync_google_drive: Cloud sync operations\n\n"
+        "TAGGING DIRECTIVES (Zero-Slash Invariant & Controlled Subject Taxonomy):\n"
+        "- Tags MUST be flat, atomic, lowercase subject terms separated by commas (e.g. 'conversation, cadence' or 'recipe, baking').\n"
+        "- Zero-Slash Invariant: NEVER include slashes (`/`), colons, or hierarchy prefixes in tags. Container markers like `skill/`, `procedure/`, `workflow/`, `protocol/`, `system/` are STRICTLY FORBIDDEN.\n"
+        "- Name the specific subject, never the container. Write `brevity` or `conversation`, not `procedure/brevity` or `communication/style`.\n"
+        "- Singular count nouns by default; lowercase words joined by hyphens if multi-word.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no procedural rules are found, output an empty list.\n\n"
         "```procedures\n"
@@ -1008,7 +1014,7 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
         "    suggested_tools: \"write_file\" # comma-separated tool names if applicable, or None\n"
         "    pitfalls: \"Common mistakes or things to watch out for/avoid.\" # optional\n"
         "    verification: \"How to verify the action succeeded.\" # optional\n"
-        "    tags: \"skill/x, procedure/y\" # comma-separated semantic tags starting with skill/ or procedure/\n"
+        "    tags: \"conversation, cadence\" # comma-separated flat subject terms (zero slashes, no container prefixes)\n"
         "```\n\n"
         f"CONVERSATION:\n{transcript}"
     )
@@ -1060,13 +1066,36 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
         verification = item.get("verification")
         suggested_tools = item.get("suggested_tools")
         raw_tags = str(item.get("tags", "")).strip()
-        tag_list = taxonomy_db.canonicalize_tags(
-            [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()]
-        )
+        # Container markers that do not belong in controlled subject taxonomy
+        container_words = {
+            "skill", "skills", "procedure", "procedures", "protocol", "protocols",
+            "system", "systems", "workflow", "workflows", "rule", "rules", "task", "tasks",
+            "type", "types", "motif", "motifs", "setting", "settings", "event", "events",
+        }
+        container_prefixes = tuple(f"{w}/" for w in container_words)
+
+        raw_parts = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        cleaned_tokens: list[str] = []
+        for t in raw_parts:
+            for cp in container_prefixes:
+                if t.lower().startswith(cp):
+                    t = t[len(cp):]
+            subparts = [p.strip() for p in t.split("/") if p.strip()] if "/" in t and not is_excluded_tag(t) else [t]
+            for sub in subparts:
+                norm = normalize_tag_format(sub)
+                if norm and norm not in container_words and not is_umbrella_term(norm):
+                    canon = taxonomy_db.canonicalize_tags([norm])
+                    c = canon[0] if canon else norm
+                    if c and c not in cleaned_tokens:
+                        cleaned_tokens.append(c)
+
         with contextlib.suppress(sqlite3.Error, OSError):
-            propose_tag_admission(tag_list, origin="extracted procedure",
-                                  reason="Tag proposed by procedure extraction but not in the controlled vocabulary.")
-        tags = ", ".join(tag_list)
+            propose_tag_admission(
+                cleaned_tokens,
+                origin="extracted procedure",
+                reason="Tag proposed by procedure extraction but not in the controlled vocabulary.",
+            )
+        tags = ", ".join(cleaned_tokens)
 
         # Sanitize trigger and steps against injection
         trigger = _sanitize_entry(trigger)
@@ -1398,7 +1427,7 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
         merge_candidate_id = master["id"] if master else None
 
         try:
-            memory_db.insert_procedure(
+            row_id = memory_db.insert_procedure(
                 trigger_pattern=proc["trigger_pattern"],
                 steps=proc["steps"],
                 pitfalls=proc.get("pitfalls"),
@@ -1410,6 +1439,18 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
                 merged_into_id=merge_candidate_id,
             )
             written += 1
+            # Terms the vocabulary does not hold go to review rather than onto the procedure
+            proc_tags = [t.strip() for t in str(proc.get("tags") or "").split(",") if t.strip()]
+            if proc_tags:
+                with contextlib.suppress(sqlite3.Error, OSError):
+                    kept = withhold_unregistered_tags(
+                        row_id,
+                        proc_tags,
+                        origin=f"extracted procedure #{row_id}",
+                        reason="Tag proposed by procedure extraction but not in the controlled vocabulary.",
+                    )
+                    if kept != proc_tags:
+                        memory_db.update_procedure(row_id, tags=", ".join(kept) if kept else None)
         except (sqlite3.Error, OSError, ValueError) as e:
             print(f"[EXTRACTOR] Failed to insert procedure: {e}", flush=True)
 

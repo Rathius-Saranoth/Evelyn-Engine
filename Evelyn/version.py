@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-06 19:40:21
+# date modified: 2026-10-06 21:47:29
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.016"
-__version_info__ = (0, 8, 16)
-__version_name__ = "Zero-Latency Paralinguistic Audio Tagging & Stage Direction Silencing"
+__version__ = "000.008.017"
+__version_info__ = (0, 8, 17)
+__version_name__ = "Operational Procedure Controlled Tag Taxonomy & Zero-Slash Governance"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

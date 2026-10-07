@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-29 20:55:44
+# date modified: 2026-10-06 21:47:29
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -1450,6 +1450,7 @@ def audit_single_procedure_tags(proc: dict[str, Any], dry_run: bool = False) -> 
     container_words = {
         "skill", "skills", "procedure", "procedures", "protocol", "protocols",
         "system", "systems", "workflow", "workflows", "rule", "rules", "task", "tasks",
+        "type", "types", "motif", "motifs", "setting", "settings", "event", "events",
     }
     container_prefixes = tuple(f"{w}/" for w in container_words)
 
@@ -1463,12 +1464,14 @@ def audit_single_procedure_tags(proc: dict[str, Any], dry_run: bool = False) -> 
         for cp in container_prefixes:
             if t.startswith(cp):
                 t = t[len(cp):]
-        norm = normalize_tag_format(t)
-        if norm and norm not in container_words:
-            canon = taxonomy_db.canonicalize_tags([norm])
-            c = canon[0] if canon else norm
-            if c and c not in cleaned_existing:
-                cleaned_existing.append(c)
+        subparts = [p.strip() for p in t.split("/") if p.strip()] if "/" in t and not is_excluded_tag(t) else [t]
+        for sub in subparts:
+            norm = normalize_tag_format(sub)
+            if norm and norm not in container_words and not is_umbrella_term(norm):
+                canon = taxonomy_db.canonicalize_tags([norm])
+                c = canon[0] if canon else norm
+                if c and c not in cleaned_existing:
+                    cleaned_existing.append(c)
 
     title = f"Procedure #{proc_id}: {trigger[:80]}" if trigger else f"Procedure #{proc_id}"
 
@@ -1486,9 +1489,11 @@ def audit_single_procedure_tags(proc: dict[str, Any], dry_run: bool = False) -> 
         for cp in container_prefixes:
             if t.startswith(cp):
                 t = t[len(cp):]
-        norm = normalize_tag_format(t)
-        if norm and norm not in container_words and norm not in clean_applied:
-            clean_applied.append(norm)
+        subparts = [p.strip() for p in t.split("/") if p.strip()] if "/" in t and not is_excluded_tag(t) else [t]
+        for sub in subparts:
+            norm = normalize_tag_format(sub)
+            if norm and norm not in container_words and not is_umbrella_term(norm) and norm not in clean_applied:
+                clean_applied.append(norm)
 
     final = list(dict.fromkeys([*cleaned_existing, *clean_applied]))
     if dry_run:
@@ -1500,9 +1505,11 @@ def audit_single_procedure_tags(proc: dict[str, Any], dry_run: bool = False) -> 
         for cp in container_prefixes:
             if p.startswith(cp):
                 p = p[len(cp):]
-        norm = normalize_tag_format(p)
-        if norm and norm not in container_words and norm not in clean_proposals:
-            clean_proposals.append(norm)
+        subparts = [x.strip() for x in p.split("/") if x.strip()] if "/" in p and not is_excluded_tag(p) else [p]
+        for sub in subparts:
+            norm = normalize_tag_format(sub)
+            if norm and norm not in container_words and not is_umbrella_term(norm) and norm not in clean_proposals:
+                clean_proposals.append(norm)
 
     if clean_proposals:
         with contextlib.suppress(sqlite3.Error, OSError):
@@ -2382,16 +2389,25 @@ def backfill_admitted_term(term: str, source_ids: list[int]) -> int:
         except (sqlite3.Error, OSError) as exc:
             logger.warning("[TAG LIBRARIAN] Backfill could not read entry %s: %s", eid, exc)
             continue
-        if not entry or entry.get("status") != "live":
-            continue
-        current = [t.strip() for t in str(entry.get("tags") or "").split(",") if t.strip()]
-        if clean in current:
-            continue
-        try:
-            memory_db.update_entry(eid, tags=", ".join([*current, clean]))
-            updated += 1
-        except (sqlite3.Error, OSError) as exc:
-            logger.warning("[TAG LIBRARIAN] Backfill could not update entry %s: %s", eid, exc)
+        if entry and entry.get("status") == "live":
+            current = [t.strip() for t in str(entry.get("tags") or "").split(",") if t.strip()]
+            if clean in current:
+                continue
+            try:
+                memory_db.update_entry(eid, tags=", ".join([*current, clean]))
+                updated += 1
+            except (sqlite3.Error, OSError) as exc:
+                logger.warning("[TAG LIBRARIAN] Backfill could not update entry %s: %s", eid, exc)
+        else:
+            try:
+                proc = memory_db.get_procedure(eid)
+                if proc and proc.get("status") in ("live", "extracted"):
+                    current_p = [t.strip() for t in str(proc.get("tags") or "").split(",") if t.strip()]
+                    if clean not in current_p:
+                        memory_db.update_procedure(eid, tags=", ".join([*current_p, clean]))
+                        updated += 1
+            except (sqlite3.Error, OSError) as exc:
+                logger.warning("[TAG LIBRARIAN] Backfill could not update procedure %s: %s", eid, exc)
 
     if updated:
         logger.info("[TAG LIBRARIAN] Backfilled '%s' onto %d entr(ies).", clean, updated)

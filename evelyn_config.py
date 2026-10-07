@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-06 18:50:12
+# date modified: 2026-10-06 21:47:29
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -802,6 +802,9 @@ TAXONOMY_CONTAINER_TERMS = {
     "environment", "technology", "tech", "development", "projects", "project", "general",
     "misc", "miscellaneous", "personal", "stuff", "things", "topics", "activities",
     "information", "content", "media", "notes", "other", "various", "data",
+    "skill", "skills", "procedure", "procedures", "protocol", "protocols",
+    "workflow", "workflows", "task", "tasks", "rule", "rules", "guideline", "guidelines",
+    "type", "types", "motif", "motifs", "setting", "settings", "event", "events",
 }
 
 # Vector RAG & Semantic Taxonomy Retrieval for Fact Extraction
