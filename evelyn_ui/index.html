@@ -2365,11 +2365,31 @@
       // Sentence WAVs arrive via SSE as they are synthesized and are queued for
       // sequential play, so the first sentence starts before the last is ready.
       let _ttsAudio = null;
+      let _ttsPreloaded = null;
       let _ttsQueue = [];
       let _ttsStreamDone = false;
       let _ttsPlaying = false;
       let _ttsActiveBtn = null;
       let _ttsAbort = null;
+
+      // In-flight streaming speech manager
+      let _inFlightTTS = {
+        active: false,
+        sessionId: null,
+        dispatchedChars: 0,
+        chunkCount: 0,
+        activePromise: Promise.resolve(),
+      };
+
+      function _resetInFlightTTS() {
+        _inFlightTTS = {
+          active: false,
+          sessionId: null,
+          dispatchedChars: 0,
+          chunkCount: 0,
+          activePromise: Promise.resolve(),
+        };
+      }
 
       function _stopTTS() {
         if (_ttsAbort) {
@@ -2381,6 +2401,10 @@
           _ttsAudio.src = "";
           _ttsAudio = null;
         }
+        if (_ttsPreloaded) {
+          _ttsPreloaded.src = "";
+          _ttsPreloaded = null;
+        }
         _ttsQueue = [];
         _ttsStreamDone = false;
         _ttsPlaying = false;
@@ -2388,6 +2412,14 @@
           _ttsActiveBtn.textContent = "🔊";
           _ttsActiveBtn = null;
         }
+        _resetInFlightTTS();
+      }
+
+      function _preloadNextChunk() {
+        if (_ttsPreloaded || _ttsQueue.length === 0) return;
+        const nextUrl = _ttsQueue[0];
+        _ttsPreloaded = new Audio(nextUrl);
+        _ttsPreloaded.preload = "auto";
       }
 
       function _playNextChunk() {
@@ -2397,8 +2429,15 @@
           return;
         }
         const url = _ttsQueue.shift();
-        _ttsAudio = new Audio(url);
+        if (_ttsPreloaded && _ttsPreloaded.src.includes(url)) {
+          _ttsAudio = _ttsPreloaded;
+          _ttsPreloaded = null;
+        } else {
+          _ttsAudio = new Audio(url);
+          _ttsPreloaded = null;
+        }
         _ttsPlaying = true;
+        if (_ttsActiveBtn) _ttsActiveBtn.textContent = "⏹";
         _ttsAudio.play().catch(() => {
           _ttsAudio = null;
           _playNextChunk();
@@ -2411,6 +2450,117 @@
           _ttsAudio = null;
           _playNextChunk();
         };
+        _preloadNextChunk();
+      }
+
+      async function _dispatchInFlightChunk(text, isFinal, sessionId) {
+        if (!_ttsAbort) _ttsAbort = new AbortController();
+        const signal = _ttsAbort.signal;
+        try {
+          const resp = await fetch(`${API_BASE}/tts/stream`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "tts",
+              input: text,
+              is_final: isFinal,
+              session_id: sessionId,
+            }),
+            signal,
+          });
+          if (!resp.ok) throw new Error(`TTS HTTP error: ${resp.status}`);
+
+          const reader = resp.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const ev = JSON.parse(line.slice(6));
+                if (ev.chunk) {
+                  _ttsQueue.push(`${API_BASE}/tts-audio/${ev.chunk}`);
+                  if (!_ttsPlaying) {
+                    _playNextChunk();
+                  } else {
+                    _preloadNextChunk();
+                  }
+                } else if (ev.error) {
+                  console.error("[TTS In-Flight]", ev.error);
+                }
+              } catch {}
+            }
+          }
+        } catch (e) {
+          if (e.name !== "AbortError") console.error("[TTS In-Flight error]:", e);
+        }
+      }
+
+      function processInFlightSpeech(isStreamComplete = false) {
+        if (!_autoSpeech || !currentStream || !currentStream.contentText) return;
+
+        if (!_inFlightTTS.active) {
+          _stopTTS();
+          _inFlightTTS.active = true;
+          _inFlightTTS.sessionId = `tts_sess_${Date.now()}`;
+          _inFlightTTS.dispatchedChars = 0;
+          _inFlightTTS.chunkCount = 0;
+          _ttsStreamDone = false;
+          _ttsAbort = new AbortController();
+        }
+
+        const fullText = currentStream.contentText;
+        const unparsed = fullText.slice(_inFlightTTS.dispatchedChars);
+        if (!unparsed.trim()) {
+          if (isStreamComplete) {
+            _ttsStreamDone = true;
+            if (!_ttsPlaying && _ttsQueue.length === 0) _stopTTS();
+          }
+          return;
+        }
+
+        if (isStreamComplete) {
+          const textToDispatch = unparsed.trim();
+          if (textToDispatch) {
+            _inFlightTTS.dispatchedChars = fullText.length;
+            _inFlightTTS.chunkCount++;
+            const sid = _inFlightTTS.sessionId;
+            _inFlightTTS.activePromise = _inFlightTTS.activePromise.then(() =>
+              _dispatchInFlightChunk(textToDispatch, true, sid)
+            ).finally(() => {
+              _ttsStreamDone = true;
+              if (!_ttsPlaying && _ttsQueue.length === 0) _stopTTS();
+            });
+          } else {
+            _ttsStreamDone = true;
+            if (!_ttsPlaying && _ttsQueue.length === 0) _stopTTS();
+          }
+          return;
+        }
+
+        const minChars = _inFlightTTS.chunkCount === 0 ? 35 : 120;
+        if (unparsed.length < minChars) return;
+
+        const match = unparsed.match(/([.!?])\s+|\n+/);
+        if (!match || match.index === undefined) return;
+
+        const boundaryEnd = match.index + match[0].length;
+        const segment = unparsed.slice(0, boundaryEnd).trim();
+
+        if (segment.length >= minChars) {
+          _inFlightTTS.dispatchedChars += boundaryEnd;
+          _inFlightTTS.chunkCount++;
+          const sid = _inFlightTTS.sessionId;
+          _inFlightTTS.activePromise = _inFlightTTS.activePromise.then(() =>
+            _dispatchInFlightChunk(segment, false, sid)
+          );
+        }
       }
 
       async function playTTS(text, btn) {
@@ -2418,6 +2568,7 @@
           _stopTTS();
           return;
         }
+        _resetInFlightTTS();
         _ttsActiveBtn = btn;
         btn.textContent = "⏳";
         _ttsQueue = [];
@@ -2429,7 +2580,7 @@
           const resp = await fetch(`${API_BASE}/tts/stream`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model: "tts", input: text }),
+            body: JSON.stringify({ model: "tts", input: text, is_final: true }),
             signal: _ttsAbort.signal,
           });
           if (!resp.ok) throw new Error(`TTS error: ${resp.status}`);
@@ -2453,6 +2604,8 @@
                   if (!_ttsPlaying) {
                     btn.textContent = "⏹";
                     _playNextChunk();
+                  } else {
+                    _preloadNextChunk();
                   }
                 } else if (ev.done) {
                   _ttsStreamDone = true;
@@ -2992,6 +3145,7 @@
 
       function startStreamingUI(statusText = "Thinking…") {
         isStreaming = true;
+        _resetInFlightTTS();
         const sendBtn = document.getElementById("send-btn");
         if (sendBtn) {
           sendBtn.disabled = false;
@@ -3184,6 +3338,7 @@
           currentStream.contentText += evt.delta;
           currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
           currentStream.bubble.appendChild(currentStream.cursorEl);
+          if (_autoSpeech) processInFlightSpeech(false);
           setStatus("Streaming…");
           scrollBottom();
           return;
@@ -3198,6 +3353,8 @@
           if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
           if (currentStream.removeActivity) currentStream.removeActivity();
           if (currentStream.cursorEl) currentStream.cursorEl.remove();
+          if (_autoSpeech) _stopTTS();
+          _resetInFlightTTS();
           if (!currentStream.bubble) {
             currentStream.bubble = document.createElement("div");
             currentStream.bubble.className = "bubble";
@@ -3224,7 +3381,13 @@
             const { actions, ttsBtn } = createMessageActions(evt.message_id || null, currentStream.contentText, null);
             currentStream.wrap.appendChild(actions);
             addWriteBadges(currentStream.wrap, currentStream.usedTools, currentStream.contentText);
-            if (_autoSpeech) playTTS(currentStream.contentText, ttsBtn);
+            if (_autoSpeech) {
+              processInFlightSpeech(true);
+              if (ttsBtn) {
+                _ttsActiveBtn = ttsBtn;
+                if (_ttsPlaying || _ttsQueue.length > 0) ttsBtn.textContent = "⏹";
+              }
+            }
           }
 
           if (currentStream.userMsgDiv) {
@@ -4957,6 +5120,7 @@
       function toggleAutoSpeech() {
         _autoSpeech = !_autoSpeech;
         localStorage.setItem("autoSpeech", _autoSpeech);
+        if (!_autoSpeech) _stopTTS();
         _applyAutoSpeechUI();
       }
 

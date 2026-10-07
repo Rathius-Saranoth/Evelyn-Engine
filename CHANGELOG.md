@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-05 18:17:45
+date modified: 2026-10-06 18:50:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.015] - 2026-10-06 — *Persistent RTF Calibration & Mid-Synthesis Lifecycle Protection*
+
+### Fixed
+
+- **Mid-Synthesis Model Teardown Defect (`services/tts/tts_server.py`)**:
+  - Resolved race condition where long multi-paragraph assistant turns exceeding the inactivity timeout were cut off mid-synthesis when `_unload_model()` tore down the model while chunks were actively computing in background thread executors (`AttributeError: 'ChatterboxTurboTTS' object has no attribute 's3gen'`).
+  - Implemented thread-safe `_active_requests` counter and lock (`_request_lock`), guarding `_unload_model()` and `_unload_model_force()` so unloads automatically reschedule whenever requests are in flight.
+  - Refreshed `_last_used` timestamp and rescheduled the unload timer inside `_stream()` after every successfully generated chunk rather than only once at request initiation.
+  - Increased default inactivity unload timeout from 120s to 300s (5 minutes) and exposed `TTS_UNLOAD_TIMEOUT_S` in `evelyn_config.py` (overridable via `EVELYN_TTS_UNLOAD_TIMEOUT_S`).
+
+### Added
+
+- **Disk-Persisted Hardware RTF Calibration (`services/tts/tts_server.py`, `services/tts/audio/rtf_calibration.json`)**:
+  - Upgraded `RTFTracker` to persist exponential moving average (EMA) calibrations per hardware device (`cpu` and `cuda`) directly to disk (`services/tts/audio/rtf_calibration.json`).
+  - Eliminates uncalibrated startup cold starts; learned hardware ratios survive process restarts and model unloads without needing to relearn from default baselines on every new message.
+- **CPU Progressive Stepping-Stone Chunk Planning (`services/tts/tts_server.py`)**:
+  - Enhanced `calculate_chunk_plan()` to emit Chunk 1 as a single stepping-stone sentence on high-RTF devices (`rtf_ema >= 1.0`), keeping Chunk 1 synthesis compute (~5–8s) tightly synchronized with Chunk 0 audio duration (~4–7s) to eliminate the noticeable 15–20s silence gap before subsequent sections.
+- **Extended Test Coverage (`Evelyn/tests/test_tts_server.py`)**:
+  - Added hermetic tests for `test_rtf_tracker_disk_persistence` (using `tempfile.TemporaryDirectory`) and `test_calculate_chunk_plan_cpu_stepping_stone`.
+
+## [000.008.014] - 2026-10-06 — *Pipelined Low-Latency Speech Synthesis & Hardware-Adaptive Scaling*
+
+### Added
+
+- **In-Flight Sentence Streaming Speech Dispatcher (`evelyn_ui/index.html`)**:
+  - Implemented client-side in-flight streaming speech dispatcher intercepting active token deltas (`evt.type === 'text'`) to extract and dispatch Sentence 0 immediately upon punctuation boundary resolution (`[.!?]\s+` or `\n\n`), bypassing the previous turn-completion wait gate.
+  - Added audio queue pre-buffering (`_preloadNextChunk`) preloading upcoming WAV chunks in browser memory to eliminate inter-sentence gap and click artifacts.
+  - Linked active speech state directly with message action buttons (`⏹` while speaking, `🔊` on completion) and auto-speech toggling.
+- **Hardware-Adaptive Ratio Chunk Planner & RTF Tracker (`services/tts/tts_server.py`)**:
+  - Implemented `RTFTracker` measuring synthesis Real-Time Factor per chunk and updating an Exponential Moving Average (`rtf_ema`), self-calibrating to CPU (~1.6x–2.0x) or CUDA (~0.25x) host speeds.
+  - Built `calculate_chunk_plan()` dynamically budgeting Chunk 0 as 1 fast-dispatch sentence (subject to a 35-character minimum floor) and scaling subsequent chunks to duration-balanced targets that mask synthesis latency during playback.
+  - Added PyTorch thread pinning (`torch.set_num_threads`) on CPU bound to `OMP_NUM_THREADS` (default 8) to optimize CPU synthesis latency.
+- **Environment & Unit Service Wiring (`.env`, `evelyn_config.py`, `services/tts/evelyn-tts.service`)**:
+  - Exposed `EVELYN_TTS_DEVICE` in `.env` and `TTS_DEVICE` / `TTS_MIN_CHUNK0_CHARS` in `evelyn_config.py`.
+  - Updated `evelyn-tts.service` to consume `EnvironmentFile=-/home/rathius/evelyn/.env` and removed unit-level hardcoded device overrides, enabling seamless one-line switching between CPU (Gaming PC) and CUDA (Enterprise Server).
+- **TTS Server & Chunk Planner Unit Test Suite (`Evelyn/tests/test_tts_server.py`)**:
+  - Added comprehensive test suite verifying RTF EMA calculations, short greeting merging, asymmetric CPU chunk planning, and paralinguistic tag preservation.
 
 ## [000.008.013] - 2026-10-05 — *Dream Entry Vault Template Integration & Verbatim Narrative Guard*
 

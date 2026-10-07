@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-03 12:07:32
+date modified: 2026-10-06 18:00:32
 ---
 # Evelyn Project Roadmap
 
@@ -56,6 +56,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **FLUX.1 Image Generation**: Built standalone, on-demand FLUX.1 Schnell image generation microservice (port 5055) with automatic VRAM management.
 - [x] **Multimodal Visual Memory**: Implemented SQLite media database (`evelyn_media.db`), isolated attachment store, client-side EXIF/GPS parsing, background visual indexing (`llama3.2-vision`), and interactive Chat UI Media Inspector.
 - [x] **Local Speech-to-Text (STT) & Voice Ingestion**: Lightweight local transcription microservice (Faster-Whisper / Silero VAD) with audio chunk buffering, Chat UI segmented draft stack, raw waveform persistence, and 2-stage dictation arming with Web Audio chimes.
+- [ ] **Pipelined Low-Latency Speech Synthesis & In-Flight Dispatch**: Stream conversation sentences to Chatterbox Turbo incrementally as punctuation boundaries resolve during active LLM token streaming (with 1-sentence fast-dispatch for chunk 0, duration-balanced subsequent chunking, and CPU thread pinning), eliminating the response-completion wait gate while preserving zero-shot emotional modeling.
 - [ ] **Expressive Emotional TTS & Mid-Sentence Prosody**: Natural mid-response emotional modulation and paralinguistic tags (`[laugh]`, `[sigh]`, `[chuckle]`, `[gasp]`) integrated naturally across mid-sentence speech boundaries, Chat UI styling cues, and multi-style acoustic synthesis.
 - [ ] **Standalone Media Gallery (`ui/gallery.html`)**: Build a dedicated media management dashboard with timeline views, category filtering, lightbox inspection, and visual RAG search.
 - [ ] **Google Photos Bulk Ingestion**: Build Google Takeout ingestion pipeline preserving unredacted GPS, native timestamps, and JSON sidecars into `evelyn_media.db` for lifelong visual memory.

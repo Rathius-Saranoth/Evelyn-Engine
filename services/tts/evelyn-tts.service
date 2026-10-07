@@ -6,8 +6,8 @@ After=network.target
 Type=simple
 User=rathius
 WorkingDirectory=/home/rathius/evelyn/services/tts
+EnvironmentFile=-/home/rathius/evelyn/.env
 Environment="PYTHONPATH=/home/rathius/evelyn"
-Environment="EVELYN_TTS_DEVICE=cpu"
 Environment="OMP_NUM_THREADS=8"
 ExecStart=/home/rathius/evelyn/services/tts/venv/bin/python tts_server.py
 Restart=on-failure

@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-05 18:17:20
+# date modified: 2026-10-06 18:50:12
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1005,6 +1005,9 @@ RESEARCH_EVAL_NUM_PREDICT = max(2048, min(NUM_PREDICT, int(NUM_PREDICT * 0.25)))
 # Services
 # =============================================================================
 TTS_SERVER_URL = os.environ.get("EVELYN_TTS_SERVER_URL", "http://localhost:5050")
+TTS_DEVICE = os.environ.get("EVELYN_TTS_DEVICE", "cpu").lower()
+TTS_MIN_CHUNK0_CHARS = int(os.environ.get("EVELYN_TTS_MIN_CHUNK0_CHARS", "35"))
+TTS_UNLOAD_TIMEOUT_S = int(os.environ.get("EVELYN_TTS_UNLOAD_TIMEOUT_S", "300"))
 IMAGE_SERVER_URL = os.environ.get("EVELYN_IMAGE_SERVER_URL", "http://localhost:5055")
 IMAGE_OUTPUT_DIR = os.path.join(BASE_DIR, "services", "image", "output")
 

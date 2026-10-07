@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-09-07 18:04:00
+# date modified: 2026-10-06 18:50:12
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -49,7 +49,11 @@ except ImportError:
     cfg = None
 
 import numpy as np
-import soundfile as sf
+
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
 import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -71,25 +75,181 @@ PORT = 5050
 SAMPLE_RATE = 24000
 
 # Execution device: "cpu" (default, zero VRAM impact, Ollama never unloads) or "cuda"
-DEVICE = os.environ.get("EVELYN_TTS_DEVICE", "cpu").lower()
+DEVICE = (cfg.TTS_DEVICE if cfg and hasattr(cfg, "TTS_DEVICE") else os.environ.get("EVELYN_TTS_DEVICE", "cpu")).lower()
+
+# Minimum character floor for Chunk 0 fast-dispatch (avoids microscopic 3-word fragments)
+MIN_CHUNK0_CHARS = (
+    cfg.TTS_MIN_CHUNK0_CHARS
+    if cfg and hasattr(cfg, "TTS_MIN_CHUNK0_CHARS")
+    else int(os.environ.get("EVELYN_TTS_MIN_CHUNK0_CHARS", "35"))
+)
+
+# PyTorch thread allocation on CPU to optimize RTF
+if DEVICE == "cpu":
+    cpu_threads = int(os.environ.get("OMP_NUM_THREADS", "8"))
+    try:
+        torch.set_num_threads(cpu_threads)
+    except (RuntimeError, ValueError) as e:
+        print(f"[TTS] Warning: could not set torch threads: {e}", flush=True)
 
 # Unload model after this many seconds of inactivity to free system memory / VRAM.
-UNLOAD_TIMEOUT_S = 120  # 2 minutes
+UNLOAD_TIMEOUT_S = (
+    cfg.TTS_UNLOAD_TIMEOUT_S
+    if cfg and hasattr(cfg, "TTS_UNLOAD_TIMEOUT_S")
+    else int(os.environ.get("EVELYN_TTS_UNLOAD_TIMEOUT_S", "300"))
+)
 
 # Cleanup generated audio chunk files after delivery.
-# Must be longer than the maximum expected total playback duration — later chunks
-# are not fetched until earlier ones finish playing, so a long response (e.g. 15
-# sentences × 10s each = 150s of audio) needs all files to survive until then.
 FILE_CLEANUP_DELAY_S = 600  # 10 minutes
 
 # Silence appended to the tail of each chunk (seconds).
-# Set to 0.0 for seamless playback; increase (e.g. 0.15) for a natural breath pause.
 SENTENCE_SILENCE_S = 0.0
 
-# Number of sentences to group into a single synthesized audio chunk.
-# Default 3 preserves natural multi-sentence prosody and prevents audio buffer
-# starvation/gaps on CPU playback. Configurable via EVELYN_TTS_CHUNK_SENTENCES.
+# Number of sentences fallback cap if manual override is supplied.
 CHUNK_SENTENCES = int(os.environ.get("EVELYN_TTS_CHUNK_SENTENCES", "3"))
+
+CALIBRATION_FILE = BASE_DIR / "audio" / "rtf_calibration.json"
+
+
+class RTFTracker:
+    """Tracks exponential moving average (EMA) of synthesis Real-Time Factor (RTF).
+
+    Persists calibration to disk per-device so calibrations survive restarts and model unloads.
+    """
+
+    def __init__(
+        self,
+        initial_rtf: float | None = None,
+        device: str = "cpu",
+        calibration_file: Path | None = None,
+    ):
+        self.device = device.lower()
+        self.calibration_file = calibration_file
+        self.alpha = 0.35
+        self.lock = threading.Lock()
+
+        default_val = initial_rtf if initial_rtf is not None else (2.09 if self.device == "cpu" else 0.25)
+        self.ema_rtf = self._load_persisted(default_val)
+
+    def _load_persisted(self, default_val: float) -> float:
+        if self.calibration_file and self.calibration_file.exists():
+            try:
+                with open(self.calibration_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                    if self.device in data and isinstance(data[self.device], (int, float)):
+                        val = float(data[self.device])
+                        print(f"[TTS] Loaded persisted RTF calibration for {self.device}: {val:.2f}x", flush=True)
+                        return val
+            except (OSError, json.JSONDecodeError, ValueError) as e:
+                print(f"[TTS] Warning: could not load RTF calibration: {e}", flush=True)
+        return default_val
+
+    def _save_persisted(self):
+        if not self.calibration_file:
+            return
+        try:
+            data = {}
+            if self.calibration_file.exists():
+                with contextlib.suppress(OSError, json.JSONDecodeError), open(self.calibration_file, encoding="utf-8") as f:
+                    data = json.load(f)
+            data[self.device] = round(self.ema_rtf, 3)
+            self.calibration_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.calibration_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except (OSError, TypeError, ValueError) as e:
+            print(f"[TTS] Warning: could not save RTF calibration: {e}", flush=True)
+
+    def record(self, gen_seconds: float, audio_seconds: float) -> float:
+        if audio_seconds <= 0.1:
+            return self.ema_rtf
+        measured = gen_seconds / audio_seconds
+        with self.lock:
+            self.ema_rtf = (self.alpha * measured) + ((1.0 - self.alpha) * self.ema_rtf)
+            self._save_persisted()
+            return self.ema_rtf
+
+    @property
+    def value(self) -> float:
+        with self.lock:
+            return self.ema_rtf
+
+
+_rtf_tracker = RTFTracker(device=DEVICE, calibration_file=CALIBRATION_FILE)
+
+
+def calculate_chunk_plan(text: str, rtf_ema: float) -> list[str]:
+    """Calculate ratio-balanced chunk plan tailored to device performance.
+
+    Chunk 0: 1 sentence (fast dispatch to minimize Time to First Audio), subject
+             to MIN_CHUNK0_CHARS floor so short greetings like 'Yes.' merge forward.
+    Chunk 1: On high-RTF CPU (RTF >= 1.0), kept to a stepping-stone single sentence
+             to keep synthesis latency tightly aligned with Chunk 0 playback duration,
+             preventing noticeable silence gap before subsequent sections.
+    Chunks 2+: Scaled character target based on rtf_ema to balance natural pauses
+               and manageable batch computation.
+    """
+    clean_text = text.strip()
+    if not clean_text:
+        return [""]
+
+    paragraphs = [p.strip() for p in re.split(r'\n+', clean_text) if p.strip()]
+    if not paragraphs:
+        return [""]
+
+    all_sentences = []
+    for para in paragraphs:
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', para) if s.strip()]
+        if not sentences and para:
+            sentences = [para]
+        all_sentences.extend(sentences)
+
+    if not all_sentences:
+        return [text]
+    if len(all_sentences) == 1:
+        return all_sentences
+
+    chunks = []
+    s0 = all_sentences[0]
+    idx = 1
+    while len(s0) < MIN_CHUNK0_CHARS and idx < len(all_sentences):
+        s0 = f"{s0} {all_sentences[idx]}"
+        idx += 1
+    chunks.append(s0)
+
+    if idx >= len(all_sentences):
+        return chunks
+
+    # Stepping-stone for Chunk 1 on CPU/slow devices:
+    # A single sentence synthesizes in ~8-11s, closely matching Chunk 0 playback
+    # duration (~7-9s) and eliminating the large 15-20s pause.
+    if rtf_ema >= 1.0 and idx < len(all_sentences):
+        s1 = all_sentences[idx]
+        idx += 1
+        while len(s1) < MIN_CHUNK0_CHARS and idx < len(all_sentences):
+            s1 = f"{s1} {all_sentences[idx]}"
+            idx += 1
+        chunks.append(s1)
+
+    if idx >= len(all_sentences):
+        return chunks
+
+    target_chars = 120 if rtf_ema < 0.6 else int(min(180, max(130, 90 * rtf_ema)))
+
+    current_group = []
+    current_len = 0
+    for s in all_sentences[idx:]:
+        current_group.append(s)
+        current_len += len(s)
+        if current_len >= target_chars:
+            chunks.append(" ".join(current_group))
+            current_group = []
+            current_len = 0
+
+    if current_group:
+        chunks.append(" ".join(current_group))
+
+    return chunks
+
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -117,6 +277,8 @@ _model_lock = threading.Lock()
 _last_used: float = 0.0
 _unload_timer: threading.Timer | None = None
 _current_voice: str | None = None
+_active_requests: int = 0
+_request_lock = threading.Lock()
 
 
 def _load_model():
@@ -173,6 +335,11 @@ def _unload_model():
     with _model_lock:
         if _model is None:
             return
+        with _request_lock:
+            if _active_requests > 0:
+                # Active request in flight — do not unload! Reschedule.
+                _schedule_unload()
+                return
         idle = time.time() - _last_used
         if idle < UNLOAD_TIMEOUT_S:
             # Not idle long enough (raced with a new request) — reschedule
@@ -201,6 +368,10 @@ def _unload_model_force():
             _unload_timer = None
         if _model is None:
             return
+        with _request_lock:
+            if _active_requests > 0:
+                print(f"[TTS] Force unload requested but {_active_requests} request(s) still active — deferred", flush=True)
+                return
         print("[TTS] Unloading Chatterbox model immediately to free VRAM for Ollama", flush=True)
         _teardown_model_vram()
 
@@ -291,6 +462,8 @@ class SpeechRequest(BaseModel):
     model: str = ""
     input: str
     voice: str = ""
+    is_final: bool = True
+    session_id: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -357,41 +530,24 @@ async def generate_speech_stream(data: SpeechRequest):
     if not text:
         raise HTTPException(status_code=400, detail="Missing or empty 'input' field after cleaning")
 
-    # Chunk strategy: paragraph breaks are the primary boundary; CHUNK_SENTENCES
-    # is a secondary cap within a long paragraph. Whichever comes first wins.
-    # e.g. a 2-sentence paragraph → 1 chunk; a 5-sentence paragraph → [3, 2].
-    paragraphs = [p.strip() for p in re.split(r'\n+', text) if p.strip()]
-    if not paragraphs:
-        paragraphs = [text]
-
-    chunks = []
-    for para in paragraphs:
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', para) if s.strip()]
-        if not sentences:
-            if para:
-                chunks.append(para)
-            continue
-        if len(sentences) <= CHUNK_SENTENCES:
-            chunks.append(' '.join(sentences))
-        else:
-            for i in range(0, len(sentences), CHUNK_SENTENCES):
-                group = ' '.join(sentences[i:i + CHUNK_SENTENCES])
-                if group:
-                    chunks.append(group)
-
-    if not chunks:
-        chunks = [text]
+    chunks = calculate_chunk_plan(text, _rtf_tracker.value)
 
     async def _stream():
-        global _current_voice
+        global _current_voice, _last_used
         loop = asyncio.get_event_loop()
         job_id = uuid.uuid4().hex[:8]
+
+        with _request_lock:
+            global _active_requests
+            _active_requests += 1
 
         # Unload Ollama only if running on CUDA (CPU mode does not touch VRAM)
         if DEVICE == "cuda":
             _unload_ollama()
         model = get_model()
         if model is None:
+            with _request_lock:
+                _active_requests = max(0, _active_requests - 1)
             raise RuntimeError("TTS model could not be loaded")
 
         # Determine voice reference audio path and ensure conditionals are cached
@@ -410,8 +566,18 @@ async def generate_speech_stream(data: SpeechRequest):
                     # audio_prompt_path=None leverages the pre-cached conditionals in m.conds
                     return m.generate(text=c, audio_prompt_path=None)
 
+                t_chunk_start = time.perf_counter()
                 wav = await loop.run_in_executor(None, _gen)
+                gen_time_s = time.perf_counter() - t_chunk_start
                 wav_np = wav.squeeze().cpu().numpy()
+                audio_dur_s = len(wav_np) / SAMPLE_RATE
+                curr_ema = _rtf_tracker.record(gen_time_s, audio_dur_s)
+                measured_rtf = gen_time_s / max(0.01, audio_dur_s)
+                print(
+                    f"[TTS] Chunk {i:03d} synthesized in {gen_time_s:.2f}s "
+                    f"({audio_dur_s:.2f}s audio, RTF: {measured_rtf:.2f}x, EMA: {curr_ema:.2f}x)",
+                    flush=True,
+                )
 
                 if SENTENCE_SILENCE_S > 0:
                     silence = np.zeros(int(SAMPLE_RATE * SENTENCE_SILENCE_S), dtype=np.float32)
@@ -419,10 +585,15 @@ async def generate_speech_stream(data: SpeechRequest):
 
                 filename = f"tts_{job_id}_{i:03d}.wav"
                 filepath = str(OUTPUT_DIR / filename)
-                sf.write(filepath, wav_np, SAMPLE_RATE)
+                if sf is not None:
+                    sf.write(filepath, wav_np, SAMPLE_RATE)
 
                 # Schedule file cleanup independently of the stream lifecycle.
                 asyncio.get_event_loop().create_task(_delete_after_delay(filepath))
+
+                with _model_lock:
+                    _last_used = time.time()
+                    _schedule_unload()
 
                 yield f'data: {{"chunk": "{filename}"}}\n\n'
 
@@ -430,11 +601,16 @@ async def generate_speech_stream(data: SpeechRequest):
             print(f"[TTS] Stream generation error: {e}", flush=True)
             yield f'data: {{"error": "{e!s}"}}\n\n'
         finally:
+            with _request_lock:
+                _active_requests = max(0, _active_requests - 1)
+            with _model_lock:
+                _last_used = time.time()
             with contextlib.suppress(NameError):
                 del model
             if DEVICE == "cuda":
-                _unload_model_force()
-                threading.Thread(target=_prefetch_ollama, daemon=True).start()
+                if getattr(data, "is_final", True):
+                    _unload_model_force()
+                    threading.Thread(target=_prefetch_ollama, daemon=True).start()
             else:
                 _schedule_unload()
 
@@ -458,6 +634,7 @@ async def health():
         "device": DEVICE,
         "model_loaded": loaded,
         "model": "ChatterboxTurboTTS",
+        "rtf_ema": round(_rtf_tracker.value, 2),
         "vram_mb": round(vram_mb, 1),
         "idle_seconds": round(idle, 1) if idle is not None else None,
         "unload_timeout_s": UNLOAD_TIMEOUT_S,

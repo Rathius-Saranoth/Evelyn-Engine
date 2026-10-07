@@ -1,6 +1,6 @@
 # .vulture_whitelist.py
 # date created: 2026-09-06 18:45:00
-# date modified: 2026-10-04 09:57:37
+# date modified: 2026-10-06 18:50:12
 # tags:
 # Framework whitelist for Vulture dead-code auditing in Evelyn Engine
 # date created: 2026-09-06 18:45:00
@@ -175,3 +175,10 @@ _.primary_category
 _.tool_response_for
 _.load_suite
 _.validate_cases
+
+# TTS service configuration (evelyn_config.py -> services/tts/tts_server.py)
+# AGENTS.md §11 category 1 — external service consumer outside Vulture scan paths.
+_.TTS_DEVICE
+_.TTS_MIN_CHUNK0_CHARS
+_.TTS_UNLOAD_TIMEOUT_S
+
