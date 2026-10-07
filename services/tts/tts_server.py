@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-10-06 18:50:12
+# date modified: 2026-10-06 19:40:21
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -249,6 +249,78 @@ def calculate_chunk_plan(text: str, rtf_ema: float) -> list[str]:
         chunks.append(" ".join(current_group))
 
     return chunks
+
+
+SUPPORTED_TTS_TAGS = {
+    "laugh", "sigh", "chuckle", "cough", "gasp",
+    "groan", "sniff", "shush", "clear throat",
+}
+
+
+def sanitize_and_tag_speech(text: str) -> str:
+    """Prepare text for Chatterbox Turbo TTS synthesis.
+
+    1. Normalizes unicode quotes, apostrophes, dashes, and ellipses.
+    2. Preserves bold text while translating asterisk vocal emotes to native paralinguistic audio tags.
+    3. Strips remaining visual/bodily stage directions (*I lean in...*) so they are never voiced aloud.
+    4. Converts soft delivery markers ([softly], [whispering]) into natural pauses while preserving supported tags.
+    5. Strips markdown links, images, and extra noise.
+    """
+    clean = text.strip()
+    if not clean:
+        return ""
+
+    # 1. Normalize quotes, apostrophes, dashes, ellipses
+    clean = clean.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    clean = clean.replace("—", ", ").replace("–", ", ").replace("…", ", ")
+
+    # 2. Unwrap markdown images and links
+    clean = re.sub(r'!\[.*?\]\(.*?\)', '', clean)
+    clean = re.sub(r'(?<!\!)\[(.*?)\]\(.*?\)', r'\1', clean)
+    clean = re.sub(r'\[\[(.*?)\]\]', r'\1', clean)
+
+    # 3. Preserve bold words as plain text before asterisk action processing
+    clean = re.sub(r'\*\*(.*?)\*\*', r'\1', clean)
+    clean = re.sub(r'__(.*?)__', r'\1', clean)
+
+    # 4. Translate vocal actions in asterisks to native Chatterbox tags
+    vocal_patterns = [
+        (r'\*[^*]*(?:melodious\s+laugh|soft\s+laugh|small\s+laugh|airy\s+laugh|chuckles?\s+and\s+laughs?|burst\s+of\s+laughter|laughing|laughs?)[^*]*\*', ' [laugh] '),
+        (r'\*[^*]*(?:chuckles?|giggles?|smirks?|snickers?)[^*]*\*', ' [chuckle] '),
+        (r'\*[^*]*(?:long,?\s+contented\s+breath|deep\s+breath|slow\s+breath|contented\s+sigh|soft\s+sigh|sighs?|exhales?)[^*]*\*', ' [sigh] '),
+        (r'\*[^*]*(?:gasps?)[^*]*\*', ' [gasp] '),
+        (r'\*[^*]*(?:clears?\s+(?:my|her|the)?\s*throat)[^*]*\*', ' [clear throat] '),
+        (r'\*[^*]*(?:coughs?)[^*]*\*', ' [cough] '),
+        (r'\*[^*]*(?:groans?|grunts?)[^*]*\*', ' [groan] '),
+        (r'\*[^*]*(?:pause[sd]?|silent\s+pause)[^*]*\*', ', '),
+    ]
+    for pattern, tag in vocal_patterns:
+        clean = re.sub(pattern, tag, clean, flags=re.IGNORECASE)
+
+    # 5. Strip any remaining asterisk actions (visual/bodily stage directions)
+    clean = re.sub(r'\*[^*]+?\*', '', clean)
+    clean = clean.replace('*', '')
+
+    # 6. Handle bracketed delivery markers: preserve supported tags, filter unsupported ones
+    def _bracket_filter(match):
+        inner = match.group(1).lower().strip()
+        if inner in SUPPORTED_TTS_TAGS:
+            return f' [{inner}] '
+        return ', ' if inner in {'softly', 'gently', 'quietly', 'whispering', 'tenderly'} else ''
+
+    clean = re.sub(r'\[(.*?)\]', _bracket_filter, clean)
+
+    # 7. Punctuation and whitespace normalization
+    clean = re.sub(r'\.\s*\.\s*\.', ',', clean)
+    clean = re.sub(r'[^\w\s,.!?;:\'\"-\[\]]', '', clean)
+    clean = clean.replace('_', ' ').replace('#', '')
+    clean = re.sub(r'([!?.]){2,}', r'\1', clean)
+    clean = re.sub(r',\s*,+', ',', clean)
+    clean = re.sub(r'(\n+)\s*,', r'\1', clean)
+    clean = re.sub(r'[ \t]+', ' ', clean)
+    clean = re.sub(r'\n{3,}', '\n\n', clean).strip()
+
+    return clean
 
 
 # ---------------------------------------------------------------------------
@@ -511,21 +583,7 @@ async def generate_speech_stream(data: SpeechRequest):
     Returns:
         StreamingResponse: SSE stream of chunk events.
     """
-    text = data.input.strip()
-
-    # --- Text cleaning (remove markdown artifacts that cause garbled speech) ---
-    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)           # image markdown
-    text = re.sub(r'(?<!\!)\[(.*?)\]\(.*?\)', r'\1', text) # links → keep text
-    text = re.sub(r'\[\[(.*?)\]\]', r'\1', text)           # wiki links
-    text = text.replace('**', '').replace('*', '').replace('__', '').replace('_', '')
-    text = text.replace('#', '')
-    text = text.replace('—', ', ').replace('–', ', ')       # dashes → natural pause
-    text = re.sub(r'\.\s*\.\s*\.', ',', text)             # ellipsis → comma
-    text = re.sub(r'[^\w\s,.!?;:\'"-\[\]]', '', text)      # strict whitelist
-    text = text.replace('_', ' ')
-    text = re.sub(r'([!?.]){2,}', r'\1', text)             # collapse repeated punctuation
-    text = re.sub(r'[ \t]+', ' ', text)           # collapse horizontal whitespace only
-    text = re.sub(r'\n{3,}', '\n\n', text).strip() # cap blank lines at two
+    text = sanitize_and_tag_speech(data.input)
 
     if not text:
         raise HTTPException(status_code=400, detail="Missing or empty 'input' field after cleaning")

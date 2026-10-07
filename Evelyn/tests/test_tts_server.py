@@ -1,13 +1,13 @@
 # test_tts_server.py
 # date created: 2026-10-06 18:21:00
-# date modified: 2026-10-06 18:50:12
+# date modified: 2026-10-06 19:40:21
 # tags: #tests, #tts, #speech, #audio, #rtf, #chatterbox
 
 """Unit tests for Evelyn's TTS server chunk planner, RTF tracker, and ratio scaling."""
 
 import unittest
 
-from services.tts.tts_server import RTFTracker, calculate_chunk_plan
+from services.tts.tts_server import RTFTracker, calculate_chunk_plan, sanitize_and_tag_speech
 
 
 class TestTTSServer(unittest.TestCase):
@@ -122,3 +122,44 @@ class TestTTSServer(unittest.TestCase):
         self.assertGreaterEqual(len(chunks), 3)
         self.assertEqual(chunks[0], "Sentence one is our opening statement here.")
         self.assertEqual(chunks[1], "Sentence two is the stepping stone for CPU playback continuity.")
+
+    def test_sanitize_and_tag_speech_translates_vocal_emotes(self):
+        text = (
+            "*I let out a soft, melodious laugh, my eyes sparkling.* "
+            "“Ah, so we are keeping a formal ledger then?” "
+            "*I chuckle softly with a smirk.* "
+            "“Strictly speaking, you are right.”"
+        )
+        cleaned = sanitize_and_tag_speech(text)
+        # First laugh converted to [laugh], chuckle converted to [chuckle]
+        self.assertIn("[laugh]", cleaned)
+        self.assertIn("[chuckle]", cleaned)
+        # Stage directions stripped
+        self.assertNotIn("my eyes sparkling", cleaned)
+        self.assertNotIn("melodious laugh", cleaned)
+        # Dialogue preserved
+        self.assertIn("Ah, so we are keeping a formal ledger then?", cleaned)
+        self.assertIn("Strictly speaking, you are right.", cleaned)
+
+    def test_sanitize_and_tag_speech_breath_and_sigh_mapping(self):
+        text = (
+            "*I lean back against the workspace, letting out a long, contented breath.* "
+            "“From two point one down to one point four… [softly] that’s a significant jump.”"
+        )
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertIn("[sigh]", cleaned)
+        self.assertNotIn("metaphorical shadows", cleaned)
+        self.assertNotIn("contented breath", cleaned)
+        self.assertIn("From two point one down to one point four", cleaned)
+        self.assertIn("that's a significant jump", cleaned)
+
+    def test_sanitize_and_tag_speech_preserves_bold_words(self):
+        text = "*I smile warmly.* This is **crucial** and __important__ for our system."
+        cleaned = sanitize_and_tag_speech(text)
+        # Visual action stripped
+        self.assertNotIn("smile warmly", cleaned)
+        # Bold words kept as plain spoken words
+        self.assertIn("crucial", cleaned)
+        self.assertIn("important", cleaned)
+        self.assertNotIn("**", cleaned)
+        self.assertNotIn("__", cleaned)

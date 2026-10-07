@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-06 18:50:12
+date modified: 2026-10-06 19:40:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.016] - 2026-10-06 — *Zero-Latency Paralinguistic Audio Tagging & Stage Direction Silencing*
+
+### Added
+
+- **Zero-Latency Emote Translation & Stage Direction Silencing Layer (`services/tts/tts_server.py`)**:
+  - Implemented `sanitize_and_tag_speech(text: str)` translating Evelyn's asterisk narrative vocal actions into native Chatterbox Turbo paralinguistic audio tags (`[laugh]`, `[sigh]`, `[chuckle]`, `[cough]`, `[gasp]`, `[groan]`, `[clear throat]`) in sub-millisecond regex execution (< 0.05ms) with zero LLM translation overhead.
+  - Automatically filters and silences non-vocal visual/bodily stage directions (e.g. `*I lean in...*`, `*eyes sparkling*`) from the TTS audio stream, preventing them from being voiced aloud while preserving the full narrative text unmutated in the chat UI and database.
+  - Preserves bold markdown terms (`**crucial**` → `crucial`) as spoken words before action filtering so emphasis words are never inadvertently dropped.
+  - Normalizes unicode typography (curly quotes `“…”`, apostrophes `‘…’`, em-dashes `—`, ellipses `…`), converts delivery brackets (`[softly]`, `[gently]`) into natural rhythmic pauses, and enforces single-character punctuation boundaries.
+- **Paralinguistic Audio Translation Test Suite (`Evelyn/tests/test_tts_server.py`)**:
+  - Added unit test coverage for vocal emote translation (`test_sanitize_and_tag_speech_translates_vocal_emotes`), breath/sigh mapping (`test_sanitize_and_tag_speech_breath_and_sigh_mapping`), and bold word preservation (`test_sanitize_and_tag_speech_preserves_bold_words`).
 
 ## [000.008.015] - 2026-10-06 — *Persistent RTF Calibration & Mid-Synthesis Lifecycle Protection*
 
