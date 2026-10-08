@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-09-25 07:20:52
+date modified: 2026-10-07 21:09:14
 tags: [setup, guide, installation, configuration, deployment, evelyn]
 ---
 
@@ -15,10 +15,14 @@ This guide walks through deploying the **Evelyn Engine** on a fresh Linux system
 
 ## 1. Prerequisites & System Packages
 
-### Linux Operating System
-The Evelyn Engine is optimized for modern Linux distributions with `systemd`.
+### Linux Operating System & Systemd Lingering
+The Evelyn Engine is optimized for modern Linux distributions with `systemd`. To ensure always-on background daemons (`syncthing`, `evelyn-vault-watcher`) survive terminal disconnections and reboots without an interactive GUI login, enable persistent user lingering:
 
-### Ubuntu / Debian
+```bash
+sudo loginctl enable-linger $USER
+```
+
+### Ubuntu / Debian (Ubuntu Server 24.04 LTS Recommended)
 ```bash
 sudo apt update && sudo apt install -y \
     python3 \
@@ -28,7 +32,9 @@ sudo apt update && sudo apt install -y \
     git \
     curl \
     build-essential \
-    ffmpeg
+    ffmpeg \
+    numactl \
+    hwloc
 ```
 
 ### Arch Linux
@@ -40,7 +46,26 @@ sudo pacman -Syu --noconfirm \
     git \
     curl \
     base-devel \
-    ffmpeg
+    ffmpeg \
+    numactl \
+    hwloc
+```
+
+### NVIDIA GPU Drivers & Hardware Acceleration
+For headless data-center accelerators (e.g. NVIDIA Tesla T4) and enterprise server environments:
+```bash
+# Install proprietary headless enterprise driver (avoids -open module incompatibilities on Turing)
+sudo apt install -y nvidia-headless-550-server nvidia-utils-550-server
+
+# Verify driver and VRAM state
+nvidia-smi
+```
+
+### Network Mesh (Tailscale)
+For multi-device Obsidian sync and secure headless access across workstations and mobile companions:
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --hostname=<server-name>
 ```
 
 ---
