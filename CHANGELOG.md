@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-08 07:17:37
+date modified: 2026-10-08 18:43:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.019] - 2026-10-08 — *Python 3.12 Compatibility, Exception Syntax Standardization & Production Deployment*
+
+### Fixed
+
+- **Python 3.12 Syntax Standardization (`evelyn_config.py`, `evelyn_server.py`, `Evelyn/tools/evelyn_tools.py`)**:
+  - Standardized all 46 unparenthesized multi-exception clauses (`except A, B:`) into canonical parenthesized tuples (`except (A, B):`), resolving `SyntaxError: multiple exception types must be parenthesized` under Python 3.12 on Ubuntu Server 24.04 LTS.
+- **Static Assets Directory Initialization (`evelyn_server.py`)**:
+  - Added `os.makedirs(cfg.IMAGE_OUTPUT_DIR, exist_ok=True)` prior to mounting `/images` in `evelyn_server.py`, preventing `RuntimeError: Directory does not exist` on fresh checkouts where `services/image/output/` is gitignored.
+- **Dependency Manifest & Prerequisites (`requirements.txt`, `REQUIREMENTS.md`, `SETUP_GUIDE.md`)**:
+  - Added `psutil>=5.9.0` canonically to `requirements.txt` and `REQUIREMENTS.md` for process inspection and memory telemetry.
+  - Added `python3.12-venv` to Ubuntu 24.04 package prerequisites in `SETUP_GUIDE.md` to ensure `ensurepip` is installed during virtual environment creation.
 
 ## [000.008.018] - 2026-10-08 — *Sanctum Bare-Metal Infrastructure, Service Management & Setup Documentation Suite*
 

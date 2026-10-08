@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-10-08 07:16:26
+date modified: 2026-10-08 18:43:27
 tags: [requirements, dependencies, system, hardware, environment, evelyn]
 ---
 
@@ -39,6 +39,7 @@ pip install -r requirements.txt
 | `uvicorn`  | ≥0.41   | ASGI server — runs the FastAPI application                                           |
 | `httpx`    | ≥0.28   | Async HTTP client — all Ollama API calls (chat, summarizer, extractor, consolidator) |
 | `pydantic` | ≥2.12   | Data validation — request/response models                                            |
+| `psutil`   | ≥5.9    | Process inspection & resource monitoring — server health and subprocess management   |
 
 ### RAG Pipeline (`chroma_rag.py`, `ingest_*.py`)
 

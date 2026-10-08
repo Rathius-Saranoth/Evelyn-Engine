@@ -21,3 +21,4 @@ Pillow>=10.0.0               # Image processing & EXIF/GPS extraction — media_
 vulture>=2.16                # Deterministic dead-code & uncalled-function scanner — scripts/check_code_hygiene.py
 faster-whisper>=1.2.0         # Local Speech-to-Text CTranslate2 Whisper engine — services/stt/stt_server.py
 rapidfuzz>=3.14.6           # Near-exact surface matching in tag reconciliation — Evelyn/tools/tag_librarian.py
+psutil>=5.9.0               # Process inspection & resource management — evelyn_server.py

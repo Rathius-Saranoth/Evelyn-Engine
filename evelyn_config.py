@@ -35,7 +35,7 @@ def _load_dotenv(filepath: str) -> None:
                 v = v.strip().strip("'\"")
                 if k and k not in os.environ:
                     os.environ[k] = v
-    except OSError, UnicodeDecodeError:
+    except (OSError, UnicodeDecodeError):
         pass
 
 

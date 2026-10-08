@@ -911,14 +911,14 @@ def _is_research_engine_running(task_id: str) -> bool:
                 cmdline = proc.cmdline()
                 if any("research_engine.py" in arg for arg in cmdline):
                     return True
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
         # Dead PID or recycled PID for another process — delete stale pid file
         with contextlib.suppress(OSError):
             os.remove(pid_path)
         return False
-    except psutil.Error, OSError, ValueError:
+    except (psutil.Error, OSError, ValueError):
         return False
 
 
@@ -1124,7 +1124,7 @@ def start_research(
                             stderr=log_file,
                             creationflags=creationflags,
                         )
-                except OSError, subprocess.SubprocessError:
+                except (OSError, subprocess.SubprocessError):
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=base_dir,
@@ -1289,7 +1289,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                             stderr=log_file,
                             creationflags=creationflags,
                         )
-                except OSError, subprocess.SubprocessError:
+                except (OSError, subprocess.SubprocessError):
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=base_dir,
@@ -2152,13 +2152,13 @@ def search_history(
     )
     try:
         limit_val = max(1, min(int(limit_val), 50))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         limit_val = 8
 
     offset_val = kwargs.get("offset") or kwargs.get("skip") or offset or 0
     try:
         offset_val = max(0, int(offset_val))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         offset_val = 0
 
     order_param = (
@@ -2175,7 +2175,7 @@ def search_history(
     if mid_val is not None:
         try:
             msg_id = int(mid_val)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             msg_id = None
 
     win_val = (
@@ -2188,7 +2188,7 @@ def search_history(
     )
     try:
         win_val = max(0, int(win_val))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         win_val = 0
 
     sort_dir = "ASC" if order_val in ("asc", "ascending", "chronological", "earliest", "first", "forward") else "DESC"
@@ -2349,7 +2349,7 @@ def search_history(
         from query_reformulator import reformulate_query
 
         fts_query = reformulate_query(raw_query)
-    except ImportError, AttributeError:
+    except (ImportError, AttributeError):
         fts_query = raw_query
 
     def sanitize_fts5(q: str) -> str:
@@ -2676,7 +2676,7 @@ def list_tasks(include_completed: bool = False, due_within_days: int | None = No
                 include_completed = bool(kwargs.get("completed"))
             if "days" in kwargs:
                 due_within_days = int(kwargs.get("days"))
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             pass
 
         tasks = gtasks_sync.get_cached_tasks(include_completed=include_completed, due_within_days=due_within_days)
@@ -2726,7 +2726,7 @@ def get_agenda(days: int = 7, **kwargs) -> str:
     try:
         try:
             days = int(days or kwargs.get("num_days") or kwargs.get("days_forward") or 7)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             days = 7
         events = gcal_sync.get_cached_gcal_events(days_back=1, days_forward=days)
         tasks = gtasks_sync.get_cached_tasks(include_completed=False, due_within_days=days)
@@ -3126,7 +3126,7 @@ def get_health_metrics(date: str = "today", metric: str = "summary", hours: floa
         if raw_hours is not None:
             try:
                 hours = float(raw_hours)
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 hours = None
 
     if metric in ("heart_rate", "hr", "granular_hr", "heartrate", "pulse"):
@@ -3173,7 +3173,7 @@ def get_recent_workouts(days: int = 7, hours: float | None = None, **kwargs) -> 
     _reload()
     try:
         days = int(days or kwargs.get("num_days") or 7)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         days = 7
 
     if hours is None:
@@ -3181,7 +3181,7 @@ def get_recent_workouts(days: int = 7, hours: float | None = None, **kwargs) -> 
         if raw_hours is not None:
             try:
                 hours = float(raw_hours)
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 hours = None
 
     res = health_manager.get_recent_workouts(days=days, hours=hours)

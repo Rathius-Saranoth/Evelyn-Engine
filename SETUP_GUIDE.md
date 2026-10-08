@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-10-08 07:16:57
+date modified: 2026-10-08 17:51:11
 tags: [setup, guide, installation, configuration, deployment, bare-metal, sanctum, evelyn]
 ---
 
@@ -54,6 +54,7 @@ sudo apt update && sudo apt install -y \
     build-essential \
     python3 \
     python3-venv \
+    python3.12-venv \
     python3-pip \
     sqlite3 \
     git \
