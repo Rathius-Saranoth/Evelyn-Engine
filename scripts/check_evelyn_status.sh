@@ -27,13 +27,21 @@ fi
 # 3. Check Chatterbox TTS Server
 TTS_PORT=5050
 if ss -tuln | grep -q ":$TTS_PORT "; then
-    echo -e "\033[0;32m✅ [Chatterbox TTS] Server is listening on port $TTS_PORT (NUMA Node 1).\033[0m"
+    echo -e "\033[0;32m✅ [Chatterbox TTS] Server is listening on port $TTS_PORT.\033[0m"
 else
     echo -e "\033[0;31m❌ [Chatterbox TTS] Server is NOT running on port $TTS_PORT.\033[0m"
     ALL_CLEAR=false
 fi
 
-# 4. Check Evelyn AI Core Server
+# 4. Check Faster-Whisper STT Server
+STT_PORT=5060
+if ss -tuln | grep -q ":$STT_PORT "; then
+    echo -e "\033[0;32m✅ [Faster-Whisper STT] Server is listening on port $STT_PORT (NUMA Node 1).\033[0m"
+else
+    echo -e "\033[0;33m⚠️  [Faster-Whisper STT] Server is NOT running on port $STT_PORT.\033[0m"
+fi
+
+# 5. Check Evelyn AI Core Server
 EVELYN_PORT=7860
 if ss -tuln | grep -q ":$EVELYN_PORT "; then
     echo -e "\033[0;32m✅ [Evelyn Server] Core backend is listening on port $EVELYN_PORT (NUMA Node 0).\033[0m"
@@ -42,7 +50,7 @@ else
     ALL_CLEAR=false
 fi
 
-# 5. Check Remote FLUX Image Server
+# 6. Check Remote FLUX Image Server
 if [ -f ".env" ]; then
     # Source only EVELYN_IMAGE_SERVER_URL if present in .env
     ENV_IMG_URL=$(grep "^EVELYN_IMAGE_SERVER_URL=" .env | cut -d '=' -f2- | tr -d '"' | tr -d "'")
@@ -59,7 +67,7 @@ else
     echo -e "\033[0;33m⚠️  [Remote Image Host] FLUX.1 server at $IMAGE_BASE_URL unreachable or offline.\033[0m"
 fi
 
-# 6. Check Syncthing Peer Synchronization
+# 7. Check Syncthing Peer Synchronization
 SYNCTHING_PORT=22000
 SYNCTHING_GUI_PORT=8385
 if systemctl --user is-active --quiet syncthing 2>/dev/null || ss -tuln | grep -q ":$SYNCTHING_PORT "; then
@@ -69,7 +77,7 @@ else
     ALL_CLEAR=false
 fi
 
-# 7. Check Obsidian Vault Watcher
+# 8. Check Obsidian Vault Watcher
 if systemctl --user is-active --quiet evelyn-vault-watcher 2>/dev/null; then
     echo -e "\033[0;32m✅ [Vault Watcher] Real-time filesystem watcher is active.\033[0m"
 else

@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-10-03 07:53:54
+date modified: 2026-10-08 06:44:52
 ---
 # Evelyn Engine Architecture Map
 
@@ -191,8 +191,8 @@ Standalone background processes and tools loaded dynamically by the model during
 
 ### 2.6 Standalone Inference Services
 FastAPI and remote inference services designed to isolate heavy model weights and guarantee zero VRAM resource leakage.
-* **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech. Bound to **NUMA Node 1** (`CPUAffinity=24-47 72-95`, `numactl --cpunodebind=1 --membind=1`) with 24 physical cores and 96 GB DRAM isolated on Socket 1.
-* **[[stt_server.py]]**: Local Speech-to-Text (faster-whisper int8 CPU) service running on port 5060. Decodes audio formats (WebM/Opus, MP4, WAV) into 16kHz mono PCM via streaming ffmpeg pipes, applies Silero VAD filtering to reject silences and hallucinations, and provides OpenAI-compatible `/v1/audio/transcriptions` endpoints.
+* **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech on CUDA (`TTS_DEVICE="cuda"`, sub-0.4 RTF). Bound to **NUMA Node 0** alongside the Tesla T4 in PCIe Slot 1 to eliminate UPI cross-socket memory latency for audio tensors.
+* **[[stt_server.py]]**: Local Speech-to-Text (faster-whisper int8 CPU) service running on port 5060. Bound to **NUMA Node 1** (`CPUAffinity=24-47 72-95`, `numactl --cpunodebind=1 --membind=1`) with 24 dedicated physical cores. Decodes audio formats (WebM/Opus, MP4, WAV) into 16kHz mono PCM via streaming ffmpeg pipes, applies Silero VAD filtering to reject silences and hallucinations, and provides OpenAI-compatible `/v1/audio/transcriptions` endpoints.
 * **[[image_server.py]]**: FLUX.1 [schnell] server running off-node on a dedicated GPU host over private network (`http://<image-host>.<tailnet>.ts.net:5055`) to leverage workstation GPU resources.
 
 ### 2.7 The Frontend User Interface
@@ -359,20 +359,21 @@ The HPE ProLiant DL360 Gen10 server (*Sanctum*) features a **Dual-Socket Intel X
 |          PCIe Slot 1: NVIDIA Tesla T4 16GB        |           96 GB DRAM           |
 +--------------------------------------------------+--------------------------------+
 |  Services:                                       |  Services:                     |
-|   • ollama.service (gemma4:12b LLM)              |   • evelyn-tts.service         |
-|   • evelyn.service (FastAPI Core Engine)         |     (Chatterbox TTS)           |
-|   • ChromaDB ONNX Vector Index                   |   • Batch Data Ingestion       |
-|   • SQLite History / Vault / Memory Databases    |     (extract_pdf_library.py)   |
+|   • ollama.service (gemma4:12b LLM)              |   • evelyn-stt.service         |
+|   • evelyn.service (FastAPI Core Engine)         |     (Faster-Whisper int8 CPU)  |
+|   • evelyn-tts.service (Chatterbox CUDA TTS)     |   • Batch Data Ingestion       |
+|   • ChromaDB ONNX Vector Index                   |     (extract_pdf_library.py)   |
+|   • SQLite History / Vault / Memory Databases    |                                |
 +--------------------------------------------------+--------------------------------+
 ```
 
 ### 6.1 NUMA Pinning Rules
-1. **Unified Core Engine (NUMA Node 0)**:
-   - `ollama.service` and `evelyn.service` are explicitly pinned to **CPUs 0-23, 48-71** via `CPUAffinity=0-23 48-71` and `numactl --cpunodebind=0 --membind=0`.
-   - Keeps all GPU DMA transfers (Tesla T4 on PCIe Slot 1), PyTorch CUDA buffers, ONNX vector embeddings, and SQLite database IO local to Socket 0 DRAM.
-2. **Auxiliary Offloading (NUMA Node 1)**:
-   - `evelyn-tts.service` is pinned to **CPUs 24-47, 72-95** via `CPUAffinity=24-47 72-95` and `numactl --cpunodebind=1 --membind=1`.
-   - Voice generation runs with 24 dedicated physical cores without taking CPU cycles or memory bandwidth from LLM chat.
+1. **Unified Core Engine & CUDA Acceleration (NUMA Node 0)**:
+   - `ollama.service`, `evelyn.service`, and `evelyn-tts.service` (CUDA mode) are pinned to **CPUs 0-23, 48-71** via `CPUAffinity=0-23 48-71` and `numactl --cpunodebind=0 --membind=0`.
+   - Keeps all GPU DMA transfers (Tesla T4 on PCIe Slot 1), PyTorch CUDA buffers, Chatterbox flow-matching tensors, ONNX vector embeddings, and SQLite database IO local to Socket 0 DRAM.
+2. **Auxiliary Offloading & CPU Audio Processing (NUMA Node 1)**:
+   - `evelyn-stt.service` (faster-whisper int8 CPU) and batch document ingestion (`extract_pdf_library.py`) are pinned to **CPUs 24-47, 72-95** via `CPUAffinity=24-47 72-95` and `numactl --cpunodebind=1 --membind=1`.
+   - Voice transcription and batch OCR run with 24 dedicated physical cores without taking CPU cycles or memory bandwidth from LLM chat or GPU speech synthesis.
 3. **Thread Pool Limits**:
    - Environment variables (`OMP_NUM_THREADS=16/24`, `MKL_NUM_THREADS=16`, `OPENBLAS_NUM_THREADS=16`, `ONNXRUNTIME_NUM_THREADS=16`, `KMP_AFFINITY=granularity=fine,compact,1,0`) bound OpenMP/MKL thread pools within single sockets, preventing 96-thread unpinned CPU thrashing.
 
