@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-08-28 16:43:08
+date modified: 2026-10-08 07:16:26
 tags: [requirements, dependencies, system, hardware, environment, evelyn]
 ---
 
@@ -17,10 +17,10 @@ tags: [requirements, dependencies, system, hardware, environment, evelyn]
 
 ## 1. Runtime Environment
 
-| Component   | Required | Tested Version       | Notes                                          |
-| ----------- | -------- | -------------------- | ---------------------------------------------- |
-| **Python**  | 3.11+    | Python 3.14 (venv)   | Active virtualenv for system services          |
-| **Linux**   | 6.x      | Arch Linux (x86_64) | Tested production platform (`sanctum`)          |
+| Component   | Required | Tested Version                  | Notes                                          |
+| ----------- | -------- | ------------------------------- | ---------------------------------------------- |
+| **Python**  | 3.11+    | Python 3.12 / 3.14 (venv)       | Multi-venv architecture for service isolation  |
+| **Linux**   | 6.x      | Ubuntu Server 24.04 LTS (x86_64)| Dedicated production platform (`sanctum`)      |
 
 ---
 
@@ -77,37 +77,66 @@ These are used extensively but ship with Python:
 
 ---
 
-## 3. External Services
+## 3. External Services & Microservices
 
 > [!IMPORTANT]
-> These are separate applications that run alongside the Evelyn server.
-> They are started via the VS Code task runner (`Start Evelyn Services`) or manually.
+> Evelyn uses a decoupled microservices architecture with isolated Python virtual environments (`services/tts/venv`, `services/stt/` or system venv) to prevent CUDA and dependency conflicts.
+> Services are managed via `systemd` or canonical scripts (`scripts/start_evelyn_services.sh`, `scripts/stop_evelyn_services.sh`).
 
-### Ollama (Required)
+### Ollama (Required — Inference Engine)
 
 | Detail       | Value                                                                           |
 | ------------ | ------------------------------------------------------------------------------- |
 | **What**     | Local LLM inference server                                                      |
 | **Version**  | ≥0.20.3 (tested: 0.23.1)                                                        |
 | **Install**  | https://ollama.com/download                                                     |
-| **Model**    | `gemma4:12b` (active), `gemma4:26b` (supported), `magistral:24b` (fallback)      |
-| **Startup**  | `ollama serve`                                                                  |
+| **Model**    | `gemma4:12b` (active reasoning), `nomic-embed-text` (fast RAG embeddings)       |
+| **Startup**  | Managed via `ollama.service` (NUMA Node 0 override in `/etc/systemd/system/ollama.service.d/override.conf`) |
 | **Env Vars** | `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0` |
 
-Pull the active model after installation:
-```
+Pull core models:
+```bash
 ollama pull gemma4:12b
+ollama pull nomic-embed-text
 ```
 
-### Tailscale (Optional — Remote Access)
+### Chatterbox TTS Microservice (Port 5050)
+
+| Detail       | Value                                                                           |
+| ------------ | ------------------------------------------------------------------------------- |
+| **What**     | Expressive text-to-speech engine (Chatterbox Turbo / F5-TTS)                     |
+| **Location** | `services/tts/` (`tts_server.py`)                                               |
+| **Runtime**  | Isolated virtual environment at `services/tts/venv`                              |
+| **Hardware** | Bound to **NUMA Node 0** with CUDA acceleration (`TTS_DEVICE="cuda"`, sub-0.4 RTF) |
+| **Startup**  | `evelyn-tts.service`                                                            |
+
+### Faster-Whisper STT Microservice (Port 5060)
+
+| Detail       | Value                                                                           |
+| ------------ | ------------------------------------------------------------------------------- |
+| **What**     | Real-time speech transcription & voice ingestion (`base.en` / `small.en`)        |
+| **Location** | `services/stt/` (`stt_server.py`)                                               |
+| **Hardware** | Offloaded to **NUMA Node 1** CPU cores (`int8` compute, zero VRAM contention)   |
+| **Startup**  | `evelyn-stt.service`                                                            |
+
+### Syncthing P2P Vault Mesh (Ports 8384 / 22000)
+
+| Detail       | Value                                                                           |
+| ------------ | ------------------------------------------------------------------------------- |
+| **What**     | Decentralized file synchronization for Obsidian Vault over Tailscale             |
+| **GUI**      | Web UI on port `8384` (`0.0.0.0:8384`) or `8385` (WSL2 port separation)         |
+| **Service**  | User systemd service: `syncthing.service` (with persistent user lingering)       |
+| **Vault**    | `/home/rathius/obsidian_vault` (pre-populated with `.stignore`)                 |
+
+### Tailscale (Required for Mesh Networking)
 
 | Detail      | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| **What**    | Mesh VPN for secure remote access to Evelyn from mobile devices        |
+| **What**    | Mesh VPN for secure peer-to-peer access across workstations and mobile |
 | **Install** | https://tailscale.com/download                                         |
-| **Usage**   | `tailscale serve --bg 8080` — exposes the Evelyn server over Tailscale |
+| **Mesh IP** | `100.93.26.14` (`sanctum`)                                             |
 
-### Image Generation Microservice (Optional — FLUX.1 Schnell NF4)
+### Image Generation Microservice (Optional — FLUX.1 Schnell NF4, Port 5055)
 
 | Detail         | Value                                                                             |
 | -------------- | --------------------------------------------------------------------------------- |
@@ -118,10 +147,10 @@ ollama pull gemma4:12b
 | **Restoration**| See [[REQUIREMENTS_IMAGE_HOST.md]] for full setup, GPU drivers, and firewall guide|
 | **Startup**    | `python services/image/image_server.py` or `./scripts/start_image_server.sh`      |
 
-### Obsidian (Optional — Knowledge Base UI)
+### Obsidian (Knowledge Base UI)
 
 | Detail         | Value                                     |
-| -------------- | ----------------------------------------- |
+| ------------ | ----------------------------------------- |
 | **What**       | Markdown knowledge base — Evelyn's "vault"|
 | **Install**    | https://obsidian.md                       |
 | **Vault Path** | `/home/rathius/obsidian_vault`            |
@@ -204,8 +233,8 @@ export OLLAMA_KEEP_ALIVE="-1"
 export OLLAMA_FLASH_ATTENTION="1"
 export OLLAMA_KV_CACHE_TYPE="q8_0"
 
-# 5. Start systemd services
-sudo systemctl start ollama evelyn evelyn-tts
+# 5. Start system services via canonical script
+./scripts/start_evelyn_services.sh
 
 # 6. Open in browser
 # http://localhost:7860

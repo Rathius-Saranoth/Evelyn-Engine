@@ -2,7 +2,7 @@
 description: How to check and start the core services for the Evelyn ecosystem
 title: start-services.md
 date created: 2026-03-14 22:28:48
-date modified: 2026-08-23 08:04:42
+date modified: 2026-10-08 07:16:26
 tags: [services, startup, launch, ecosystem, guide, workflow, evelyn]
 ---
 
@@ -18,26 +18,30 @@ Check systemd services and port bindings:
 
 - `ollama.service` (Ollama LLM Server, Port 11434)
 - `evelyn-tts.service` (Chatterbox TTS Server, Port 5050)
+- `evelyn-stt.service` (Faster-Whisper STT Server, Port 5060)
 - `evelyn.service` (Evelyn FastAPI Server, Port 7860)
+- `syncthing.service` (Syncthing P2P Mesh, Port 8384 or 8385)
 
 ```bash
-# Check status of systemd services
-systemctl status ollama evelyn evelyn-tts
+# Check status of systemd system and user services
+systemctl status ollama evelyn evelyn-tts evelyn-stt
+systemctl --user status syncthing evelyn-vault-watcher
 
 # Verify port bindings
-ss -tulpn | grep -E ':(11434|5050|7860)'
+ss -tulpn | grep -E ':(11434|5050|5060|7860|8384|8385)'
 ```
 
-## 2. Managing Services (via VS Code Tasks or Terminal)
+## 2. Managing Services (via Scripts or Systemctl)
 
-Use the predefined VS Code tasks in `.vscode/tasks.json` or systemctl directly:
+Always prefer the canonical scripts to ensure safe database checkpoints and Chroma single-writer drains:
 
-1. **Start Evelyn Services** (`sudo systemctl start ollama evelyn evelyn-tts`)
-2. **Stop Evelyn Services** (`sudo systemctl stop evelyn evelyn-tts`)
-3. **Restart Evelyn Server** (`sudo systemctl restart evelyn`)
+1. **Start Evelyn Services** (`./scripts/start_evelyn_services.sh` or `sudo systemctl start ollama evelyn evelyn-tts evelyn-stt`)
+2. **Stop Evelyn Services** (`./scripts/stop_evelyn_services.sh` — ensures Chroma write queue drains cleanly)
+3. **Restart Evelyn Services** (`./scripts/restart_evelyn_services.sh` — never use bare `sudo systemctl restart evelyn`)
 4. **View Evelyn Logs** (`journalctl -u evelyn -f --no-pager -n 50`)
 5. **View TTS Logs** (`journalctl -u evelyn-tts -f --no-pager -n 50`)
-6. **GPU Status** (`nvidia-smi`)
+6. **View STT Logs** (`journalctl -u evelyn-stt -f --no-pager -n 50`)
+7. **GPU Status** (`nvidia-smi`)
 
 ## 3. Service Dependencies
 

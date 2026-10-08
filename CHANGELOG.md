@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-06 21:47:29
+date modified: 2026-10-08 07:17:37
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,34 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.018] - 2026-10-08 — *Sanctum Bare-Metal Infrastructure, Service Management & Setup Documentation Suite*
+
+### Added
+
+- **Bare-Metal Setup & Installation Suite (`SETUP_GUIDE.md`)**:
+  - Completely restructured and expanded `SETUP_GUIDE.md` for bare-metal enterprise hardware (**Sanctum** — HPE ProLiant DL360 Gen10) running **Ubuntu Server 24.04 LTS (Noble Numbat)**.
+  - Documented physical hardware profile (Dual Intel Xeon Gold 5220R @ 2.20GHz, 192GB ECC RAM, Tesla T4 16GB GDDR6 on PCIe Slot 1 / NUMA Node 0, iLO 5 management).
+  - Documented dual-drive storage allocation and partitioning schema: `sda` (1TB WD Blue SA510 SSD) with EFI, `/boot`, and LVM `vg_sanctum` (120GB `lv_root`, 32GB `lv_swap`, ~776GB unallocated pool for runtime snapshots/expansion); `sdb` (1TB WD Blue SA510 SSD) mounted at `/data` via `/etc/fstab` for automated backups, vector snapshots, and local media.
+  - Documented system prerequisites: persistent systemd user lingering (`loginctl enable-linger`), base packages (`numactl` note regarding `numastat`), proprietary headless enterprise NVIDIA driver (`nvidia-headless-550-server`), and Tailscale mesh networking (`100.93.26.14`).
+  - Added NUMA Node 0 binding drop-in override for Ollama (`/etc/systemd/system/ollama.service.d/override.conf`) to eliminate UPI bus cross-socket memory latency for model weights and KV caches.
+  - Documented multi-virtual environment architecture for decoupled dependency isolation (`venv/` for core engine, `services/tts/venv/` for Chatterbox CUDA speech, and `services/stt/` for Faster-Whisper on CPU int8).
+  - Detailed Syncthing headless setup, Web GUI address rebinding (`0.0.0.0:8384`), and mandatory `.stignore` pre-population in `/home/rathius/obsidian_vault` before pairing devices to prevent vault pollution from workspace and cache files.
+  - Documented safe state migration procedure: graceful stop on source workstation, Chroma queue drain verification, and rsync over Tailscale.
+  - Documented configuration scaling for Power Tier (`NUM_CTX=32768`, 2GB mmap cache, `TTS_DEVICE="cuda"`).
+- **Canonical Systemd Unit Manifest (`systemd/`)**:
+  - Added `systemd/evelyn.service` with 30s `TimeoutStopSec` graceful shutdown budget for Chroma single-writer drain.
+  - Added `systemd/evelyn-tts.service` with CUDA acceleration (`EVELYN_TTS_DEVICE=cuda`) and thread tuning.
+  - Added reference drop-in `systemd/ollama.service.d/override.conf` for NUMA Node 0 binding.
+
+### Changed
+
+- **Service Lifecycle Scripts & Workflows (`scripts/`, `.agents/workflows/`)**:
+  - Updated `scripts/start_evelyn_services.sh` and `scripts/stop_evelyn_services.sh` to symmetrically detect, start, and stop `evelyn-stt` (port 5060) alongside `evelyn` and `evelyn-tts`.
+  - Updated `.agents/workflows/start-services.md`, `restart-services.md`, and `stop-services.md` to cover STT (port 5060) and Syncthing (port 8384), and emphasized the mandatory rule against bare `sudo systemctl restart/stop evelyn` to protect the Chroma single-writer lease.
+- **System Specifications & Hardware Documentation (`REQUIREMENTS.md`, `reference/system/HPE Server Specs.md`)**:
+  - Updated `REQUIREMENTS.md` with Ubuntu Server 24.04 LTS, decoupled microservices, and revised quick-start commands.
+  - Updated `HPE Server Specs.md` storage partitioning and active OS status.
 
 ## [000.008.017] - 2026-10-06 — *Operational Procedure Controlled Tag Taxonomy & Zero-Slash Governance*
 

@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.017"
-__version_info__ = (0, 8, 17)
-__version_name__ = "Operational Procedure Controlled Tag Taxonomy & Zero-Slash Governance"
+__version__ = "000.008.018"
+__version_info__ = (0, 8, 18)
+__version_name__ = "Sanctum Bare-Metal Infrastructure, Service Management & Setup Documentation Suite"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

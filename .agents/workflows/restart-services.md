@@ -2,7 +2,7 @@
 description: How to cleanly and safely restart Evelyn's core services, flush WAL logs, and verify engine readiness
 title: restart-services.md
 date created: 2026-08-27 12:22:00
-date modified: 2026-08-31 16:53:57
+date modified: 2026-10-08 07:16:26
 tags: [services, restart, reboot, ecosystem, guide, workflow, evelyn]
 ---
 
@@ -28,15 +28,22 @@ bash scripts/restart_evelyn_services.sh --all
 
 If executing commands step-by-step:
 
+> [!WARNING]
+> **Graceful Shutdown Is Mandatory**: Never run bare `sudo systemctl restart evelyn`. A bare restart prevents uvicorn from executing the engine's lifespan shutdown, cutting off the Chroma single-writer queue drain and risking vector corruption. Always route engine stops through `scripts/graceful_stop.sh` or `scripts/restart_evelyn_services.sh`.
+
 ```bash
 # 1. Flush SQLite WAL logs to prevent uncommitted transaction locks
 for db in data/*.db data/health/*.db; do [ -f "$db" ] && sqlite3 "$db" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null; done
 
-# 2. Restart core services
-sudo systemctl restart evelyn-tts evelyn
+# 2. Restart voice microservices
+sudo systemctl restart evelyn-tts evelyn-stt 2>/dev/null || sudo systemctl restart evelyn-tts
 
-# 3. Verify active status
-systemctl is-active ollama evelyn-tts evelyn
+# 3. Cleanly stop engine, verify Chroma drain, and start
+source scripts/graceful_stop.sh && evelyn_graceful_stop
+sudo systemctl start evelyn
+
+# 4. Verify active status
+systemctl is-active ollama evelyn-tts evelyn-stt evelyn
 ```
 
 ## 3. Post-Restart Health Probe (MCP or CLI)
@@ -69,5 +76,5 @@ If the server takes longer than 15 seconds to start:
    ```
 3. **Verify Port Availability**:
    ```bash
-   ss -tulpn | grep -E ':(11434|5050|7860)'
+   ss -tulpn | grep -E ':(11434|5050|5060|7860)'
    ```

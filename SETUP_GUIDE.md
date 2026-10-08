@@ -1,207 +1,207 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-10-07 21:09:14
-tags: [setup, guide, installation, configuration, deployment, evelyn]
+date modified: 2026-10-08 07:16:57
+tags: [setup, guide, installation, configuration, deployment, bare-metal, sanctum, evelyn]
 ---
 
-# Evelyn Engine — Full Setup & Installation Guide
+# Evelyn Engine — Full Setup & Bare-Metal Installation Guide
 
-> Navigation: [[README.md]] · [[REQUIREMENTS.md]] · [[engine_architecture.md]] · [[start-services.md]] · [[REQUIREMENTS_IMAGE_HOST.md]]
+> Navigation: [[README.md]] · [[REQUIREMENTS.md]] · [[engine_architecture.md]] · [[system_specs.md]] · [[HPE Server Specs.md]] · [[start-services.md]]
 
-This guide walks through deploying the **Evelyn Engine** on a fresh Linux system (Ubuntu / Debian / Arch Linux), including OS prerequisites, local LLM runtime, Python dependencies, the interactive setup wizard, and system services.
+This guide provides end-to-end instructions for deploying the **Evelyn Engine** on dedicated enterprise bare-metal hardware (**Sanctum** — HPE ProLiant DL360 Gen10) running **Ubuntu Server 24.04 LTS (Noble Numbat)**, as well as desktop development environments.
+
+It covers bare-metal drive partitioning, OS prerequisites, NUMA domain tuning, Ollama configuration, multi-virtual environment isolation, Syncthing mesh networking, safe state migration, configuration scaling, and canonical systemd management.
 
 ---
 
-## 1. Prerequisites & System Packages
+## 1. Hardware Architecture & Storage Partitioning
+
+Sanctum is configured as a 24/7 dedicated production companion host. The hardware profile is optimized for dual-socket compute, dedicated GPU acceleration, and failure-isolated storage.
+
+### Physical Hardware Profile (Sanctum)
+- **Platform**: HPE ProLiant DL360 Gen10 (1U Enterprise Server)
+- **CPUs**: 2x Intel(R) Xeon(R) Gold 5220R @ 2.20 GHz (48 Cores / 96 Threads total, 36.6 MB L3 Cache)
+- **System RAM**: 192 GB DDR4-2666 ECC RDIMMs (24x 8 GB fully populated, Advanced ECC AMP Mode)
+- **GPU Accelerator**: NVIDIA Tesla T4 (16 GB GDDR6 VRAM, PCIe Slot 1 wired to CPU Socket 0 / NUMA Node 0)
+- **Storage Drives**: 2x WD Blue SA510 2.5" 1000GB SATA SSDs (Front Bays 1 & 2)
+- **Out-of-Band Management**: HPE iLO 5 (IP: `192.168.1.170`, System ROM `U32 v3.66`, iLO Firmware `3.20`)
+- **Host Networking**: LAN IP `192.168.1.189`, Tailscale Mesh IP `100.93.26.14`
+
+### Storage Role Allocation & Partitioning Schema
+
+| Drive | Physical ID | Raw Capacity | Filesystem / Volume Layout | Role & Mount Point |
+| :--- | :--- | :--- | :--- | :--- |
+| **`sda`** | `25417K804587` | ~1,000 GB | **LVM on GPT**:<br>• `sda1`: 1 GB EFI (`/boot/efi`, vfat)<br>• `sda2`: 2 GB Boot (`/boot`, ext4)<br>• `sda3`: LVM Physical Volume (`vg_sanctum`):<br>&nbsp;&nbsp;- `lv_root`: 120 GB ext4 (`/`)<br>&nbsp;&nbsp;- `lv_swap`: 32 GB swap<br>&nbsp;&nbsp;- **Unallocated Pool**: ~776 GB free | **Operating System & Active Runtime**<br>Houses Ubuntu Server 24.04 LTS, Ollama models, Python environments, and active database operations. Free LVM pool provides zero-downtime volume expansion. |
+| **`sdb`** | `252926805087` | ~1,000 GB | **Standard GPT**:<br>• `sdb1`: ~1,000 GB ext4 mounted at `/data` via `/etc/fstab` | **Dedicated Backups & Media**<br>Isolated volume for automated nightly database backups, Chroma vector snapshots, persistent audio logs, and media assets. |
+
+---
+
+## 2. Operating System Prerequisites & Host Preparation
 
 ### Linux Operating System & Systemd Lingering
-The Evelyn Engine is optimized for modern Linux distributions with `systemd`. To ensure always-on background daemons (`syncthing`, `evelyn-vault-watcher`) survive terminal disconnections and reboots without an interactive GUI login, enable persistent user lingering:
+The production server runs **Ubuntu Server 24.04 LTS (Noble Numbat)**. To ensure always-on background daemons (`syncthing`, `evelyn-vault-watcher`) survive terminal disconnections and reboots without an active user session, enable persistent systemd lingering:
 
 ```bash
 sudo loginctl enable-linger $USER
 ```
 
-### Ubuntu / Debian (Ubuntu Server 24.04 LTS Recommended)
+### Base System Packages
+Install foundational build tools, runtime libraries, audio decoders, and NUMA inspection utilities:
+
 ```bash
 sudo apt update && sudo apt install -y \
+    build-essential \
     python3 \
     python3-venv \
     python3-pip \
     sqlite3 \
     git \
     curl \
-    build-essential \
     ffmpeg \
     numactl \
     hwloc
 ```
 
-### Arch Linux
-```bash
-sudo pacman -Syu --noconfirm \
-    python \
-    python-pip \
-    sqlite \
-    git \
-    curl \
-    base-devel \
-    ffmpeg \
-    numactl \
-    hwloc
-```
+> [!NOTE]
+> On Ubuntu 24.04, the `numastat` binary is included directly inside the `numactl` package; do not attempt to install `numastat` as a standalone apt package.
 
-### NVIDIA GPU Drivers & Hardware Acceleration
-For headless data-center accelerators (e.g. NVIDIA Tesla T4) and enterprise server environments:
+### Headless NVIDIA Enterprise Drivers
+For headless enterprise accelerators (Tesla T4, Turing TU104), install the proprietary server driver. Avoid `-open` kernel module packages which are incompatible with Turing architecture:
+
 ```bash
-# Install proprietary headless enterprise driver (avoids -open module incompatibilities on Turing)
+# Install proprietary headless enterprise driver and utilities
 sudo apt install -y nvidia-headless-550-server nvidia-utils-550-server
 
-# Verify driver and VRAM state
+# Reboot to initialize kernel modules (or reload nvidia modules)
+sudo reboot
+
+# Verify driver initialization and 16 GB VRAM detection
 nvidia-smi
 ```
 
-### Network Mesh (Tailscale)
-For multi-device Obsidian sync and secure headless access across workstations and mobile companions:
+### Tailscale Mesh Networking
+Evelyn relies on Tailscale for secure, encrypted peer-to-peer access across workstations and mobile devices:
+
 ```bash
+# Install Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --hostname=<server-name>
+
+# Authenticate and join the mesh network
+sudo tailscale up --hostname=sanctum
+
+# Verify assigned Tailscale IP (e.g. 100.93.26.14)
+tailscale ip -4
 ```
 
 ---
 
-## 2. Supporting Applications & Services
+## 3. Ollama Runtime & NUMA Optimization
 
-### A. Ollama (Local LLM Inference Server)
-The Evelyn Engine relies on Ollama for all conversational inference, fact extraction, and reasoning tasks.
+Ollama powers Evelyn's primary conversational reasoning, fact extraction, and vector embedding pipelines.
 
-1. **Install Ollama**:
-   ```bash
-   curl -fsSL https://ollama.com/install.sh | sh
-   ```
-2. **Start and Enable Ollama Service**:
-   ```bash
-   sudo systemctl enable --now ollama
-   ```
-3. **Pull Core Models by Hardware Tier**:
-   - **Light Tier (8 GB VRAM)**: `ollama pull qwen2.5:7b-instruct`
-   - **Standard Tier (16–24 GB VRAM)**: `ollama pull qwen2.5:14b-instruct`
-   - **Power Tier (32+ GB VRAM)**: `ollama pull qwen2.5:32b-instruct`
-
-4. **Pull Embedding Model** (for fast local vector RAG):
-   ```bash
-   ollama pull nomic-embed-text
-   ```
-
-### B. Obsidian (Optional — Knowledge Base UI)
-Evelyn stores memory, journals, and extracted facts as plain Markdown notes inside an Obsidian Vault.
-- Download and install Obsidian from [obsidian.md](https://obsidian.md).
-- Create or open a local vault directory (e.g. `~/obsidian_vault`).
-
----
-
-## 3. Project Setup & Python Environment
-
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/Rathius-Saranoth/Evelyn-Engine.git ~/evelyn
-   cd ~/evelyn
-   ```
-
-2. **Create Python Virtual Environment**:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. **Install Dependencies**:
-   ```bash
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-
----
-
-## 4. Run the Setup Wizard
-
-The interactive wizard configures persona identities, creates vault directory scaffolding, updates `evelyn_config.py`, and deploys starter markdown templates.
-
+### 1. Install Ollama
 ```bash
-python evelyn_setup.py
+curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-### Wizard Prompts
-1. **Assistant Name**: Custom name for the companion (default: `Evelyn`).
-2. **Operator / User Name**: Your preferred user name (default: `Alex` or `Operator`).
-3. **Obsidian Vault Path**: Absolute path to your vault (default: `~/obsidian_vault`).
-4. **Deploy Starter Templates**: Copies structured starter notes (`Assistant Profile.md`, `User Profile.md`, and `System Directives.md`) directly into your vault.
+### 2. NUMA Node 0 Binding (Systemd Drop-In)
+The Tesla T4 sits in PCIe Slot 1, electrically routed to **CPU Socket 0 (NUMA Node 0)**. Binding Ollama to Node 0 eliminates Ultra Path Interconnect (UPI) bus cross-socket traversal, reducing memory latency for model weights and KV caches.
 
-*(For non-interactive / automated provisioning, run `python evelyn_setup.py --defaults`)*.
+Create `/etc/systemd/system/ollama.service.d/override.conf`:
+```bash
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/override.conf << 'EOF'
+[Service]
+Environment="OLLAMA_KEEP_ALIVE=-1"
+Environment="OLLAMA_FLASH_ATTENTION=1"
+Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
+Environment="OLLAMA_NUM_PARALLEL=1"
+ExecStart=
+ExecStart=/usr/bin/numactl --cpunodebind=0 --membind=0 /usr/local/bin/ollama serve
+EOF
+```
+
+Reload systemd and start Ollama:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ollama
+```
+
+### 3. Pull Core Models
+```bash
+# Primary conversational & tool-calling model (12B parameter Q4_0 QAT, ~7.6 GB VRAM)
+ollama pull gemma4:12b
+
+# Fast vector embedding model for ChromaDB RAG (~274 MB)
+ollama pull nomic-embed-text
+```
+
+---
+
+## 4. Multi-Virtual Environment Architecture
+
+To prevent dependency version drift, CUDA library collisions, and package conflicts between PyTorch/TTS/Whisper and core web frameworks, Evelyn uses decoupled virtual environments.
+
+```
+/home/rathius/evelyn/
+├── venv/                     # Core Engine Virtual Environment (FastAPI, ChromaDB, PyMuPDF)
+├── services/
+│   ├── tts/
+│   │   └── venv/             # Chatterbox TTS Virtual Environment (CUDA PyTorch, F5-TTS)
+│   └── stt/                  # Faster-Whisper STT Server (runs in core venv or dedicated venv)
+```
+
+### 1. Clone Repository
+```bash
+git clone https://github.com/Rathius-Saranoth/Evelyn-Engine.git /home/rathius/evelyn
+cd /home/rathius/evelyn
+```
+
+### 2. Core Engine Virtual Environment
+```bash
+python3 -m venv venv
+venv/bin/pip install --upgrade pip
+venv/bin/pip install -r requirements.txt
+```
+
+### 3. Chatterbox TTS Virtual Environment
+```bash
+python3 -m venv services/tts/venv
+services/tts/venv/bin/pip install --upgrade pip
+services/tts/venv/bin/pip install -r services/tts/requirements.txt
+```
 
 ---
 
 ## 5. Multi-Device Obsidian Sync (Syncthing Mesh over Tailscale)
 
-The Evelyn Engine uses a decentralized peer-to-peer synchronization mesh via **Syncthing** over **Tailscale VPN** to synchronize the Obsidian Vault across desktop, mobile, and host environments without relying on third-party cloud storage.
+Evelyn stores memory, daily journals, and extracted facts as plain Markdown notes inside an Obsidian Vault. Synchronizing this vault across desktop, mobile, and server nodes occurs via **Syncthing** over **Tailscale**.
 
-### A. Topology & Architecture
-- **Central Host Node (WSL2 / Linux Server)**: Runs the primary Syncthing daemon alongside the Evelyn Engine. Directly accesses the canonical vault at `/home/rathius/obsidian_vault`.
-- **Desktop Workstation Node**: Windows/macOS/Linux running Obsidian Desktop and Syncthing (or SyncTrayzor) syncing to a local vault directory (e.g. `C:\Obsidian Vault`).
-- **Mobile Nodes**: Android phone and tablet running Obsidian Mobile paired via Syncthing (or Syncthing-Fork).
-- **Tailscale P2P Mesh**: All nodes communicate directly and securely via 100.x.x.x Tailscale CGNAT IPs, bypassing NAT traversal, port forwarding, and firewalls.
+### 1. Install & Enable Syncthing on Sanctum
+```bash
+sudo apt install -y syncthing
+systemctl --user daemon-reload
+systemctl --user enable --now syncthing
+```
 
-### B. Linux / WSL2 Server Setup
-1. **Install Syncthing**:
-   ```bash
-   sudo apt update && sudo apt install -y syncthing
-   ```
-2. **Configure Port Separation (WSL2 / Multi-Instance)**:
-   In WSL2 environments where the Windows host already runs Syncthing on default port `8384`, bind the Linux Syncthing GUI to port `8385` to eliminate localhost port collisions:
-   - Config path: `~/.local/state/syncthing/config.xml` (or `~/.config/syncthing/config.xml`)
-   - Listen Address: `tcp://0.0.0.0:22000` and `quic://0.0.0.0:22000`
-   - GUI Address: `0.0.0.0:8385`
-3. **Configure User Lingering & Systemd Service**:
-   Enable systemd lingering so the user service runs continuously in the background across terminal sessions:
-   ```bash
-   sudo loginctl enable-linger $USER
-   systemctl --user daemon-reload
-   systemctl --user enable --now syncthing
-   ```
-4. **Access the Web GUI**:
-   Open `http://localhost:8385` (or `http://<tailscale-ip>:8385`) in your browser to inspect device pairing, folder sync status, or scan pairing QR codes.
+### 2. Configure Headless Web GUI Access
+By default, Syncthing binds its GUI strictly to `127.0.0.1:8384`. Update the configuration to bind to `0.0.0.0:8384` so the interface is accessible via LAN (`192.168.1.189:8384`) or Tailscale (`100.93.26.14:8384`):
 
-### C. Real-Time Vault Ingestion Watcher (`evelyn-vault-watcher.service`)
-Whenever notes, documents, or staging files are dropped into the vault (via Syncthing or direct edits), `obsidian_vault_watcher.py` detects inotify changes, debounces rapid writes (4.0s), and automatically updates SQLite (`evelyn_vault.db`) and ChromaDB vector embeddings.
+```bash
+sed -i 's/<address>127.0.0.1:8384<\/address>/<address>0.0.0.0:8384<\/address>/' ~/.local/state/syncthing/config.xml
+systemctl --user restart syncthing
+```
 
-1. **Deploy Service Unit**:
-   ```bash
-   mkdir -p ~/.config/systemd/user
-   cp systemd/evelyn-vault-watcher.service ~/.config/systemd/user/
-   systemctl --user daemon-reload
-   systemctl --user enable --now evelyn-vault-watcher
-   ```
-2. **Verify Watcher Status**:
-   ```bash
-   systemctl --user status evelyn-vault-watcher
-   ```
+### 3. Pre-Populate `.stignore` Before Pairing Devices
 
-### D. Client Node Configuration
+> [!CAUTION]
+> **Mandatory Pre-Sync Step**: You **must** create `/home/rathius/obsidian_vault` and populate `.stignore` **BEFORE** adding remote devices or sharing folders in Syncthing. Failing to do this causes mobile and desktop workspace caches, temporary sync locks, and window states to flood into the vault, triggering cascade re-index loops in Chroma.
 
-#### 1. Windows Workstation (SyncTrayzor / Syncthing)
-- **Local Vault Path**: `C:\Obsidian Vault`
-- **Add Remote Device**: In the Windows Syncthing GUI (`http://localhost:8384`), add the Linux/WSL node using its Device ID. Set the address to `tcp://<tailscale-ip>:22000` or `dynamic`.
-- **Share Folder**: Share folder ID `obsidian-vault` between both nodes. Set folder type to *Send & Receive*.
-
-#### 2. Mobile Nodes (Android Phone & Tablet)
-- Install **Syncthing-Fork** or official Syncthing from F-Droid or Google Play.
-- Add the central Linux/WSL node using the Device ID (or scan the Web GUI QR code from `http://<tailscale-ip>:8385`).
-- Add the local mobile Obsidian vault folder with Folder ID `obsidian-vault`.
-- Enable file watching with run conditions set to run on Tailscale / WiFi.
-
-### E. Recommended Obsidian `.stignore` Patterns
-To prevent syncing platform-specific workspace states, mobile layout caches, and temporary sync locks, place the following in `.stignore` at the root of the vault:
-
-```text
+Create the vault root and populate `.stignore`:
+```bash
+mkdir -p /home/rathius/obsidian_vault
+cat << 'EOF' > /home/rathius/obsidian_vault/.stignore
 // Ignore mobile/desktop workspace layout state and cache
 (?d).obsidian/workspace.json
 (?d).obsidian/workspace-mobile.json
@@ -219,90 +219,172 @@ To prevent syncing platform-specific workspace states, mobile layout caches, and
 (?d)desktop.ini
 (?d)thumbs.db
 (?d).trash
+EOF
+```
+
+### 4. Deploy Vault Watcher Service (`evelyn-vault-watcher.service`)
+`obsidian_vault_watcher.py` monitors `/home/rathius/obsidian_vault` via inotify, debounces writes (4.0s), and automatically updates SQLite (`evelyn_vault.db`) and ChromaDB vectors:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/evelyn-vault-watcher.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now evelyn-vault-watcher
 ```
 
 ---
 
-## 6. Starting the Evelyn Engine
+## 6. Safe State Migration Procedure (Workstation -> Sanctum)
 
-### Method 1: Foreground / Script Runner
+When migrating active databases and vector embeddings from a previous host (e.g. source development workstation) to Sanctum, strict procedural hygiene is required to avoid corrupting Chroma's single-writer lease or SQLite WAL buffers.
+
+### Step 1: Graceful Shutdown on Source Host
+On the source machine, run the canonical stop script with full WAL checkpointing:
 ```bash
-./scripts/start_evelyn_services.sh
+# Execute on source workstation
+./scripts/stop_evelyn_services.sh --all --checkpoint-wal
 ```
 
-### Method 2: Systemd Services (Recommended for Always-On Companions)
-Create `/etc/systemd/system/evelyn.service`:
-```ini
-[Unit]
-Description=Evelyn Engine Core FastAPI Server
-After=network.target ollama.service
-
-[Service]
-Type=simple
-User=rathius
-WorkingDirectory=/home/rathius/evelyn
-Environment="PYTHONPATH=/home/rathius/evelyn"
-ExecStart=/home/rathius/evelyn/venv/bin/python evelyn_server.py
-Restart=always
-RestartSec=5
-
-# Headroom for the graceful shutdown. Required, not optional — see below.
-TimeoutStopSec=30
-
-[Install]
-WantedBy=multi-user.target
+Ensure the terminal confirms:
+```text
+  ✓ Graceful shutdown confirmed (Chroma queue drained).
+  ✓ SQLite WAL checkpoint complete.
 ```
 
-Enable and start:
+### Step 2: Synchronize Data & Environment Over Tailscale
+Transfer the validated database directory and environment file to Sanctum:
 ```bash
+# Execute on source machine
+rsync -avzP --delete /home/rathius/evelyn/data/ rathius@100.93.26.14:/home/rathius/evelyn/data/
+rsync -avzP /home/rathius/evelyn/.env rathius@100.93.26.14:/home/rathius/evelyn/.env
+```
+
+### Step 3: Verify Database Integrity on Sanctum
+On Sanctum, verify that all SQLite databases arrived intact:
+```bash
+for db in /home/rathius/evelyn/data/*.db; do
+    echo -n "$db: "
+    sqlite3 "$db" "PRAGMA integrity_check;"
+done
+```
+
+---
+
+## 7. Engine Configuration Scaling (Power Tier on Sanctum)
+
+With 192 GB of system RAM and a dedicated Tesla T4, Sanctum runs at the **Power Tier**. Ensure `evelyn_config.py` (or `.env`) reflects these scaled parameters:
+
+```python
+# Context window: 32K active tokens (KV cache fits easily in Tesla T4 VRAM)
+NUM_CTX = 32768
+
+# Conversational memory: 20 user/assistant turns
+MAX_HISTORY_MESSAGES = 40
+
+# RAG Recall: 8 chunks retrieved per query
+RAG_TOP_K = 8
+
+# SQLite / Chroma cache sizing
+MMAP_CACHE_SIZE_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB mmap
+PAGE_CACHE_SIZE_KB = 65536                      # 64 MB page cache
+
+# Voice generation: CUDA mode for sub-0.4 Real-Time Factor (RTF)
+TTS_DEVICE = "cuda"
+```
+
+---
+
+## 8. Deploying & Managing Systemd Services
+
+Evelyn provides canonical unit templates in `systemd/` for core services.
+
+### Service Overview & Port Mapping
+
+| Service Unit | Execution File | Port | NUMA Affinity | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `ollama.service` | `/usr/local/bin/ollama` | `11434` | Node 0 (`0-23, 48-71`) | Ollama LLM Inference Server |
+| `evelyn.service` | `evelyn_server.py` | `7860` | Node 0 (`0-23, 48-71`) | Evelyn AI Core FastAPI Server |
+| `evelyn-tts.service` | `services/tts/tts_server.py` | `5050` | Node 0 (`0-23, 48-71`) | Chatterbox Turbo TTS (CUDA Mode) |
+| `evelyn-stt.service` | `services/stt/stt_server.py` | `5060` | Node 1 (`24-47, 72-95`) | Faster-Whisper STT (CPU int8 Mode) |
+| `syncthing.service` | `/usr/bin/syncthing` | `8384` | Default | P2P Vault Mesh Sync (User unit) |
+| `evelyn-vault-watcher.service` | `scripts/obsidian_vault_watcher.py` | — | Default | Real-Time Vault Ingestion (User unit) |
+
+### 1. Install Systemd Units
+```bash
+# Copy system services
+sudo cp systemd/evelyn.service systemd/evelyn-tts.service systemd/evelyn-stt.service /etc/systemd/system/
+
+# Copy user services
+mkdir -p ~/.config/systemd/user
+cp systemd/evelyn-vault-watcher.service ~/.config/systemd/user/
+
+# Reload systemd daemons
 sudo systemctl daemon-reload
-sudo systemctl enable --now evelyn
+systemctl --user daemon-reload
+
+# Enable services for automated boot start
+sudo systemctl enable evelyn evelyn-tts evelyn-stt
+systemctl --user enable evelyn-vault-watcher
 ```
 
-#### Stopping and restarting: always use the scripts
-
-```bash
-./scripts/restart_evelyn_services.sh        # not: sudo systemctl restart evelyn
-./scripts/stop_evelyn_services.sh           # not: sudo systemctl stop evelyn
-```
-
-The engine's Chroma custodian holds the vector store's **single-writer lease for its whole
-life**, and its shutdown handler drains the pending write queue before exiting. A SIGKILL ends
-that lease mid-write. Both scripts stop the engine on its own and then confirm the drain ran by
-checking the journal for `Clean shutdown complete`; they exit non-zero and warn if it did not.
-
-`TimeoutStopSec=30` gives that handler room. The worst-case budget is 5s connection drain + 5s
-task cancel + 3s subprocess grace + 5s Chroma drain = 18s; the systemd default of 90s is fine
-too, but the 15s some setups use will cut the drain off. **If shutdown ever overruns the budget,
-find what is blocking it rather than raising the number** — the original defect was uvicorn
-waiting indefinitely on the chat UI's SSE stream, which made the drain unreachable entirely.
-
-A clean *start* proves nothing about the previous stop: the startup reaper clears a stale
-`.chroma_write.lock` and the health probe passes regardless. Verify the stop.
-
----
-
-## 7. Accessing the Dashboard & Web UI
-
-Once started, the engine provides two web interfaces:
-- **Chat Interface**: `http://localhost:7860/ui/index.html` (or `http://localhost:7860/`)
-- **Triage & Developer Dashboard**: `http://localhost:7860/ui/dev.html`
-
-### API Authentication
-The server is protected by thin API authentication. Pass your configured `EVELYN_API_KEY` (set in `evelyn_config.py` or environment variable) in the `X-Evelyn-Key` header, or input it when prompted by the web UI.
-
----
-
-## 8. Verifying the Installation
-
-Run targeted unit and integration tests to verify subsystems, tools, and vector indexes:
-```bash
-# Verify core tools and agents
-PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_all_tools_end_to_end.py
-
-# Verify code hygiene and AST wiring
-PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py
-```
+### 2. Service Lifecycle Management (Mandatory Scripts)
 
 > [!WARNING]
-> **WSL2 Resource Constraint**: Do not run an unbounded `pytest Evelyn/tests/` across the entire directory in a single command under WSL2. Heavy ML models (SentenceTransformers, PyTorch) and ChromaDB instances accumulate memory across 60+ test suites and can cause WSL2 memory exhaustion and system freeze. Always run tests in targeted parts by module or subsystem.
+> **Graceful Shutdown Is Mandatory**: Never invoke bare `sudo systemctl restart evelyn` or `sudo systemctl stop evelyn`.
+> Evelyn's Chroma custodian holds a single-writer lease for its entire lifetime. A bare systemctl stop or restart kills the process before uvicorn completes its lifespan shutdown, skipping the Chroma write queue drain and risking segment corruption.
+> Always manage services using the canonical scripts:
+
+```bash
+# Start all services cleanly:
+./scripts/start_evelyn_services.sh
+
+# Safely restart services (verifies Chroma drain and checkpoints WAL):
+./scripts/restart_evelyn_services.sh
+
+# Restart all services including Ollama:
+./scripts/restart_evelyn_services.sh --all
+
+# Gracefully stop services:
+./scripts/stop_evelyn_services.sh
+
+# Full stop with SQLite WAL checkpointing:
+./scripts/stop_evelyn_services.sh --all --checkpoint-wal
+```
+
+---
+
+## 9. Verification & Health Probes
+
+### 1. Verify Active Port Bindings
+```bash
+ss -tulpn | grep -E ':(11434|5050|5060|7860|8384)'
+```
+
+### 2. Comprehensive Engine Status Probe
+Run the bundled ecosystem diagnostic script:
+```bash
+./scripts/check_evelyn_status.sh
+```
+
+### 3. Direct Health Endpoint Checks
+```bash
+# Core Server Status Probe
+API_KEY=$(grep -oP '(?<=EVELYN_API_KEY=)[^\"]+' .env 2>/dev/null || echo "${EVELYN_API_KEY}")
+curl -sk -H "X-Evelyn-Key: ${API_KEY}" https://localhost:7860/status
+
+# Chatterbox TTS Health
+curl http://localhost:5050/health
+
+# Faster-Whisper STT Health
+curl http://localhost:5060/health
+```
+
+### 4. Code Hygiene & Test Verification
+Run targeted test suites to confirm that tools, vector indexes, and AST wiring are verified:
+```bash
+# Verify all tools end-to-end
+PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_all_tools_end_to_end.py
+
+# Verify code hygiene gate (5 stages: compile, ruff, AST wiring, vulture, privacy)
+PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py
+```

@@ -2,7 +2,7 @@
 description: How to safely stop Evelyn's core services and background daemons
 title: stop-services.md
 date created: 2026-08-23 17:42:00
-date modified: 2026-08-23 17:42:00
+date modified: 2026-10-08 07:16:26
 tags: [services, shutdown, stop, teardown, guide, workflow, evelyn]
 ---
 
@@ -26,14 +26,18 @@ bash scripts/stop_evelyn_services.sh --all --checkpoint-wal
 
 ## 2. Managing Services via Systemd
 
-You can also control the systemd units directly:
+> [!WARNING]
+> **Graceful Shutdown Is Mandatory**: Stopping `evelyn.service` directly via `sudo systemctl stop evelyn` does not confirm that the Chroma single-writer queue drained before the process terminated. Always use `bash scripts/stop_evelyn_services.sh` or source `scripts/graceful_stop.sh` to ensure the vector database is left in a consistent state.
 
 ```bash
-# 1. Stop Evelyn server, TTS server, and Ollama LLM backend
-sudo systemctl stop evelyn evelyn-tts ollama
+# 1. Gracefully stop Evelyn core engine (drains Chroma single-writer lease)
+source scripts/graceful_stop.sh && evelyn_graceful_stop
 
-# 2. Stop User Vault Watcher service
-systemctl --user stop evelyn-vault-watcher
+# 2. Stop voice microservices and Ollama LLM backend
+sudo systemctl stop evelyn-tts evelyn-stt ollama 2>/dev/null || sudo systemctl stop evelyn-tts ollama
+
+# 3. Stop User Vault Watcher and Syncthing services
+systemctl --user stop evelyn-vault-watcher syncthing
 ```
 
 ## 3. Verify Full Resource Release
@@ -42,10 +46,11 @@ Confirm all services, port bindings, and GPU VRAM are completely free:
 
 ```bash
 # 1. Check systemd unit statuses (should be inactive)
-systemctl is-active ollama evelyn evelyn-tts && systemctl --user is-active evelyn-vault-watcher
+systemctl is-active ollama evelyn evelyn-tts evelyn-stt 2>/dev/null
+systemctl --user is-active evelyn-vault-watcher syncthing 2>/dev/null
 
 # 2. Check port bindings (should return empty)
-ss -tulpn | grep -E ':(11434|5050|7860)'
+ss -tulpn | grep -E ':(11434|5050|5060|7860|8384|8385)'
 
 # 3. Check GPU status (Tesla T4 VRAM should be 0 MiB)
 nvidia-smi

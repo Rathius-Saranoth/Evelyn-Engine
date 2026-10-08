@@ -1,0 +1,29 @@
+[Unit]
+Description=Evelyn AI Core Server
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=rathius
+WorkingDirectory=/home/rathius/evelyn
+EnvironmentFile=-/home/rathius/evelyn/.env
+Environment="PYTHONPATH=/home/rathius/evelyn:/home/rathius/evelyn/Evelyn/tools"
+Environment="PYTHONUNBUFFERED=1"
+Environment="OMP_NUM_THREADS=8"
+Environment="MKL_NUM_THREADS=8"
+Environment="OPENBLAS_NUM_THREADS=8"
+Environment="ONNXRUNTIME_NUM_THREADS=8"
+Environment="HF_HUB_OFFLINE=1"
+Environment="TRANSFORMERS_OFFLINE=1"
+Environment="HF_HUB_DISABLE_TELEMETRY=1"
+ExecStart=/home/rathius/evelyn/venv/bin/python evelyn_server.py
+Restart=on-failure
+RestartSec=5
+# Graceful shutdown headroom for the Chroma single-writer drain (budget: 18s).
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

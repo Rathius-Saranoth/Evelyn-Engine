@@ -60,6 +60,13 @@ else
     echo "  - evelyn-tts was not running."
 fi
 
+if systemctl is-active --quiet evelyn-stt 2>/dev/null; then
+    sudo systemctl stop evelyn-stt
+    echo "  ✓ Stopped systemd service: evelyn-stt"
+else
+    echo "  - evelyn-stt was not running."
+fi
+
 # 2. Stop User Watcher Service if active
 if systemctl --user is-active --quiet evelyn-vault-watcher 2>/dev/null; then
     systemctl --user stop evelyn-vault-watcher
