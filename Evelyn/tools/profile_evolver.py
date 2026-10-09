@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-10-04 21:21:15
+# date modified: 2026-10-09 12:09:40
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -1599,7 +1599,6 @@ def get_profile_evolution_statuses() -> dict:
                 }
                 state["last_run_per_doc"][doc] = max(state["last_run_per_doc"].get(doc, 0.0), rev_ts)
                 state_modified = True
-            else:
                 if last_run and (now - last_run < cooldown):
                     rem_h = round((cooldown - (now - last_run)) / 3600.0, 1)
                     statuses[doc] = {
@@ -1610,13 +1609,29 @@ def get_profile_evolution_statuses() -> dict:
                     }
                 else:
                     statuses[doc] = {
-                        "code": "NEVER_RUN" if not last_run else "COOLDOWN_ACTIVE",
-                        "label": "Never Run" if not last_run else "Skipped — Cooldown Active",
+                        "code": "NEVER_RUN" if not last_run else "NO_CORE_CHANGES",
+                        "label": "Never Run" if not last_run else STATUS_LABELS.get("NO_CORE_CHANGES", "Evaluated — Up to Date"),
                         "timestamp": last_run,
-                        "details": "No status recorded yet" if not last_run else "Cooldown active",
+                        "details": "No status recorded yet" if not last_run else "Cooldown expired; eligible for next evaluation",
                     }
                 state_modified = True
-        # Case 3: Document not yet in statuses
+        # Case 3: Document currently marked COOLDOWN_ACTIVE
+        elif curr_code == "COOLDOWN_ACTIVE":
+            if last_run and (now - last_run < cooldown):
+                rem_h = round((cooldown - (now - last_run)) / 3600.0, 1)
+                new_details = f"Cooldown active ({rem_h}h remaining)"
+                if curr_status.get("details") != new_details:
+                    statuses[doc]["details"] = new_details
+                    state_modified = True
+            else:
+                statuses[doc] = {
+                    "code": "NEVER_RUN" if not last_run else "NO_CORE_CHANGES",
+                    "label": "Never Run" if not last_run else STATUS_LABELS.get("NO_CORE_CHANGES", "Evaluated — Up to Date"),
+                    "timestamp": last_run,
+                    "details": "No status recorded yet" if not last_run else "Cooldown expired; eligible for next evaluation",
+                }
+                state_modified = True
+        # Case 4: Document not yet in statuses
         elif doc not in statuses:
             if last_run and (now - last_run < cooldown):
                 rem_h = round((cooldown - (now - last_run)) / 3600.0, 1)
@@ -1628,10 +1643,10 @@ def get_profile_evolution_statuses() -> dict:
                 }
             else:
                 statuses[doc] = {
-                    "code": "NEVER_RUN" if not last_run else "COOLDOWN_ACTIVE",
-                    "label": "Never Run" if not last_run else "Skipped — Cooldown Active",
+                    "code": "NEVER_RUN" if not last_run else "NO_CORE_CHANGES",
+                    "label": "Never Run" if not last_run else STATUS_LABELS.get("NO_CORE_CHANGES", "Evaluated — Up to Date"),
                     "timestamp": last_run,
-                    "details": "No status recorded yet" if not last_run else "Cooldown active",
+                    "details": "No status recorded yet" if not last_run else "Cooldown expired; eligible for next evaluation",
                 }
             state_modified = True
 
@@ -2131,6 +2146,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     fpath = os.path.join(persona_dir, filename)
     if not os.path.exists(fpath):
         print(f"[PROFILE EVOLVER] Error: document file not found at {fpath}", flush=True)
+        update_doc_status(state, filename, "MODEL_ERROR", f"Document file missing: {filename}")
         return False
 
     current_content = await asyncio.to_thread(_sync_read_file, fpath)

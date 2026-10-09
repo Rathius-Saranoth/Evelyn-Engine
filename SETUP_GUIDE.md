@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-10-08 19:23:58
+date modified: 2026-10-09 12:09:40
 tags: [setup, guide, installation, configuration, deployment, bare-metal, sanctum, evelyn]
 ---
 
@@ -258,6 +258,7 @@ Transfer the validated database directory and environment file to Sanctum:
 # Execute on source machine
 rsync -avzP --delete /home/rathius/evelyn/data/ <USER>@<SERVER_TAILSCALE_IP>:/home/rathius/evelyn/data/
 rsync -avzP /home/rathius/evelyn/.env <USER>@<SERVER_TAILSCALE_IP>:/home/rathius/evelyn/.env
+rsync -avzP /home/rathius/evelyn/Evelyn/persona/ <USER>@<SERVER_TAILSCALE_IP>:/home/rathius/evelyn/Evelyn/persona/
 ```
 
 ### Step 3: Verify Database & Vector Store Integrity on Sanctum

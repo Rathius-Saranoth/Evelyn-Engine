@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-09 02:00:31
+date modified: 2026-10-09 12:09:40
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.022] - 2026-10-09 — *Profile Evolver Status Reconciliation, Missing Document Alerts & Secondary Backup Scripting*
+
+### Added
+
+- **Automated Secondary Drive Backup Script (`scripts/backup_non_repo_data.sh`)**:
+  - Implemented non-repo host backup utility to snapshot `.env`, `data/` (SQLite DBs, Chroma vectors, planning), `Evelyn/persona/`, and `obsidian_vault` directly to dedicated secondary storage (`/data/backups/`).
+  - Automatically manages rolling snapshots, updates symlink `/data/backups/latest`, and reports remaining disk capacity.
+
+### Fixed
+
+- **Profile Evolver Cooldown Reconciliation & Expired Status Transitions (`Evelyn/tools/profile_evolver.py`)**:
+  - Fixed `reconcile_doc_statuses()` where documents previously marked `COOLDOWN_ACTIVE` were perpetually frozen with stale remaining hour counts indefinitely. Now dynamically recalculates remaining hours against `time.time()` and cleanly transitions to `NO_CORE_CHANGES` (`Evaluated — Up to Date`) once the cooldown period elapses.
+  - Resolved contradictory fallback in `reconcile_doc_statuses()` where expired cooldowns were incorrectly re-stamped as `COOLDOWN_ACTIVE`.
+- **Missing Persona Document Explicit Error Alerting (`Evelyn/tools/profile_evolver.py`)**:
+  - Hardened `_evolve_document()` to call `update_doc_status(state, filename, "MODEL_ERROR", f"Document file missing: {filename}")` when a target persona file is missing on disk rather than silently returning `False`, preventing stale status masks in the UI.
+
+### Changed
+
+- **Bare-Metal Migration Documentation (`SETUP_GUIDE.md`)**:
+  - Updated Section 6 Step 2 to explicitly document rsyncing the gitignored `Evelyn/persona/` directory from source workstations alongside `data/` and `.env`.
 
 ## [000.008.021] - 2026-10-09 — *Bare-Metal Post-Migration Hardening, TTS Dependency Pinning & Permissions Alignment*
 

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-09 02:00:31
+# date modified: 2026-10-09 12:09:40
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.021"
-__version_info__ = (0, 8, 21)
-__version_name__ = "Bare-Metal Post-Migration Hardening, TTS Dependency Pinning & Permissions Alignment"
+__version__ = "000.008.022"
+__version_info__ = (0, 8, 22)
+__version_name__ = "Profile Evolver Status Reconciliation, Missing Document Alerts & Secondary Backup Scripting"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
