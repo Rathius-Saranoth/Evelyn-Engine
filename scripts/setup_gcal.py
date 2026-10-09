@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # setup_gcal.py
 # date created: 2026-06-19
 # date modified: 2026-06-19

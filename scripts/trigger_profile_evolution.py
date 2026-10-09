@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # trigger_profile_evolution.py
 # date created: 2026-06-29
 # date modified: 2026-09-18 18:51:33

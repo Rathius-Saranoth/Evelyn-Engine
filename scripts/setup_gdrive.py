@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # setup_gdrive.py
 # date created: 2026-08-16
 # tags: #setup, #gdrive, #google-drive, #google-docs, #google-sheets, #google-tasks, #oauth

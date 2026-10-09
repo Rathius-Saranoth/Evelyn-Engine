@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # setup_gtasks.py
 # date created: 2026-08-23
 # tags: #setup, #gtasks, #google-tasks, #oauth

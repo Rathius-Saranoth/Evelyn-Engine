@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # rebuild_chroma_collection.py
 # date created: 2026-09-22 17:45:00
 # date modified: 2026-09-23 21:46:27

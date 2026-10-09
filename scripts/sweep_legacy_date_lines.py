@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # sweep_legacy_date_lines.py
 # date created: 2026-09-22 22:20:00
 # date modified: 2026-09-22 20:15:53

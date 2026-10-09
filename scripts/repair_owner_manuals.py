@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # repair_owner_manuals.py
 # date created: 2026-09-08 18:40:00
 # date modified: 2026-09-08 18:40:59

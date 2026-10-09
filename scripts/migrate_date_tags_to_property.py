@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # migrate_date_tags_to_property.py
 # date created: 2026-09-22 21:40:00
 # date modified: 2026-09-22 20:05:07

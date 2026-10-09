@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # repair_musical_vault_notes.py
 # date created: 2026-09-08 18:15:00
 # date modified: 2026-09-08 18:26:47

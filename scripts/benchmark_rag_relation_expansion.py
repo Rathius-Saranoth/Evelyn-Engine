@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # benchmark_rag_relation_expansion.py
 # date created: 2026-09-30
 # tags: [rag, benchmark, taxonomy, relations, expansion, evaluation]

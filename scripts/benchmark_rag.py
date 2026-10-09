@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # benchmark_rag.py
 # date created: 2026-04-26 12:18:17
 # date modified: 2026-10-02 17:45:18

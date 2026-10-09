@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
 # date modified: 2026-10-04 17:19:38
