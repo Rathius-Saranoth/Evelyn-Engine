@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-09 23:12:07
+date modified: 2026-10-09 23:41:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,20 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.024] - 2026-10-09 — *Evelyn MCP Server Expansion & Tooling Integration*
+
+### Added
+
+- **Expanded Evelyn Engine MCP Server Tools (`scripts/sqlite_mcp_server.py`)**:
+  - Added operational inspection and mutation MCP tools: `get_thought_bubble` (real-time ambient thoughts), `get_telemetry` (reasoning, RAG retrieval, vault domain stats), `get_proposals` (review queue inspection), `review_proposal` (approve/deny memory and tag proposals), `trigger_pipeline` (memory refresh, vault sync, SQLite WAL checkpointing), `get_terminal_pending`, and `respond_terminal_approval` (terminal agent execution triage).
+  - Implemented `http_post_json()` helper with local SSL verification bypass and resilient API key resolution against `evelyn_config.API_KEY`.
+  - Exported matching JSON schema definitions for all 18 MCP tools to `/home/rathius/.gemini/antigravity-ide/mcp/evelyn-sqlite/`.
+- **GitHub MCP Server Integration (`~/.gemini/config/mcp_config.json`, `/home/rathius/.gemini/antigravity-ide/mcp/github/`)**:
+  - Installed Node.js & npm runtime on host `sanctum` to support `@modelcontextprotocol/server-github`.
+  - Registered GitHub MCP server and exported 26 full tool schemas (PR management, issue tracking, commit inspection).
+- **Core IDE Remote Extensions (`.antigravity-ide-server/extensions/`)**:
+  - Installed `humao.rest-client` (interactive execution of `reference/evelyn_api.http`), `charliermarsh.ruff` (deterministic in-editor linting/formatting), `ms-python.python` (Python language server), `qwtel.sqlite-viewer` (visual SQLite table exploration), and `bierner.markdown-mermaid` (Mermaid diagram rendering for Visual PKM notes).
 
 ## [000.008.023] - 2026-10-09 — *Tag Relation Rejection Baseline Retention & Container Exclusion Filtering*
 

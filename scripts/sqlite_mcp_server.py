@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # sqlite_mcp_server.py
 # date created: 2026-08-28 12:29:50
-# date modified: 2026-09-01 21:46:05
+# date modified: 2026-10-09 23:41:24
 # tags:
 
 """
@@ -22,6 +22,13 @@ Exposes standard MCP tools over stdio:
     - get_heavy_tasks
     - get_pending_reviews
     - get_ollama_status
+    - get_thought_bubble
+    - get_telemetry
+    - get_proposals
+    - review_proposal
+    - trigger_pipeline
+    - get_terminal_pending
+    - respond_terminal_approval
 """
 
 import asyncio
@@ -51,7 +58,13 @@ DB_MAP = {
 }
 
 SERVER_URL = "https://localhost:7860"
-API_KEY = os.environ.get("EVELYN_API_KEY", "evelyn-secret-key")
+try:
+    import evelyn_config as cfg
+    CONFIG_API_KEY = getattr(cfg, "API_KEY", "")
+except (ImportError, OSError):
+    CONFIG_API_KEY = ""
+
+API_KEY = os.environ.get("EVELYN_API_KEY") or CONFIG_API_KEY or "evelyn-secret-key"
 
 server = MCPServer("evelyn-sqlite")
 
@@ -100,6 +113,29 @@ def http_get_json(url: str, headers: dict[str, str] | None = None) -> dict[str, 
         body = e.read().decode("utf-8", errors="replace")
         return {"error": f"HTTP {e.code}: {e.reason}", "body": body}
     except (urllib.error.URLError, TimeoutError, OSError, ssl.SSLError, json.JSONDecodeError) as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def http_post_json(url: str, data: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    """Perform synchronous HTTP POST request with SSL verification disabled for local self-signed certs."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    all_headers = {"Content-Type": "application/json", **(headers or {})}
+    payload = json.dumps(data or {}).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers=all_headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
+            body = response.read().decode("utf-8")
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                return {"status": "ok", "response": body}
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        return {"error": f"HTTP {e.code}: {e.reason}", "body": body}
+    except (urllib.error.URLError, TimeoutError, OSError, ssl.SSLError) as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
@@ -366,6 +402,138 @@ def get_ollama_status() -> str:
     """Inspect active Ollama models loaded in VRAM, memory usage, and context configurations."""
     ps_data = fetch_ollama_status()
     return json.dumps(ps_data, indent=2)
+
+
+@server.tool()
+def get_thought_bubble() -> str:
+    """Fetch the latest ambient thought bubble and cognitive telemetry from Evelyn."""
+    headers = {"X-Evelyn-Key": API_KEY}
+    res = http_get_json(f"{SERVER_URL}/thought_bubble", headers=headers)
+    return json.dumps(res, indent=2)
+
+
+@server.tool()
+def get_telemetry(metric: str = "all") -> str:
+    """Retrieve system telemetry ('thinking', 'rag', 'vault_domains', or 'all').
+
+    Args:
+        metric: Telemetry type ('thinking', 'rag', 'vault_domains', or 'all').
+    """
+    headers = {"X-Evelyn-Key": API_KEY}
+    endpoints = {
+        "thinking": f"{SERVER_URL}/telemetry/thinking",
+        "rag": f"{SERVER_URL}/telemetry/rag",
+        "vault_domains": f"{SERVER_URL}/api/vault/domains",
+    }
+    if metric in endpoints:
+        res = http_get_json(endpoints[metric], headers=headers)
+        return json.dumps(res, indent=2)
+    elif metric == "all":
+        out = {}
+        for k, ep in endpoints.items():
+            out[k] = http_get_json(ep, headers=headers)
+        return json.dumps(out, indent=2)
+    else:
+        return json.dumps({
+            "error": f"Unknown metric '{metric}'. Choose from: 'thinking', 'rag', 'vault_domains', 'all'"
+        })
+
+
+@server.tool()
+def get_proposals(status: str = "pending", limit: int = 50) -> str:
+    """Retrieve memory/fact and tag proposals from the review queue.
+
+    Args:
+        status: Proposal status filter ('pending', 'approved', 'rejected', or 'all'). Default: 'pending'.
+        limit: Maximum number of proposals to retrieve (default: 50).
+    """
+    headers = {"X-Evelyn-Key": API_KEY}
+    url = f"{SERVER_URL}/api/review/proposals?limit={int(limit)}"
+    if status != "all":
+        url += f"&status={status}"
+    res = http_get_json(url, headers=headers)
+    return json.dumps(res, indent=2)
+
+
+@server.tool()
+def review_proposal(proposal_id: int, action: str, feedback: str = "") -> str:
+    """Approve or deny a pending memory or tag proposal in Evelyn's review queue.
+
+    Args:
+        proposal_id: Numeric row ID of the proposal.
+        action: Review decision ('approve' or 'deny').
+        feedback: Optional reviewer notes or modified text.
+    """
+    act = action.lower().strip()
+    if act not in ("approve", "deny"):
+        return json.dumps({"error": f"Invalid action '{action}'. Must be 'approve' or 'deny'."})
+    headers = {"X-Evelyn-Key": API_KEY}
+    payload: dict[str, Any] = {}
+    if feedback:
+        payload["modified_text"] = feedback
+    res = http_post_json(
+        f"{SERVER_URL}/api/review/proposals/{proposal_id}/{act}", data=payload, headers=headers
+    )
+    return json.dumps(res, indent=2)
+
+
+@server.tool()
+def trigger_pipeline(pipeline_name: str) -> str:
+    """Trigger a background maintenance pipeline.
+
+    Args:
+        pipeline_name: Pipeline name ('memory_refresh', 'vault_sync', 'wal_checkpoint').
+    """
+    pipe = pipeline_name.lower().strip()
+    headers = {"X-Evelyn-Key": API_KEY}
+    if pipe == "memory_refresh":
+        res = http_post_json(f"{SERVER_URL}/refresh_memory", data={}, headers=headers)
+        return json.dumps(res, indent=2)
+    elif pipe == "vault_sync":
+        res = http_post_json(f"{SERVER_URL}/sync", data={}, headers=headers)
+        return json.dumps(res, indent=2)
+    elif pipe == "wal_checkpoint":
+        results = {}
+        for alias, path in DB_MAP.items():
+            if os.path.exists(path):
+                try:
+                    c = sqlite3.connect(path)
+                    c.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                    c.close()
+                    results[alias] = "checkpointed"
+                except (sqlite3.Error, OSError) as exc:
+                    results[alias] = f"error: {exc}"
+        return json.dumps({"status": "ok", "results": results}, indent=2)
+    else:
+        return json.dumps({
+            "error": f"Unknown pipeline '{pipeline_name}'. Choose from: 'memory_refresh', 'vault_sync', 'wal_checkpoint'"
+        })
+
+
+@server.tool()
+def get_terminal_pending() -> str:
+    """Retrieve all pending terminal agent command and file write approval requests."""
+    headers = {"X-Evelyn-Key": API_KEY}
+    res = http_get_json(f"{SERVER_URL}/api/terminal/pending", headers=headers)
+    return json.dumps(res, indent=2)
+
+
+@server.tool()
+def respond_terminal_approval(approval_id: str, action: str) -> str:
+    """Approve or deny a pending terminal agent command or file write approval.
+
+    Args:
+        approval_id: Unique approval ID string.
+        action: Decision ('approve' or 'deny').
+    """
+    act = action.lower().strip()
+    if act not in ("approve", "deny"):
+        return json.dumps({"error": f"Invalid action '{action}'. Must be 'approve' or 'deny'."})
+    headers = {"X-Evelyn-Key": API_KEY}
+    res = http_post_json(
+        f"{SERVER_URL}/api/terminal/{act}/{approval_id}", data={}, headers=headers
+    )
+    return json.dumps(res, indent=2)
 
 
 if __name__ == "__main__":
