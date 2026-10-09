@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-06 21:47:29
+# date modified: 2026-10-09 23:12:07
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1320,6 +1320,19 @@ TAG_RELATION_MAX_PENDING = 25
 # is a judgement about the documents that existed when it was made, and twice as many of them
 # is a different question rather than the same one asked again.
 TAG_RELATION_REEVIDENCE_FACTOR = 2.0
+
+# Terms excluded from tag relation candidate generation (§6.4).
+# Activity, format, workflow, and high-volume container terms (e.g. 'journaling', 'routine')
+# co-occur across many diverse topical documents by virtue of document form/habit rather than
+# conceptual synonymy or subject hierarchy.
+TAG_RELATION_EXCLUDED_TERMS = {
+    "journaling",
+    "journal",
+    "routine",
+    "log",
+    "logging",
+    "daily",
+}
 
 # How often the vocabulary re-counts itself against the whole corpus. The census is a full
 # scan of vault, memory and procedures, so it is daily rather than per-pass — but it had no

@@ -1,6 +1,6 @@
 # test_relation_proposals.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 19:20:57
+# date modified: 2026-10-09 23:12:07
 # tags: #taxonomy, #relations, #proposals, #review, #testing
 
 """Relation candidates reach the review queue, and both answers have a reader (F7).
@@ -147,6 +147,38 @@ def test_each_suppressed_request_is_counted(monkeypatch: pytest.MonkeyPatch) -> 
         if p["id"] == pid
     )
     assert row["rejection_count"] == 3, "1 seeded by the rejection, plus two suppressed asks"
+
+
+def test_multiple_rejections_retain_latest_evidence_baseline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical rejections must not overwrite the latest decision with an older baseline."""
+    _reject("hvac:thermostat", 5)
+    _reject("hvac:thermostat", 13)
+
+    # 14 documents is > (5 * 2.0 = 10), but below (13 * 2.0 = 26).
+    # With the fix, 14 is correctly suppressed rather than prematurely re-opening.
+    _generator(monkeypatch, _candidate("hvac", "thermostat", 14))
+    assert tag_relations.propose_tag_relations() == []
+
+    # But once it reaches 26 documents (2x the latest 13 baseline), it re-opens.
+    _generator(monkeypatch, _candidate("hvac", "thermostat", 26))
+    assert tag_relations.propose_tag_relations() == ["hvac:thermostat"]
+
+
+def test_container_and_activity_terms_are_excluded_from_relation_candidates() -> None:
+    """Activity and container terms (journaling, routine, work) are excluded from candidates."""
+    docs = [
+        ("area1", {"journaling", "gaming"}),
+        ("area2", {"journaling", "gaming"}),
+        ("area3", {"journaling", "gaming"}),
+    ] + [("area1", {f"filler{i}", "misc"}) for i in range(50)]
+
+    found, stats = tag_relations.find_relation_candidates(
+        min_docs=3, min_areas=2, min_lift=1.0, docs=docs
+    )
+    assert not any("journaling" in c.pair for c in found)
+    assert stats.get("container_pairs", 0) >= 1
 
 
 # ------------------------------------------------------------------ the approval

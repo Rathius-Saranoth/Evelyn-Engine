@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # curate_tag_relations.py
 # date created: 2026-09-23 19:30:00
-# date modified: 2026-09-25 19:20:57
+# date modified: 2026-10-09 23:12:07
 # tags: #taxonomy, #relations, #curation, #vocabulary
 
 """Report and record associative (`RT`) relations between vocabulary terms.
@@ -65,6 +65,9 @@ def report(min_docs: int, min_areas: int, min_lift: float, limit: int) -> None:
         cross,
     )
 
+    if stats.get("container_pairs"):
+        print(f"\n{stats['container_pairs']} container/format pair(s) excluded — "
+              "container and activity terms are excluded from subject relations (§6.4).")
     if stats["facet_pairs"]:
         print(f"\n{stats['facet_pairs']} facet pair(s) excluded — "
               "a facet is not a subject (§3.4, §6.4).")

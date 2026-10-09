@@ -1,6 +1,6 @@
 # tag_relations.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 20:15:28
+# date modified: 2026-10-09 23:12:07
 # tags: #taxonomy, #relations, #candidates, #vocabulary
 
 """Relation candidate generation for the controlled vocabulary (taxonomy §6.4).
@@ -43,7 +43,7 @@ from typing import Any
 
 import evelyn_config as cfg
 from Evelyn.tools import taxonomy_db
-from Evelyn.tools.tag_librarian import is_subject_term
+from Evelyn.tools.tag_librarian import is_subject_term, is_umbrella_term
 
 # Defaults, tunable from config. These are the values the C3 review was run at.
 MIN_DOCS = getattr(cfg, "TAG_RELATION_MIN_DOCS", 5)
@@ -161,6 +161,22 @@ def resolve_aliases(docs: list[tuple[str, set[str]]]) -> list[tuple[str, set[str
     return out
 
 
+def is_relation_excluded_term(term: str) -> bool:
+    """True when a term should not be proposed for tag relations (§6.4).
+
+    Excludes both general taxonomy container terms (via is_umbrella_term) and
+    high-volume document format / habit / activity terms (e.g. 'journaling', 'routine')
+    configured in cfg.TAG_RELATION_EXCLUDED_TERMS.
+    """
+    clean = (term or "").strip().lower()
+    if not clean:
+        return True
+    if is_umbrella_term(clean):
+        return True
+    excluded: set[str] = getattr(cfg, "TAG_RELATION_EXCLUDED_TERMS", set())
+    return clean in excluded
+
+
 def find_relation_candidates(
     min_docs: int = MIN_DOCS,
     min_areas: int = MIN_AREAS,
@@ -180,7 +196,7 @@ def find_relation_candidates(
     """
     corpus = resolve_aliases(load_corpus() if docs is None else docs)
     n = len(corpus)
-    stats = {"corpus": n, "facet_pairs": 0, "already_related": 0}
+    stats = {"corpus": n, "facet_pairs": 0, "container_pairs": 0, "already_related": 0}
     if not n:
         return [], stats
 
@@ -218,6 +234,9 @@ def find_relation_candidates(
             # pair in the corpus.
             stats["facet_pairs"] += 1
             continue
+        if is_relation_excluded_term(a) or is_relation_excluded_term(b):
+            stats["container_pairs"] += 1
+            continue
         out.append(
             RelationCandidate(
                 term_a=a,
@@ -243,11 +262,24 @@ def _rejected_pairs() -> dict[str, dict[str, Any]]:
     from Evelyn.tools import memory_db
 
     try:
-        return {
-            (p.get("topic") or "").strip(): p
-            for p in memory_db.get_rejected_proposals(RELATION_PROPOSAL)
-            if (p.get("topic") or "").strip()
-        }
+        out: dict[str, dict[str, Any]] = {}
+        for p in memory_db.get_rejected_proposals(RELATION_PROPOSAL):
+            topic = (p.get("topic") or "").strip()
+            if not topic:
+                continue
+            # get_rejected_proposals() is ordered by reviewed_at DESC (newest first).
+            # The first time we encounter a topic is its most recent rejection,
+            # which holds the latest reviewer decision.
+            if topic not in out:
+                out[topic] = p
+            else:
+                # Retain the maximum rejected evidence baseline across all historical rejections
+                # so an older, lower evidence record cannot trigger premature re-opening.
+                cur_ev = float(out[topic].get("evidence") or 0)
+                p_ev = float(p.get("evidence") or 0)
+                if p_ev > cur_ev:
+                    out[topic]["evidence"] = p_ev
+        return out
     except (sqlite3.Error, OSError) as exc:
         # Cannot prove anything was rejected, so suppress nothing: a pair that slips through
         # is one more review, a pair wrongly suppressed is invisible.

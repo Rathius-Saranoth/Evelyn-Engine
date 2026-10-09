@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-09 12:09:40
+date modified: 2026-10-09 23:12:07
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.023] - 2026-10-09 — *Tag Relation Rejection Baseline Retention & Container Exclusion Filtering*
+
+### Added
+
+- **Configurable Tag Relation Container Exclusions (`evelyn_config.py`, `Evelyn/tools/tag_relations.py`)**:
+  - Introduced `TAG_RELATION_EXCLUDED_TERMS` (`journaling`, `journal`, `routine`, `log`, `logging`, `daily`) and `is_relation_excluded_term()`, filtering high-frequency document format/activity container terms and `TAXONOMY_CONTAINER_TERMS` from being mined as candidate subject relations.
+  - Updated `find_relation_candidates()` and `scripts/curate_tag_relations.py` to count and report excluded container pairs (`stats["container_pairs"]`).
+
+### Fixed
+
+- **Tag Relation Rejection Inversion Bug & Infinite Re-Proposal Loop (`Evelyn/tools/tag_relations.py`)**:
+  - Fixed `_rejected_pairs()` dictionary comprehension where newer rejected proposals were overwritten by older historical records due to list ordering (`reviewed_at DESC`), causing the engine to evaluate candidate evidence against the oldest historical rejection rather than the latest reviewer decision.
+  - Implemented latest-decision priority and maximum rejected evidence baseline retention (`out[topic]["evidence"] = max(...)`), ensuring rejections (e.g. `fiction:journaling`, `fantasy:journaling`) cleanly persist and require a genuine $2\times$ evidence increase over the latest rejected count to re-open.
+- **Automated Test Coverage (`Evelyn/tests/test_relation_proposals.py`)**:
+  - Added unit tests `test_multiple_rejections_retain_latest_evidence_baseline` and `test_container_and_activity_terms_are_excluded_from_relation_candidates` asserting evidence retention across repeated rejections and container term filtering.
 
 ## [000.008.022] - 2026-10-09 — *Profile Evolver Status Reconciliation, Missing Document Alerts & Secondary Backup Scripting*
 
