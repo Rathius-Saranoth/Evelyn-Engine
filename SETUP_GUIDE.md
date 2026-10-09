@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-10-08 17:51:11
+date modified: 2026-10-08 19:23:58
 tags: [setup, guide, installation, configuration, deployment, bare-metal, sanctum, evelyn]
 ---
 
@@ -25,15 +25,15 @@ Sanctum is configured as a 24/7 dedicated production companion host. The hardwar
 - **System RAM**: 192 GB DDR4-2666 ECC RDIMMs (24x 8 GB fully populated, Advanced ECC AMP Mode)
 - **GPU Accelerator**: NVIDIA Tesla T4 (16 GB GDDR6 VRAM, PCIe Slot 1 wired to CPU Socket 0 / NUMA Node 0)
 - **Storage Drives**: 2x WD Blue SA510 2.5" 1000GB SATA SSDs (Front Bays 1 & 2)
-- **Out-of-Band Management**: HPE iLO 5 (IP: `192.168.1.170`, System ROM `U32 v3.66`, iLO Firmware `3.20`)
-- **Host Networking**: LAN IP `192.168.1.189`, Tailscale Mesh IP `100.93.26.14`
+- **Out-of-Band Management**: HPE iLO 5 (System ROM `U32 v3.66`, iLO Firmware `3.20`)
+- **Host Networking**: Static LAN IP (`192.168.1.X`), Tailscale Mesh IP (`100.X.Y.Z`)
 
 ### Storage Role Allocation & Partitioning Schema
 
-| Drive | Physical ID | Raw Capacity | Filesystem / Volume Layout | Role & Mount Point |
+| Drive | Slot / Bay | Raw Capacity | Filesystem / Volume Layout | Role & Mount Point |
 | :--- | :--- | :--- | :--- | :--- |
-| **`sda`** | `25417K804587` | ~1,000 GB | **LVM on GPT**:<br>• `sda1`: 1 GB EFI (`/boot/efi`, vfat)<br>• `sda2`: 2 GB Boot (`/boot`, ext4)<br>• `sda3`: LVM Physical Volume (`vg_sanctum`):<br>&nbsp;&nbsp;- `lv_root`: 120 GB ext4 (`/`)<br>&nbsp;&nbsp;- `lv_swap`: 32 GB swap<br>&nbsp;&nbsp;- **Unallocated Pool**: ~776 GB free | **Operating System & Active Runtime**<br>Houses Ubuntu Server 24.04 LTS, Ollama models, Python environments, and active database operations. Free LVM pool provides zero-downtime volume expansion. |
-| **`sdb`** | `252926805087` | ~1,000 GB | **Standard GPT**:<br>• `sdb1`: ~1,000 GB ext4 mounted at `/data` via `/etc/fstab` | **Dedicated Backups & Media**<br>Isolated volume for automated nightly database backups, Chroma vector snapshots, persistent audio logs, and media assets. |
+| **`sda`** | Bay 1 | ~1,000 GB | **LVM on GPT**:<br>• `sda1`: 1 GB EFI (`/boot/efi`, vfat)<br>• `sda2`: 2 GB Boot (`/boot`, ext4)<br>• `sda3`: LVM Physical Volume (`vg_sanctum`):<br>&nbsp;&nbsp;- `lv_root`: 120 GB ext4 (`/`)<br>&nbsp;&nbsp;- `lv_swap`: 32 GB swap<br>&nbsp;&nbsp;- **Unallocated Pool**: ~776 GB free | **Operating System & Active Runtime**<br>Houses Ubuntu Server 24.04 LTS, Ollama models, Python environments, and active database operations. Free LVM pool provides zero-downtime volume expansion. |
+| **`sdb`** | Bay 2 | ~1,000 GB | **Standard GPT**:<br>• `sdb1`: ~1,000 GB ext4 mounted at `/data` via `/etc/fstab` | **Dedicated Backups & Media**<br>Isolated volume for automated nightly database backups, Chroma vector snapshots, persistent audio logs, and media assets. |
 
 ---
 
@@ -89,9 +89,9 @@ Evelyn relies on Tailscale for secure, encrypted peer-to-peer access across work
 curl -fsSL https://tailscale.com/install.sh | sh
 
 # Authenticate and join the mesh network
-sudo tailscale up --hostname=sanctum
+sudo tailscale up --hostname=<SERVER_HOSTNAME>
 
-# Verify assigned Tailscale IP (e.g. 100.93.26.14)
+# Verify assigned Tailscale IP (e.g. 100.X.Y.Z)
 tailscale ip -4
 ```
 
@@ -187,7 +187,7 @@ systemctl --user enable --now syncthing
 ```
 
 ### 2. Configure Headless Web GUI Access
-By default, Syncthing binds its GUI strictly to `127.0.0.1:8384`. Update the configuration to bind to `0.0.0.0:8384` so the interface is accessible via LAN (`192.168.1.189:8384`) or Tailscale (`100.93.26.14:8384`):
+By default, Syncthing binds its GUI strictly to `127.0.0.1:8384`. Update the configuration to bind to `0.0.0.0:8384` so the interface is accessible via LAN (`<SERVER_LAN_IP>:8384`) or Tailscale (`<SERVER_TAILSCALE_IP>:8384`):
 
 ```bash
 sed -i 's/<address>127.0.0.1:8384<\/address>/<address>0.0.0.0:8384<\/address>/' ~/.local/state/syncthing/config.xml
@@ -256,17 +256,23 @@ Ensure the terminal confirms:
 Transfer the validated database directory and environment file to Sanctum:
 ```bash
 # Execute on source machine
-rsync -avzP --delete /home/rathius/evelyn/data/ rathius@100.93.26.14:/home/rathius/evelyn/data/
-rsync -avzP /home/rathius/evelyn/.env rathius@100.93.26.14:/home/rathius/evelyn/.env
+rsync -avzP --delete /home/rathius/evelyn/data/ <USER>@<SERVER_TAILSCALE_IP>:/home/rathius/evelyn/data/
+rsync -avzP /home/rathius/evelyn/.env <USER>@<SERVER_TAILSCALE_IP>:/home/rathius/evelyn/.env
 ```
 
-### Step 3: Verify Database Integrity on Sanctum
+### Step 3: Verify Database & Vector Store Integrity on Sanctum
 On Sanctum, verify that all SQLite databases arrived intact:
 ```bash
 for db in /home/rathius/evelyn/data/*.db; do
     echo -n "$db: "
     sqlite3 "$db" "PRAGMA integrity_check;"
 done
+```
+
+If ChromaDB collections require initial index reconciliation before starting `evelyn.service`:
+```bash
+# Ensure evelyn.service is stopped before executing direct Chroma rebuilds
+PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/rebuild_chroma_collection.py --execute
 ```
 
 ---
@@ -292,6 +298,9 @@ PAGE_CACHE_SIZE_KB = 65536                      # 64 MB page cache
 # Voice generation: CUDA mode for sub-0.4 Real-Time Factor (RTF)
 TTS_DEVICE = "cuda"
 ```
+
+> [!NOTE]
+> **Environment Variable Precedence**: When copying `.env` from a CPU-only workstation, ensure `EVELYN_TTS_DEVICE=cuda` is set in `.env` (or removed from `.env` so `systemd/evelyn-tts.service`'s `Environment="EVELYN_TTS_DEVICE=cuda"` takes effect). If `.env` explicitly contains `EVELYN_TTS_DEVICE=cpu`, python-dotenv will override systemd.
 
 ---
 
@@ -388,4 +397,38 @@ PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_all_tools_en
 
 # Verify code hygiene gate (5 stages: compile, ruff, AST wiring, vulture, privacy)
 PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py
+```
+
+---
+
+## 10. Security, TLS/SSL Certificates & HTTPS Provisioning
+
+While internal communication over Tailscale is encrypted at the WireGuard network layer, **HTTPS is mandatory** for full client browser functionality:
+- **Microphone Access**: Modern browsers (Chrome, Edge, Safari, Firefox on mobile and desktop) strictly disable the Web Audio API and `getUserMedia` on insecure HTTP origins when connecting from non-localhost IPs (e.g. LAN or Tailscale IPs). Voice chat and STT transcription will fail without HTTPS.
+
+`evelyn_server.py` checks for `server.crt` and `server.key` at startup. If present, it binds port 7860 over TLS automatically.
+
+### Method A: Self-Signed Multi-SAN OpenSSL Certificate (Immediate & Universal)
+Generate a 10-year certificate covering the server hostname, LAN IP, Tailscale IP, and MagicDNS:
+
+```bash
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout /home/rathius/evelyn/server.key \
+  -out /home/rathius/evelyn/server.crt \
+  -subj "/CN=<HOSTNAME>" \
+  -addext "subjectAltName=DNS:<HOSTNAME>,DNS:<HOSTNAME>.<TAILNET>.ts.net,DNS:localhost,IP:<LAN_IP>,IP:<TAILSCALE_IP>,IP:127.0.0.1"
+```
+
+### Method B: Tailscale Native TLS (Let's Encrypt CA)
+If HTTPS Certificates are enabled in the Tailscale Admin Console, Tailscale can issue a globally trusted certificate:
+
+```bash
+sudo tailscale cert --cert-file /home/rathius/evelyn/server.crt --key-file /home/rathius/evelyn/server.key <HOSTNAME>.<TAILNET>.ts.net
+```
+
+### Custom Certificate Paths
+If storing certificates outside the project root, specify them via `.env`:
+```ini
+EVELYN_SSL_CERT=/path/to/server.crt
+EVELYN_SSL_KEY=/path/to/server.key
 ```

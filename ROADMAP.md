@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-06 18:00:32
+date modified: 2026-10-08 19:23:58
 ---
 # Evelyn Project Roadmap
 
@@ -108,6 +108,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Stub Evidence Independence & Review Architecture**: Enforced caller witness isolation preventing stubs from self-citing or inflating citation counts, implemented partial wikilink boundary trimming, and deployed in-place structured editing on DevUI proposal cards.
 - [x] **Continuous Evaluation & Regression Benchmarking Suite**: Automated evaluation harness with Ragas/BEIR RAG retrieval validation, BFCL AST tool argument schema checks, Anthropic alignment/sycophancy suites, cold swap latency profiling, and cross-model performance matrix.
 - [x] **Standalone Benchmark Workstation & Prompt Drift Diff Engine**: Dedicated continuous evaluation dashboard (`ui/benchmark.html`) featuring interactive comparative matrices, visual throughput vs cold swap charts, partitioned 30-run historical snapshot retention, and line-level side-by-side prompt diffing.
+- [x] **Security & TLS Infrastructure Setup Guide**: Expanded `SETUP_GUIDE.md` with Section 10 documenting TLS/SSL certificate provisioning, Multi-SAN OpenSSL generation, Tailscale native TLS, and secure HTTPS requirements for browser microphone and voice streaming.
 - [ ] **Pre-Acceptance Proposal Behavioral Benchmarking**: Speculative prompt compilation and lightweight behavior benchmark execution for staged profile evolution proposals, surfacing regression/drift impact badges directly on proposal review cards prior to operator acceptance.
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, manage protected profile sections, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
@@ -120,7 +121,6 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Canonical Systemd Service Repository & Root Cleanliness (`systemd/`)**: Consolidate all systemd unit templates (`evelyn.service`, `evelyn-tts.service`, `evelyn-vault-watcher.service`, `syncthing.service`) into `systemd/` and relocate root TLS certificates into a dedicated `certs/` directory.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 - [ ] **Pinned System Action Cards (Unified Triage Queue)**: System conditions that need the user to act surface as cards pinned above the regular review items, instead of lines in the server log. Each card says what broke, why it matters, and the exact fix, and clears itself once a later check passes. The first producer is Google OAuth failures (Calendar / Drive / Tasks `invalid_grant`, with the matching `setup_*.py` command). The same hook takes later producers such as low disk space, a failed Chroma health probe, or a maintenance script refused by the writer lease.
-- [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
 ---
 

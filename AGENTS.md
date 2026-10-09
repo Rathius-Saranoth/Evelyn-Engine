@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-28 19:15:06
+date modified: 2026-10-08 19:23:58
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -13,6 +13,10 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **PYTHONPATH**: Prefix commands with `PYTHONPATH=.` when executing scripts or running tests from the workspace root (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_terminal_agent.py`).
 - **WSL2 Memory Protection & Targeted Testing**: Never execute an unbounded, monolithic `pytest Evelyn/tests` run across the entire test suite in WSL2. The test suite contains 60+ heavy modules (PyTorch/SentenceTransformers, ChromaDB vector stores, PyMuPDF, SQLite engines) whose combined resident memory accumulation causes severe swap thrashing and freezes the WSL2 VM. Run tests strictly in targeted batches or against specific files covering the modified subsystems (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_<subsystem>.py`).
 - **Tooling Configuration (Single Source of Truth)**: All Python tool configurations (Pyrefly language server `[tool.pyrefly]`, Ruff linter/formatter `[tool.ruff]`, Vulture dead-code scanner `[tool.vulture]`, and Pytest `[tool.pytest.ini_options]`) reside canonically in `pyproject.toml`. Do not introduce separate config files.
+- **Python 3.12+ Syntax Standards & Cross-Version Compatibility**: The production engine runs on Python 3.12 (Ubuntu Server 24.04 LTS). Code authored in the repository must strictly adhere to cross-version Python syntax standards:
+  - Multiple exception types in `except` clauses must ALWAYS be parenthesized as tuples: `except (ImportError, OSError):` (PEP 3110). Unparenthesized clauses (`except A, B:`) cause fatal `SyntaxError: multiple exception types must be parenthesized` under Python 3.12.
+  - All external package imports must be declared explicitly in `requirements.txt` (never rely on transient dependencies).
+  - Directories mounted via Starlette/FastAPI `StaticFiles` must ensure directory existence beforehand (`os.makedirs(..., exist_ok=True)`) to prevent runtime crashes on fresh clones where asset folders are gitignored.
 
 ## 2. Database & Vector Operations (MCP Server & CLI)
 - **Primary Method (MCP Server)**: Use the `evelyn-sqlite` MCP tools:

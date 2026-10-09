@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-10-08 18:43:27
+date modified: 2026-10-08 19:23:58
 tags: [requirements, dependencies, system, hardware, environment, evelyn]
 ---
 
@@ -135,7 +135,7 @@ ollama pull nomic-embed-text
 | ----------- | ---------------------------------------------------------------------- |
 | **What**    | Mesh VPN for secure peer-to-peer access across workstations and mobile |
 | **Install** | https://tailscale.com/download                                         |
-| **Mesh IP** | `100.93.26.14` (`sanctum`)                                             |
+| **Mesh IP** | Assigned Tailscale IP (`100.X.Y.Z`)                                    |
 
 ### Image Generation Microservice (Optional — FLUX.1 Schnell NF4, Port 5055)
 

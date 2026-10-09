@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-08 18:43:27
+date modified: 2026-10-08 19:23:58
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.020] - 2026-10-08 — *Enterprise TLS Infrastructure, Documentation Privacy Sanitization & Deployment Protocol*
+
+### Added
+
+- **Enterprise TLS & HTTPS Security Provisioning (`SETUP_GUIDE.md`)**:
+  - Added Section 10 to `SETUP_GUIDE.md` detailing SSL/TLS certificate requirements for Web Audio API and `getUserMedia` microphone capture across remote network clients.
+  - Documented Multi-SAN OpenSSL self-signed certificate generation and native Tailscale TLS issuance (`tailscale cert`).
+  - Added ChromaDB collection rebuild/reconciliation step (`rebuild_chroma_collection.py --execute`) to host migration verification.
+  - Documented `.env` precedence over systemd environment definitions (`EVELYN_TTS_DEVICE=cuda`).
+
+### Security & Privacy
+
+- **Repository Privacy Sanitization & Parameterization (`SETUP_GUIDE.md`, `REQUIREMENTS.md`, `CHANGELOG.md`)**:
+  - Purged all hardcoded private LAN IPs, Tailscale mesh IPs, out-of-band management addresses, and physical disk serial numbers across public documentation and changelogs.
+  - Replaced all infrastructure identifiers with generic parameterized placeholders (`<HOSTNAME>`, `<SERVER_LAN_IP>`, `<SERVER_TAILSCALE_IP>`, `<TAILNET>`).
+
+### Changed
+
+- **Agent Protocol & Code Standards (`AGENTS.md`)**:
+  - Codified Section 1 rule mandating Python 3.12+ cross-version syntax compliance: PEP 3110 parenthesized exception tuples (`except (A, B):`), explicit package declarations in `requirements.txt`, and proactive `os.makedirs` guards prior to FastAPI/Starlette `StaticFiles` mounts.
 
 ## [000.008.019] - 2026-10-08 — *Python 3.12 Compatibility, Exception Syntax Standardization & Production Deployment*
 
@@ -33,7 +54,7 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
   - Completely restructured and expanded `SETUP_GUIDE.md` for bare-metal enterprise hardware (**Sanctum** — HPE ProLiant DL360 Gen10) running **Ubuntu Server 24.04 LTS (Noble Numbat)**.
   - Documented physical hardware profile (Dual Intel Xeon Gold 5220R @ 2.20GHz, 192GB ECC RAM, Tesla T4 16GB GDDR6 on PCIe Slot 1 / NUMA Node 0, iLO 5 management).
   - Documented dual-drive storage allocation and partitioning schema: `sda` (1TB WD Blue SA510 SSD) with EFI, `/boot`, and LVM `vg_sanctum` (120GB `lv_root`, 32GB `lv_swap`, ~776GB unallocated pool for runtime snapshots/expansion); `sdb` (1TB WD Blue SA510 SSD) mounted at `/data` via `/etc/fstab` for automated backups, vector snapshots, and local media.
-  - Documented system prerequisites: persistent systemd user lingering (`loginctl enable-linger`), base packages (`numactl` note regarding `numastat`), proprietary headless enterprise NVIDIA driver (`nvidia-headless-550-server`), and Tailscale mesh networking (`100.93.26.14`).
+  - Documented system prerequisites: persistent systemd user lingering (`loginctl enable-linger`), base packages (`numactl` note regarding `numastat`), proprietary headless enterprise NVIDIA driver (`nvidia-headless-550-server`), and Tailscale mesh networking (`100.X.Y.Z`).
   - Added NUMA Node 0 binding drop-in override for Ollama (`/etc/systemd/system/ollama.service.d/override.conf`) to eliminate UPI bus cross-socket memory latency for model weights and KV caches.
   - Documented multi-virtual environment architecture for decoupled dependency isolation (`venv/` for core engine, `services/tts/venv/` for Chatterbox CUDA speech, and `services/stt/` for Faster-Whisper on CPU int8).
   - Detailed Syncthing headless setup, Web GUI address rebinding (`0.0.0.0:8384`), and mandatory `.stignore` pre-population in `/home/rathius/obsidian_vault` before pairing devices to prevent vault pollution from workspace and cache files.
