@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-08 19:23:58
+# date modified: 2026-10-09 02:00:31
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.020"
-__version_info__ = (0, 8, 20)
-__version_name__ = "Enterprise TLS Infrastructure, Documentation Privacy Sanitization & Deployment Protocol"
+__version__ = "000.008.021"
+__version_info__ = (0, 8, 21)
+__version_name__ = "Bare-Metal Post-Migration Hardening, TTS Dependency Pinning & Permissions Alignment"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

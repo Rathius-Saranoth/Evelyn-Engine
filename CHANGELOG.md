@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-08 19:23:58
+date modified: 2026-10-09 02:00:31
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.021] - 2026-10-09 — *Bare-Metal Post-Migration Hardening, TTS Dependency Pinning & Permissions Alignment*
+
+### Fixed
+
+- **Chatterbox TTS `pkg_resources` Compatibility (`services/tts/requirements.txt`)**:
+  - Pinned `setuptools<70` in `services/tts/requirements.txt`. In Python 3.12, unpinned setuptools (>=80) omitted `pkg_resources`, causing `perth.perth_net` to fail importing `PerthImplicitWatermarker` and raising `TypeError: 'NoneType' object is not callable` when initializing `ChatterboxTurboTTS`.
+  - Re-established pre-cached reference directory structure (`services/tts/audio/reference/`).
+
+### Changed
+
+- **Script Permissions & Execution Bits (`scripts/graceful_stop.sh`)**:
+  - Aligned executable bits (`chmod +x`) on `scripts/graceful_stop.sh` for parity across administration shell runners.
 
 ## [000.008.020] - 2026-10-08 — *Enterprise TLS Infrastructure, Documentation Privacy Sanitization & Deployment Protocol*
 
