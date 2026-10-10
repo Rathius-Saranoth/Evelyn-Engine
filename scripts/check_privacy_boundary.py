@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # check_privacy_boundary.py
 # date created: 2026-09-20 00:00:00
-# date modified: 2026-09-20 08:34:57
+# date modified: 2026-10-10 00:12:17
 # tags: #hygiene, #privacy, #identity, #gate
 
 """
@@ -35,6 +35,7 @@ import os
 import re
 import subprocess
 import sys
+from typing import Any
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
@@ -159,8 +160,66 @@ def scan() -> list[tuple[str, int, str, str, str]]:
 BLOCKING_LABELS = {"operator name", "legacy alias", "private name"}
 
 
+def scan_history(terms: list[tuple[str, str]]) -> dict[str, dict[str, Any]]:
+    """Audit Git commit history for commits that introduced or altered protected terms.
+
+    Returns:
+        dict[str, dict]: Mapping of commit_sha -> {'date': str, 'subject': str, 'matches': list}
+    """
+    history_matches: dict[str, dict[str, Any]] = {}
+
+    for label, term in terms:
+        if label not in BLOCKING_LABELS:
+            continue
+
+        # 1. Check commit log messages (subject and body)
+        try:
+            msg_proc = subprocess.run(
+                ["git", "log", "--all", f"--grep={term}", "--format=%H%x00%ci%x00%s"],
+                cwd=_PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in msg_proc.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split("\x00")
+                if len(parts) >= 3:
+                    sha, dt, subj = parts[0], parts[1], parts[2]
+                    if sha not in history_matches:
+                        history_matches[sha] = {"date": dt, "subject": subj, "matches": []}
+                    history_matches[sha]["matches"].append(("commit_message", label, term))
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+        # 2. Check commit diff changes (-S term)
+        try:
+            diff_proc = subprocess.run(
+                ["git", "log", "--all", "-S", term, "--format=%H%x00%ci%x00%s"],
+                cwd=_PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in diff_proc.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split("\x00")
+                if len(parts) >= 3:
+                    sha, dt, subj = parts[0], parts[1], parts[2]
+                    if sha not in history_matches:
+                        history_matches[sha] = {"date": dt, "subject": subj, "matches": []}
+                    history_matches[sha]["matches"].append(("diff_content", label, term))
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+    return history_matches
+
+
 def main() -> int:
     strict_paths = "--strict-paths" in sys.argv
+    check_history = "--history" in sys.argv
     terms = protected_terms()
     if not terms:
         print("⚠  No protected terms configured — set EVELYN_USER_NAME / "
@@ -181,23 +240,51 @@ def main() -> int:
             for rel, line_no, label, term, _text in advisory[:40]:
                 print(f"  {rel}:{line_no}  [{label}: {term}]")
 
-    if not blocking:
+    if blocking:
+        by_file: dict[str, int] = {}
+        for rel, _, _, _, _ in blocking:
+            by_file[rel] = by_file.get(rel, 0) + 1
+
+        print(f"\n✖ {len(blocking)} identity violation(s) across {len(by_file)} tracked file(s):\n")
+        for rel, line_no, label, term, text in blocking[:60]:
+            print(f"  {rel}:{line_no}  [{label}: {term}]")
+            print(f"      {text}")
+        if len(blocking) > 60:
+            print(f"  ... and {len(blocking) - 60} more")
+        print("\nProtected values live in the gitignored .env. Replace literals with "
+              "cfg.USER_NAME, or use a neutral placeholder.")
+    else:
         print("\n✔ Privacy boundary clean — no real identity reaches version control.")
-        return 1 if (strict_paths and advisory) else 0
 
-    by_file: dict[str, int] = {}
-    for rel, _, _, _, _ in blocking:
-        by_file[rel] = by_file.get(rel, 0) + 1
+    if check_history:
+        commit_count_res = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=_PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        total_commits = commit_count_res.stdout.strip() or "all"
+        print(f"\n--- Historical Git Audit ({total_commits} commits scanned) ---")
+        hist = scan_history(terms)
+        if hist:
+            print(f"· Found {len(hist)} historical commit(s) touching protected terms (prior to boundary enforcement):")
+            sorted_commits = sorted(hist.items(), key=lambda x: x[1]["date"], reverse=True)
+            for sha, data in sorted_commits[:15]:
+                match_summary = ", ".join(sorted({f"{m[1]} ({m[0]})" for m in data["matches"]}))
+                safe_subj = data["subject"][:70]
+                print(f"    {sha[:8]} [{data['date'][:10]}] {safe_subj}")
+                print(f"      Trigger: {match_summary}")
+            if len(sorted_commits) > 15:
+                print(f"    ... and {len(sorted_commits) - 15} older historical commits.")
+        else:
+            print("✔ Git commit history is completely clean across all commits.")
 
-    print(f"\n✖ {len(blocking)} identity violation(s) across {len(by_file)} tracked file(s):\n")
-    for rel, line_no, label, term, text in blocking[:60]:
-        print(f"  {rel}:{line_no}  [{label}: {term}]")
-        print(f"      {text}")
-    if len(blocking) > 60:
-        print(f"  ... and {len(blocking) - 60} more")
-    print("\nProtected values live in the gitignored .env. Replace literals with "
-          "cfg.USER_NAME, or use a neutral placeholder.")
-    return 1
+    if blocking:
+        return 1
+    if strict_paths and advisory:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
