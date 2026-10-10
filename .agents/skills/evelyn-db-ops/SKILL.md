@@ -6,7 +6,7 @@ description: >-
 tags: [skill, db, sqlite, mcp, query, debug, evelyn]
 title: SKILL.md
 date created: 2026-08-23 08:04:51
-date modified: 2026-09-13 16:17:52
+date modified: 2026-10-09 23:59:47
 ---
 
 # Evelyn Database Operations Skill
@@ -49,9 +49,20 @@ When available in the session toolset, use the structured MCP tools:
 
 ### FastAPI & System Telemetry Tools
 1. **`get_server_status`**: Queries `https://localhost:7860/status` for server health, active model, and thinking configs.
-2. **`get_heavy_tasks`**: Inspects background task states (Fact Extractor, Fact Consolidator, Profile Evolver, Tag Librarian, etc.).
-3. **`get_pending_reviews`**: Retrieves pending triage items from the unified review queue.
-4. **`get_ollama_status`**: Inspects active Ollama models loaded in VRAM (`/api/ps`) and context allocations.
+2. **`get_thought_bubble`**: Retrieves live ambient thought stream and latest cognitive impression.
+3. **`get_telemetry(metric="all")`**: Fetches reasoning telemetry (`thinking`), vector retrieval stats (`rag`), or vault metrics (`vault_domains`).
+4. **`get_heavy_tasks`**: Inspects background task states (Fact Extractor, Fact Consolidator, Profile Evolver, Tag Librarian, etc.).
+5. **`get_ollama_status`**: Inspects active Ollama models loaded in VRAM (`/api/ps`) and context allocations.
+
+### Knowledge Review & Curation Tools
+1. **`get_pending_reviews`**: Retrieves full unified review queue (extractions, proposals, profile evolutions, procedure merges).
+2. **`get_proposals(status="pending", limit=50)`**: Retrieves memory/fact and tag proposals filtered by status.
+3. **`review_proposal(proposal_id=123, action="approve", feedback="...")`**: Programmatically approves (`approve`) or denies (`deny`) a pending fact/tag proposal with optional feedback.
+
+### Maintenance & Governance Tools
+1. **`trigger_pipeline(pipeline_name="memory_refresh")`**: Triggers maintenance sweeps (`memory_refresh`, `vault_sync`, `wal_checkpoint`).
+2. **`get_terminal_pending`**: Retrieves all pending terminal agent command and file write approval requests.
+3. **`respond_terminal_approval(approval_id="...", action="approve")`**: Approves or denies terminal agent execution requests.
 
 ---
 

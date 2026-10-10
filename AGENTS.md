@@ -1,15 +1,16 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-10-08 19:23:58
+date modified: 2026-10-09 23:59:47
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
 
-> Navigation: [[README.md]] · [[engine_architecture.md]] · [[quality-review.md]] · [[ROADMAP.md]] · [[CHANGELOG.md]]
+> Navigation: [[README.md]] · [[RECOMMENDED_TOOLING.md]] · [[SETUP_GUIDE.md]] · [[engine_architecture.md]] · [[quality-review.md]] · [[ROADMAP.md]] · [[CHANGELOG.md]]
 
 ## 1. Python Environment & Execution
 - **Virtual Environment**: Always use the project virtual environment at `/home/rathius/evelyn/venv/bin/python` and `/home/rathius/evelyn/venv/bin/pytest`. Never invoke `/usr/bin/python3` directly for workspace tasks or test runs.
+- **Host Permissions & Tooling Environment**: Host-level environment specifications (passwordless sudo for service management, SSH Git keys, IDE extensions, and MCP server templates) reside canonically in [[RECOMMENDED_TOOLING.md]].
 - **PYTHONPATH**: Prefix commands with `PYTHONPATH=.` when executing scripts or running tests from the workspace root (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_terminal_agent.py`).
 - **WSL2 Memory Protection & Targeted Testing**: Never execute an unbounded, monolithic `pytest Evelyn/tests` run across the entire test suite in WSL2. The test suite contains 60+ heavy modules (PyTorch/SentenceTransformers, ChromaDB vector stores, PyMuPDF, SQLite engines) whose combined resident memory accumulation causes severe swap thrashing and freezes the WSL2 VM. Run tests strictly in targeted batches or against specific files covering the modified subsystems (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_<subsystem>.py`).
 - **Tooling Configuration (Single Source of Truth)**: All Python tool configurations (Pyrefly language server `[tool.pyrefly]`, Ruff linter/formatter `[tool.ruff]`, Vulture dead-code scanner `[tool.vulture]`, and Pytest `[tool.pytest.ini_options]`) reside canonically in `pyproject.toml`. Do not introduce separate config files.
@@ -18,11 +19,18 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - All external package imports must be declared explicitly in `requirements.txt` (never rely on transient dependencies).
   - Directories mounted via Starlette/FastAPI `StaticFiles` must ensure directory existence beforehand (`os.makedirs(..., exist_ok=True)`) to prevent runtime crashes on fresh clones where asset folders are gitignored.
 
-## 2. Database & Vector Operations (MCP Server & CLI)
-- **Primary Method (MCP Server)**: Use the `evelyn-sqlite` MCP tools:
-  - **SQLite**: `list_databases`, `list_tables`, `describe_table`, `query_database`
-  - **ChromaDB**: `list_chroma_collections`, `query_chroma`, `get_chroma_status`
-  - **FastAPI / Telemetry**: `get_server_status`, `get_heavy_tasks`, `get_pending_reviews`, `get_ollama_status`
+## 2. Database, Vector & Tooling Operations (MCP Servers & CLI)
+- **Primary Method (MCP Servers)**:
+  - **`evelyn-sqlite` MCP Server** (`scripts/sqlite_mcp_server.py`):
+    - **SQLite**: `list_databases`, `list_tables`, `describe_table`, `query_database`
+    - **ChromaDB**: `list_chroma_collections`, `query_chroma`, `get_chroma_status`
+    - **FastAPI Telemetry & Cognition**: `get_server_status`, `get_thought_bubble`, `get_telemetry`, `get_heavy_tasks`, `get_ollama_status`
+    - **Review Queue & Curation**: `get_pending_reviews`, `get_proposals`, `review_proposal`
+    - **Maintenance Pipelines**: `trigger_pipeline` (`memory_refresh`, `vault_sync`, `wal_checkpoint`)
+    - **Terminal Governance**: `get_terminal_pending`, `respond_terminal_approval`
+  - **`github` MCP Server** (`@modelcontextprotocol/server-github`):
+    - Use for direct PR review/creation, issue tracking, commit inspection, and repository querying via GitHub API.
+- **Git Push Operations**: The repository is authenticated to GitHub via Ed25519 SSH keys (`git@github.com:<OWNER>/<REPO>.git`). Never configure HTTPS remotes with interactive password prompts.
 - **Secondary Method (CLI)**: When running terminal commands, use the native `sqlite3` binary with JSON/table formatting:
   ```bash
   sqlite3 -json /home/rathius/evelyn/data/<db_name>.db "<SELECT_QUERY>"

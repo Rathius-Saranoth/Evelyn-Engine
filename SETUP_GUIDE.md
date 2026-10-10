@@ -1,13 +1,13 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-10-09 12:09:40
+date modified: 2026-10-09 23:59:47
 tags: [setup, guide, installation, configuration, deployment, bare-metal, sanctum, evelyn]
 ---
 
 # Evelyn Engine — Full Setup & Bare-Metal Installation Guide
 
-> Navigation: [[README.md]] · [[REQUIREMENTS.md]] · [[engine_architecture.md]] · [[system_specs.md]] · [[HPE Server Specs.md]] · [[start-services.md]]
+> Navigation: [[README.md]] · [[RECOMMENDED_TOOLING.md]] · [[AGENTS.md]] · [[REQUIREMENTS.md]] · [[engine_architecture.md]] · [[system_specs.md]] · [[HPE Server Specs.md]] · [[start-services.md]]
 
 This guide provides end-to-end instructions for deploying the **Evelyn Engine** on dedicated enterprise bare-metal hardware (**Sanctum** — HPE ProLiant DL360 Gen10) running **Ubuntu Server 24.04 LTS (Noble Numbat)**, as well as desktop development environments.
 
@@ -433,3 +433,14 @@ If storing certificates outside the project root, specify them via `.env`:
 EVELYN_SSL_CERT=/path/to/server.crt
 EVELYN_SSL_KEY=/path/to/server.key
 ```
+
+---
+
+## 11. Developer Tooling, IDE Extensions & MCP Ecosystem
+
+For automated AI pair programming, unattended service management, and rapid debugging, see the canonical [[RECOMMENDED_TOOLING.md]] specification:
+- **Host Permissions**: Configure non-interactive passwordless sudo in `/etc/sudoers.d/99-evelyn-nopasswd` for unattended systemd service operations (`scripts/restart_evelyn_services.sh`).
+- **Git Push via SSH**: Configure Ed25519 key authentication (`git@github.com:<OWNER>/<REPO>.git`) to prevent interactive credential prompts.
+- **IDE Extensions**: Install recommended extensions defined in [`.vscode/extensions.json`](file:///home/rathius/evelyn/.vscode/extensions.json) (`charliermarsh.ruff`, `ms-python.python`, `humao.rest-client`, `qwtel.sqlite-viewer`, `bierner.markdown-mermaid`).
+- **Model Context Protocol (MCP)**: Wire `~/.gemini/config/mcp_config.json` using the template at [`.agents/mcp_config.example.json`](file:///home/rathius/evelyn/.agents/mcp_config.example.json) to activate `evelyn-sqlite` (18 operational database & telemetry tools) and `github` (26 GitHub API tools).
+

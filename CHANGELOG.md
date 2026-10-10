@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-09 23:41:24
+date modified: 2026-10-09 23:59:47
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -22,10 +22,14 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
   - Implemented `http_post_json()` helper with local SSL verification bypass and resilient API key resolution against `evelyn_config.API_KEY`.
   - Exported matching JSON schema definitions for all 18 MCP tools to `/home/rathius/.gemini/antigravity-ide/mcp/evelyn-sqlite/`.
 - **GitHub MCP Server Integration (`~/.gemini/config/mcp_config.json`, `/home/rathius/.gemini/antigravity-ide/mcp/github/`)**:
-  - Installed Node.js & npm runtime on host `sanctum` to support `@modelcontextprotocol/server-github`.
+  - Installed Node.js & npm runtime on development host to support `@modelcontextprotocol/server-github`.
   - Registered GitHub MCP server and exported 26 full tool schemas (PR management, issue tracking, commit inspection).
 - **Core IDE Remote Extensions (`.antigravity-ide-server/extensions/`)**:
   - Installed `humao.rest-client` (interactive execution of `reference/evelyn_api.http`), `charliermarsh.ruff` (deterministic in-editor linting/formatting), `ms-python.python` (Python language server), `qwtel.sqlite-viewer` (visual SQLite table exploration), and `bierner.markdown-mermaid` (Mermaid diagram rendering for Visual PKM notes).
+- **Canonical Tooling & Migration Documentation (`RECOMMENDED_TOOLING.md`, `.agents/mcp_config.example.json`)**:
+  - Authored `RECOMMENDED_TOOLING.md` detailing non-interactive host permissions, recommended IDE extensions, and MCP ecosystem specifications.
+  - Provided `.agents/mcp_config.example.json` as a version-controlled template for agent migrations and fresh machine clones.
+  - Updated `AGENTS.md`, `SETUP_GUIDE.md`, and `evelyn-db-ops` skill with comprehensive operational tool documentation.
 
 ## [000.008.023] - 2026-10-09 — *Tag Relation Rejection Baseline Retention & Container Exclusion Filtering*
 

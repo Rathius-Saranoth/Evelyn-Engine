@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "evelyn-sqlite": {
+      "command": "/path/to/evelyn/venv/bin/python",
+      "args": [
+        "/path/to/evelyn/scripts/sqlite_mcp_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/path/to/evelyn"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_PAT_HERE"
+      }
+    }
+  }
+}
