@@ -1,6 +1,6 @@
 # test_research_tools.py
 # date created: 2026-08-29 13:16:39
-# date modified: 2026-08-29 13:16:39
+# date modified: 2026-10-11 14:23:10
 # tags:
 
 import json
@@ -25,6 +25,7 @@ def temp_research_env(monkeypatch):
     res_dir = os.path.join(tmp_dir, "data", "research")
     os.makedirs(res_dir, exist_ok=True)
     monkeypatch.setattr(cfg, "RESEARCH_DATA_DIR", res_dir)
+    monkeypatch.setattr("importlib.reload", lambda m: m)
 
     yield res_dir
 
@@ -175,3 +176,44 @@ def test_get_research_context_struggling_detection(temp_research_env):
     assert 'entity_id="task_hr_01"' in ctx
     assert "Comparison of high-frequency heart rate sampling" in ctx
     assert "Sub-question stuck" in ctx
+
+
+def test_research_preemption_sigterm_transitions_to_paused(temp_research_env, monkeypatch):
+    """Verify that an active research process terminated via SIGTERM (-15) transitions to 'paused', not 'error'."""
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    from Evelyn.tools.evelyn_tools import start_research
+    from Evelyn.tools.research_engine import load_state
+
+    # Set up mock server with active background tasks dict
+    mock_server = MagicMock()
+    mock_server._background_tasks = {}
+    mock_server._active_research_processes = {}
+    monkeypatch.setitem(sys.modules, "evelyn_server", mock_server)
+
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = -15  # Terminated by SIGTERM (signal 15)
+
+    with patch("subprocess.Popen", return_value=mock_proc), patch("threading.Thread") as mock_thread:
+        # Run thread target synchronously
+        def run_sync(target, daemon=True):
+            target()
+            return MagicMock()
+
+        mock_thread.side_effect = run_sync
+
+        start_research("Test magnetic spine construction", scope="quick")
+
+    # Find the created task id
+    created_tasks = [d for d in os.listdir(temp_research_env) if d.startswith("task_")]
+    assert len(created_tasks) == 1
+    task_id = created_tasks[0]
+
+    state = load_state(task_id)
+    assert state is not None
+    # Must be 'paused', NOT 'error' or 'Exit code -15'
+    assert state["status"] == "paused"
+    assert "Paused: Interrupted automatically" in state["error"]
+    assert mock_server._background_tasks[task_id]["status"] == "paused"
+

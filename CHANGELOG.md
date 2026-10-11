@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-11 12:14:33
+date modified: 2026-10-11 14:22:25
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.027] - 2026-10-11 — *Temporal Heartbeat UTC-Date Normalization, Research Preemption Grace & GTasks Pruning*
+
+### Added
+
+- **Temporal Calendar Day Anchoring for Date-Only Tasks (`Evelyn/tools/time_manager.py`)**:
+  - Enhanced `TimeManager.parse_dt()` to recognize date-only RFC 3339 / ISO timestamps (`T00:00:00.000Z`) returned by Google Tasks and anchor them to the local calendar day in `self.local_tz` without applying UTC negative-offset rollovers (which previously rolled date-only deadlines back to 19:00 of the preceding day in America/Chicago).
+  - Enhanced `TimeManager.get_imminent_tasks()` with `is_date_only` detection, clamping date-only deadlines to end-of-day (23:59:59 local) and formatting due-today tasks with `"Today"` and `"Due today"` instead of minute-level offsets.
+  - Hardened `TimeManager.evaluate_heartbeat()` to suppress spurious 15-minute minute-level threshold alerts for date-only tasks, only triggering `task_overdue` alerts once the calendar day has elapsed.
+
+### Changed
+
+- **Google Tasks Bidirectional Deletion & 404 Resiliency (`Evelyn/tools/gtasks_sync.py`)**:
+  - Updated `delete_gtask()` to gracefully catch Google API 404 `HttpError` responses, ensuring local SQLite task cache entries are purged cleanly without raising unhandled errors if tasks were already removed remotely.
+  - Implemented automatic local cache pruning in `sync_gtasks()`: tasks present in local SQLite but missing from Google API responses (`fetched_ids`) are automatically removed, preventing ghost entries.
+  - Standardized date-only parsing in `parse_due_datetime()` to preserve RFC 3339 `YYYY-MM-DDT00:00:00.000Z` formats.
+
+### Fixed
+
+- **Deep Research Interactive Chat Preemption Race Condition (`evelyn_server.py`, `Evelyn/tools/evelyn_tools.py`)**:
+  - Reordered preemption handling in `evelyn_server.py:pause_all_active_research()`: `status: "paused"` and explanation are persisted to memory and `state.json` on disk *before* terminating the active subprocess handle.
+  - Intercepted SIGTERM exit codes (`-15`, `143`) and active preemption flags (`task_manager.is_chat_preempted()`) in `Evelyn/tools/evelyn_tools.py:_run_subprocess` for both `start_research` and `resume_research_task`, transitioning pre-empted research tasks cleanly to `"paused"` rather than recording an `"Exit code -15"` crash.
+- **Production Stale Dummy Task Purge (`data/evelyn_chat.db`)**:
+  - Purged legacy mock record `gtask_123` ("Bring home coffee grounds") injected during test executions prior to database sandboxing, permanently stopping phantom 22.5-day overdue heartbeat triggers.
 
 ## [000.008.026] - 2026-10-11 — *Consolidation Lineage Protection, Merge Review Gating & Resilient Dream Recording*
 

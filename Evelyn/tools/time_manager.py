@@ -1,6 +1,6 @@
 # time_manager.py
 # date created: 2026-08-29
-# date modified: 2026-09-17 17:31:05
+# date modified: 2026-10-11 14:22:25
 # tags: #temporal, #time-manager, #agenda, #heartbeat, #scheduling
 
 """time_manager.py — Evelyn Temporal Management Subsystem.
@@ -263,7 +263,20 @@ class TimeManager:
             except ValueError:
                 pass
 
-        # 2. ISO 8601 / RFC 3339 string (e.g., '2026-08-29T10:00:00-05:00' or '2026-08-29T15:00:00.000Z')
+        # 2. Date-only ISO representation (e.g. Google Tasks RFC 3339 'YYYY-MM-DDT00:00:00.000Z')
+        # Google Tasks API represents date-only task deadlines as UTC midnight.
+        # Direct conversion to a negative UTC offset timezone rolls the date back to yesterday evening.
+        # We preserve the calendar date in local timezone.
+        if "T" in clean and re.search(r"T00:00:00(?:\.0+)?(?:Z|\+00:00)?$", clean):
+            date_part = clean.split("T")[0]
+            fmt = "%Y-%m-%d" if "-" in date_part else "%Y/%m/%d"
+            try:
+                naive = datetime.strptime(date_part, fmt)  # noqa: DTZ007
+                return naive.replace(tzinfo=self.local_tz)
+            except ValueError:
+                pass
+
+        # 3. ISO 8601 / RFC 3339 string (e.g., '2026-08-29T10:00:00-05:00' or '2026-08-29T15:00:00.000Z')
         if "T" in clean:
             try:
                 dt = datetime.fromisoformat(clean.replace("Z", "+00:00"))
@@ -481,18 +494,48 @@ class TimeManager:
                 if not due_dt:
                     continue
 
-                if due_dt > window_end:
-                    continue  # Beyond lookahead window
+                raw_clean = str(due_raw).strip() if due_raw else ""
+                is_date_only = bool(
+                    (len(raw_clean) == 10 and "-" in raw_clean)
+                    or re.search(r"T00:00:00(?:\.0+)?(?:Z|\+00:00)?$", raw_clean)
+                )
 
-                diff_minutes = int((due_dt - current_now).total_seconds() // 60)
-                if diff_minutes < 0:
-                    status = f"Overdue by {abs(diff_minutes)}m"
-                elif diff_minutes == 0:
-                    status = "Due right now"
-                elif diff_minutes < 60:
-                    status = f"Due in {diff_minutes} minutes"
+                if is_date_only:
+                    # Date-level task: anchor due deadline to end of that calendar day in local_tz
+                    # so it remains active and not overdue until that date has fully passed.
+                    due_deadline = due_dt.replace(hour=23, minute=59, second=59)
+                    if due_deadline > window_end and due_dt.date() > current_now.date():
+                        continue  # Beyond lookahead window
+
+                    diff_minutes = int((due_deadline - current_now).total_seconds() // 60)
+                    if current_now.date() == due_dt.date():
+                        status = "Due today"
+                        due_str = "Today"
+                    elif current_now.date() < due_dt.date():
+                        status = f"Due on {due_dt.strftime('%b %d')}"
+                        due_str = due_dt.strftime("%b %d")
+                    else:
+                        days_overdue = (current_now.date() - due_dt.date()).days
+                        status = f"Overdue by {days_overdue}d"
+                        due_str = due_dt.strftime("%b %d")
                 else:
-                    status = f"Due in {diff_minutes // 60}h {diff_minutes % 60}m"
+                    if due_dt > window_end:
+                        continue  # Beyond lookahead window
+
+                    diff_minutes = int((due_dt - current_now).total_seconds() // 60)
+                    if diff_minutes < 0:
+                        status = f"Overdue by {abs(diff_minutes)}m"
+                    elif diff_minutes == 0:
+                        status = "Due right now"
+                    elif diff_minutes < 60:
+                        status = f"Due in {diff_minutes} minutes"
+                    else:
+                        status = f"Due in {diff_minutes // 60}h {diff_minutes % 60}m"
+                    due_str = (
+                        due_dt.strftime("%I:%M %p").lstrip("0")
+                        if "T" in str(due_raw)
+                        else due_dt.strftime("%b %d")
+                    )
 
                 tasks.append(
                     {
@@ -501,7 +544,8 @@ class TimeManager:
                         "status": status,
                         "diff_minutes": diff_minutes,
                         "due_dt": due_dt,
-                        "due_str": due_dt.strftime("%I:%M %p").lstrip("0") if "T" in str(due_raw) else due_dt.strftime("%b %d"),
+                        "due_str": due_str,
+                        "is_date_only": is_date_only,
                     }
                 )
         except sqlite3.OperationalError:
@@ -570,6 +614,7 @@ class TimeManager:
             task_id = task["id"]
             diff = task["diff_minutes"]
             due_iso = task["due_dt"].isoformat()
+            is_date_only = task.get("is_date_only", False)
 
             if diff <= 0:
                 key = ("task", task_id, "overdue", due_iso)
@@ -584,7 +629,7 @@ class TimeManager:
                             "details": f"Task '{task['title']}' is now overdue ({task['status']}).",
                         }
                     )
-            elif 0 < diff <= 15:
+            elif not is_date_only and 0 < diff <= 15:
                 key = ("task", task_id, "imminent_15", due_iso)
                 active_cache_keys.add(key)
                 if key not in self._fired_alerts:

@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-11 01:45:41
+# date modified: 2026-10-11 14:22:25
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2226,16 +2226,6 @@ def pause_all_active_research():
     global _background_tasks
     paused_any = False
 
-    # 1. Terminate all tracked active process handles
-    for task_id in list(_active_research_processes.keys()):
-        print(
-            f"[IMMEDIATE RESEARCH PAUSE] Terminating tracked active research process handle: {task_id}",
-            flush=True,
-        )
-        terminate_research_process(task_id)
-        paused_any = True
-
-    # 2. Check disk state for any active tasks in data/research
     try:
         from Evelyn.tools.research_engine import load_state, save_state
     except (ImportError, ModuleNotFoundError):
@@ -2246,8 +2236,33 @@ def pause_all_active_research():
                 f"[IMMEDIATE RESEARCH PAUSE ERROR] Could not import research_engine: {e}",
                 flush=True,
             )
-            load_state, save_state, _get_task_dir = None, None, None
+            load_state, save_state = None, None
 
+    # 1. Update in-memory and disk states to 'paused' BEFORE terminating handles
+    # to avoid race condition where subprocess termination exitcode (-15) is misflagged as a crash error.
+    for task_id in list(_active_research_processes.keys()):
+        if task_id in _background_tasks:
+            _background_tasks[task_id]["status"] = "paused"
+        if load_state and save_state:
+            with contextlib.suppress(Exception):
+                state = load_state(task_id)
+                if state and state.get("status") in ("running", "searching", "synthesizing", "plan"):
+                    state["status"] = "paused"
+                    state["error"] = (
+                        "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
+                    )
+                    save_state(task_id, state, ignore_disk_status=True)
+
+    # 2. Terminate all tracked active process handles
+    for task_id in list(_active_research_processes.keys()):
+        print(
+            f"[IMMEDIATE RESEARCH PAUSE] Terminating tracked active research process handle: {task_id}",
+            flush=True,
+        )
+        terminate_research_process(task_id)
+        paused_any = True
+
+    # 3. Check disk state for any active tasks in data/research
     if os.path.exists(cfg.RESEARCH_DATA_DIR):
         for d in os.listdir(cfg.RESEARCH_DATA_DIR):
             if d.startswith("task_"):
@@ -2262,6 +2277,7 @@ def pause_all_active_research():
                             "running",
                             "searching",
                             "synthesizing",
+                            "plan",
                         ):
                             is_active = True
                             state["status"] = "paused"
@@ -2269,7 +2285,7 @@ def pause_all_active_research():
                                 "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
                             )
                             if save_state:
-                                save_state(d, state)
+                                save_state(d, state, ignore_disk_status=True)
                     except (json.JSONDecodeError, OSError, ValueError) as e:
                         print(
                             f"[IMMEDIATE RESEARCH PAUSE ERROR] Failed to pause task {d} state: {e}",

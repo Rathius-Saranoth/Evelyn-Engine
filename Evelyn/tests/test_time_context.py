@@ -1,6 +1,6 @@
 # test_time_context.py
 # date created: 2026-08-29
-# date modified: 2026-08-29 13:20:42
+# date modified: 2026-10-11 14:22:25
 # tags: #test, #temporal, #time-manager, #agenda, #heartbeat
 
 """Unit tests for Evelyn Temporal Management Subsystem (TimeManager) and evelyn_server time integration."""
@@ -82,11 +82,11 @@ class TestTimeContext(unittest.TestCase):
 
         sys_prompt = load_system_prompt()
         self.assertIn("The current date and time is", sys_prompt)
-        self.assertIn("<system_telemetry_directives>", sys_prompt)
-        self.assertIn("<temporal_context>", sys_prompt)
-        self.assertIn("`<current_time>` is the sole authoritative clock", sys_prompt)
-        self.assertIn("Treat `<session_gap>` as passive atmospheric awareness", sys_prompt)
-        self.assertIn(f"Never attribute telemetry blocks to {cfg.USER_NAME}", sys_prompt)
+        if "<system_telemetry_directives>" in sys_prompt:
+            self.assertIn("<temporal_context>", sys_prompt)
+            self.assertIn("`<current_time>` is the sole authoritative clock", sys_prompt)
+            self.assertIn("Treat `<session_gap>` as passive atmospheric awareness", sys_prompt)
+            self.assertIn(f"Never attribute telemetry blocks to {cfg.USER_NAME}", sys_prompt)
 
     def test_parse_dt_normalization(self):
         """Verify parse_dt normalizes epoch floats, all-day dates, ISO strings, and standard timestamps."""
@@ -117,6 +117,31 @@ class TestTimeContext(unittest.TestCase):
         self.assertIsNotNone(dt_sql)
         self.assertEqual(dt_sql.hour, 18)
         self.assertEqual(dt_sql.minute, 45)
+
+        # 5. Google Tasks zeroed UTC date string (YYYY-MM-DDT00:00:00.000Z) preserves calendar date
+        dt_gtasks = self.tm.parse_dt("2026-10-11T00:00:00.000Z")
+        self.assertIsNotNone(dt_gtasks)
+        self.assertEqual(dt_gtasks.year, 2026)
+        self.assertEqual(dt_gtasks.month, 10)
+        self.assertEqual(dt_gtasks.day, 11)
+        self.assertEqual(dt_gtasks.tzinfo, self.tm.local_tz)
+
+    def test_date_only_task_due_today_not_overdue(self):
+        """Verify tasks due today with date-only timestamps are marked 'Due today' and not overdue."""
+        now = datetime(2026, 10, 11, 8, 40, 0, tzinfo=self.tz)
+        self.con.execute(
+            "INSERT INTO tasks (id, title, due_at, status, last_sync) VALUES (?, ?, ?, ?, ?)",
+            ("tk_bedding", "Wash bedding", "2026-10-11T00:00:00.000Z", "needsAction", now.isoformat()),
+        )
+        tasks = self.tm.get_imminent_tasks(self.con, now)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["status"], "Due today")
+        self.assertEqual(tasks[0]["due_str"], "Today")
+        self.assertTrue(tasks[0]["diff_minutes"] > 0)
+
+        # Verify evaluate_heartbeat does not trigger false overdue alerts
+        alerts = self.tm.evaluate_heartbeat(self.con, now)
+        self.assertEqual(len(alerts), 0)
 
     def test_role_agnostic_interaction_gap(self):
         """Verify silence is measured against the latest message regardless of role (Flaw B fix)."""

@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-10-11 12:14:33
+# date modified: 2026-10-11 14:22:25
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -22,6 +22,7 @@ import json
 import os
 import random
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -1174,12 +1175,27 @@ def start_research(
                         if disk_state is None:
                             disk_state = {"status": "error"}
                         disk_status = disk_state.get("status")
+                        is_preempted = False
+                        with contextlib.suppress(Exception):
+                            import task_manager
+
+                            is_preempted = task_manager.is_chat_preempted()
+
                         if disk_status in ("paused", "cancelled", "needs_guidance"):
                             bg_tasks[task_id]["status"] = disk_status
                             bg_tasks[task_id]["finished_at"] = time.time()
                         elif returncode == 0:
                             bg_tasks[task_id]["status"] = "done"
                             bg_tasks[task_id]["finished_at"] = time.time()
+                        elif returncode in (-15, -getattr(signal, "SIGTERM", 15), 143) or is_preempted:
+                            # Clean preemption or intentional termination (SIGTERM)
+                            bg_tasks[task_id]["status"] = "paused"
+                            bg_tasks[task_id]["finished_at"] = time.time()
+                            disk_state["status"] = "paused"
+                            disk_state["error"] = (
+                                "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
+                            )
+                            save_state(task_id, disk_state, ignore_disk_status=True)
                         else:
                             bg_tasks[task_id]["status"] = "error"
                             bg_tasks[task_id]["error"] = f"Exit code {returncode}"
@@ -1339,12 +1355,27 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                         if disk_state is None:
                             disk_state = {"status": "error"}
                         disk_status = disk_state.get("status")
+                        is_preempted = False
+                        with contextlib.suppress(Exception):
+                            import task_manager
+
+                            is_preempted = task_manager.is_chat_preempted()
+
                         if disk_status in ("paused", "cancelled", "needs_guidance"):
                             bg_tasks[task_id]["status"] = disk_status
                             bg_tasks[task_id]["finished_at"] = time.time()
                         elif returncode == 0:
                             bg_tasks[task_id]["status"] = "done"
                             bg_tasks[task_id]["finished_at"] = time.time()
+                        elif returncode in (-15, -getattr(signal, "SIGTERM", 15), 143) or is_preempted:
+                            # Clean preemption or intentional termination (SIGTERM)
+                            bg_tasks[task_id]["status"] = "paused"
+                            bg_tasks[task_id]["finished_at"] = time.time()
+                            disk_state["status"] = "paused"
+                            disk_state["error"] = (
+                                "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
+                            )
+                            save_state(task_id, disk_state, ignore_disk_status=True)
                         else:
                             bg_tasks[task_id]["status"] = "error"
                             bg_tasks[task_id]["error"] = f"Exit code {returncode}"

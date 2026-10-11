@@ -1,6 +1,6 @@
 # gtasks_sync.py
 # date created: 2026-08-23
-# date modified: 2026-09-17 18:13:55
+# date modified: 2026-10-11 14:22:25
 # tags: #gtasks, #google-tasks, #tasks, #sync, #offline-first, #caching
 
 """gtasks_sync.py — Google Tasks Synchronizer and Local Task Cache.
@@ -111,6 +111,30 @@ def parse_due_datetime(due_str: str | None) -> str | None:
     if not clean:
         return None
 
+    # 1. Date-only format (e.g. 'YYYY-MM-DD' or 'YYYY/MM/DD')
+    for _fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            d = datetime.date.fromisoformat(clean.replace("/", "-"))
+            return f"{d.isoformat()}T00:00:00.000Z"
+        except ValueError:
+            pass
+
+    # 2. ISO-8601 strings ending in Z or offset
+    if "T" in clean:
+        try:
+            dt = datetime.datetime.fromisoformat(clean.replace("Z", "+00:00"))
+            return dt.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        except ValueError:
+            pass
+
+    # 3. Standard 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM'
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
+        try:
+            dt = datetime.datetime.strptime(clean, fmt).replace(tzinfo=datetime.UTC)
+            return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        except ValueError:
+            continue
+
     from Evelyn.tools.time_manager import parse_natural_date_to_dt
 
     parsed = parse_natural_date_to_dt(clean)
@@ -176,6 +200,16 @@ def sync_gtasks(tasklist: str = "@default") -> dict[str, Any]:
                     """,
                     (task_id, tasklist, title, notes, due_at, status, completed_at, now_iso),
                 )
+
+            # Prune local cached tasks that were deleted from Google Tasks
+            if fetched_ids:
+                placeholders = ",".join("?" for _ in fetched_ids)
+                del_cur = con.execute(
+                    f"DELETE FROM tasks WHERE tasklist_id = ? AND source = 'google' AND id NOT IN ({placeholders})",
+                    [tasklist, *list(fetched_ids)],
+                )
+                if del_cur.rowcount > 0:
+                    print(f"[GTasks Sync] Pruned {del_cur.rowcount} deleted/stale task(s) from local cache.", flush=True)
 
             con.commit()
         finally:
@@ -396,10 +430,19 @@ def delete_gtask(task_id: str, tasklist: str = "@default") -> dict[str, Any]:
 
     try:
         print(f"[GTasks Sync] Deleting task {task_id}...", flush=True)
-        service.tasks().delete(
-            tasklist=tasklist,
-            task=task_id,
-        ).execute()
+        try:
+            service.tasks().delete(
+                tasklist=tasklist,
+                task=task_id,
+            ).execute()
+        except HttpError as http_err:
+            if getattr(http_err, "resp", None) and getattr(http_err.resp, "status", None) == 404:
+                print(
+                    f"[GTasks Sync] Task {task_id} not found on Google Tasks (already deleted). Pruning local cache.",
+                    flush=True,
+                )
+            else:
+                raise
 
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         try:
