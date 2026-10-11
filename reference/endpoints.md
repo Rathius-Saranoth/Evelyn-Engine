@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-04 17:19:38
+date modified: 2026-10-11 02:01:53
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -369,8 +369,8 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: `{"status": "ok", "count": N, "events": [...], "days": 1.0}`
 
 ### `GET /telemetry/thinking`
-* **Purpose**: Returns aggregate statistics on resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `tool_escalation`, `ui_override`), and recent message audit traces.
-* **Returns**: `{"effort_counts": {...}, "source_counts": {...}, "recent_logs": [...]}`
+* **Purpose**: Returns aggregate statistics on resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `tool_escalation`, `ui_override`), average live token generation throughput (`avg_generation_tps`), and recent message audit traces.
+* **Returns**: `{"status": "ok", "total_tracked": int, "avg_generation_tps": float | null, "effort_breakdown": {...}, "source_breakdown": {...}, "recent_records": [...]}`
 
 ### `GET /api/vault/note`
 * **Purpose**: Reads raw markdown content of a note inside the Obsidian Vault or resolves an SQLite context entry (`sqlite::context_entry::<id>`).
@@ -505,8 +505,8 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: JSON object `{"run_a": "...", "run_b": "...", "prompt_identical": bool, "prompt_diff": [...], "tool_diffs": [...], "metrics_delta": {...}, "divergences": [...]}`.
 
 ### `GET /api/benchmark/status`
-* **Purpose**: Returns real-time task manager execution status, queue status, and recent stdout/stderr output lines for the background benchmark runner.
-* **Returns**: JSON object `{"running": bool, "queued": bool, "task_manager_status": "idle" | "running", "state": {"status": "...", "phase": "...", "logs": [...]}}`.
+* **Purpose**: Returns real-time task manager execution status, queue status, host hardware throughput profile, and recent stdout/stderr output lines for the background benchmark runner.
+* **Returns**: JSON object `{"running": bool, "queued": bool, "task_manager_status": "idle" | "running", "throughput": {"avg_tps": float, "pass_duration_seconds": float, "model": str, "run_id": str, "source": str}, "state": {"status": "...", "phase": "...", "logs": [...]}}`.
 
 ### `POST /api/benchmark/run`
 * **Purpose**: Dispatches an evaluation benchmark run as an isolated subprocess managed by `task_manager`. Prepend-enqueues to the head of the task queue if a background heavy task is currently active.

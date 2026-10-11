@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-09 23:59:47
+date modified: 2026-10-11 01:45:41
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,38 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.025] - 2026-10-11 — *Split Entry Usability, Benchmark Scalability & Decoupled Vision Grounding*
+
+### Added
+
+- **Configurable Multimodal Vision Decoupling (`evelyn_config.py`, `evelyn_server.py`)**:
+  - Introduced `DECOUPLE_VISION = os.getenv("EVELYN_DECOUPLE_VISION", "true").lower() in ("true", "1", "yes")` in `evelyn_config.py`.
+  - When enabled (default: `True`), user-attached chat images are analyzed via `VISION_MODEL_NAME` (`extract_visual_metadata_from_ollama()`), extracting descriptive captions and OCR text into structured `<visual_context>` envelopes.
+  - Omission of raw base64 images from conversation turns prevents complex agentic system prompts with 30+ tool schemas from diluting visual perception, grounding Evelyn in detailed visual and textual cues.
+  - Hardened visual metadata parsing in `Evelyn/tools/visual_indexer.py` with `strip_thinking_tags()`, code-fence stripping, and greedy JSON object boundary extraction.
+- **Dynamic Throughput Profiling & Metrics Capture (`scripts/benchmark_behavior.py`, `Evelyn/tools/benchmark_store.py`)**:
+  - Enhanced benchmark turns to capture per-case `eval_count` and `eval_duration` from Ollama's response, computing weighted `avg_tps`, `total_eval_tokens`, and wall-clock `duration_seconds` for every suite pass.
+  - Implemented `benchmark_store.get_latest_throughput()` to retrieve model-specific or host-level throughput baselines.
+  - Added live conversational token generation throughput (`avg_generation_tps`) to `/telemetry/thinking` and exposed throughput inspection via `get_telemetry("throughput")` in `scripts/sqlite_mcp_server.py`.
+
+### Changed
+
+- **Benchmark Run Dynamic Timeouts & Dropdown Presets (`Evelyn/tools/task_manager.py`, `evelyn_ui/benchmark.html`)**:
+  - Dynamically scaled benchmark watchdog timeouts based on requested repeat count and measured single-pass duration (`pass_duration_seconds * 2.0`), falling back to a 3.0-hour per-pass budget with a 4.0-hour floor.
+  - Implemented `updateDynamicPassDurations()` in `evelyn_ui/benchmark.html`, dynamically recalculating pass options (`1 Pass`, `3 Passes`, `5 Passes`, `10 Passes`) in the iterations dropdown based on the active model's historical TPS throughput.
+  - Increased benchmark judge evaluation HTTP timeout in `scripts/benchmark_behavior.py` from 35s to 120s to prevent AI judge evaluation dropouts during multi-pass runs.
+
+### Fixed
+
+- **Split Proposal "Add Atomic Fact" Button Visibility & Draft Retention (`evelyn_ui/dev.html`)**:
+  - Restyled `+ Add Atomic Fact` and `+ Add Another Atomic Fact` buttons from dark `var(--surface)` to prominent purple accent styling (`background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px dashed rgba(168, 85, 247, 0.45)`).
+  - Fixed premature pruning in `captureActiveEdits()` which previously discarded newly appended facts whose `observation` was still blank upon the very first re-render.
+  - Automatically expands the edit form for blank newly added facts, showing a helpful draft indicator and autofocusing the observation textarea.
+- **Benchmark Task Zombie State & Subprocess Termination (`Evelyn/tools/task_manager.py`, `evelyn_server.py`)**:
+  - Fixed `set_running()` clobbering active subprocess handles (`asyncio.subprocess.Process`) with intermediate asyncio Task objects during progress updates.
+  - Enhanced `terminate_task_subprocess()` to search `_spawned_subprocesses` for active `benchmark_behavior.py` instances when handles are displaced.
+  - Reconciled `/api/benchmark/status` to synchronize `_benchmark_run_state["status"]` with `task_manager.get_status("benchmark")`, preventing stale "Running" badges and non-responsive cancel buttons after timeouts or external termination.
 
 ## [000.008.024] - 2026-10-09 — *Evelyn MCP Server Expansion & Tooling Integration*
 

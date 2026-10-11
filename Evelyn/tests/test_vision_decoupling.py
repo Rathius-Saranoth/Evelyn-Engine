@@ -1,6 +1,6 @@
 # test_vision_decoupling.py
 # date created: 2026-10-02 17:01:00
-# date modified: 2026-10-02 17:02:06
+# date modified: 2026-10-11 00:45:04
 # tags: #test, #vision, #multimodal, #decoupling, #ollama, #xml
 
 """Unit tests for Decoupled Multimodal Vision Architecture (Phase 2).
@@ -22,9 +22,11 @@ from Evelyn.tools import string_utils, visual_indexer
 
 
 def test_vision_model_config_presence():
-    """Verify VISION_MODEL_NAME exists and defaults to gemma4:12b."""
+    """Verify VISION_MODEL_NAME and DECOUPLE_VISION exist and default properly."""
     assert hasattr(cfg, "VISION_MODEL_NAME")
     assert cfg.VISION_MODEL_NAME == "gemma4:12b"
+    assert hasattr(cfg, "DECOUPLE_VISION")
+    assert cfg.DECOUPLE_VISION is True
 
 
 @pytest.mark.asyncio
@@ -95,17 +97,39 @@ def test_build_visual_context_envelope():
 
 
 def test_decoupled_vision_dispatch_behavior():
-    """Verify decoupled vision logic branches correctly based on model equality."""
-    # When MODEL_NAME != VISION_MODEL_NAME, should_decouple_vision is True
-    with patch.object(cfg, "MODEL_NAME", "qwen2.5:14b"), patch.object(cfg, "VISION_MODEL_NAME", "gemma4:12b"):
+    """Verify decoupled vision logic branches correctly based on config flags and model equality."""
+    # When DECOUPLE_VISION is True, should_decouple_vision is True even if MODEL_NAME == VISION_MODEL_NAME
+    with (
+        patch.object(cfg, "MODEL_NAME", "gemma4:12b"),
+        patch.object(cfg, "VISION_MODEL_NAME", "gemma4:12b"),
+        patch.object(cfg, "DECOUPLE_VISION", True),
+    ):
         should_decouple = bool(
-            getattr(cfg, "VISION_MODEL_NAME", None) and cfg.VISION_MODEL_NAME != cfg.MODEL_NAME
+            getattr(cfg, "VISION_MODEL_NAME", None)
+            and (getattr(cfg, "DECOUPLE_VISION", True) or cfg.VISION_MODEL_NAME != cfg.MODEL_NAME)
         )
         assert should_decouple is True
 
-    # When MODEL_NAME == VISION_MODEL_NAME, should_decouple_vision is False (native multimodal)
-    with patch.object(cfg, "MODEL_NAME", "gemma4:12b"), patch.object(cfg, "VISION_MODEL_NAME", "gemma4:12b"):
+    # When DECOUPLE_VISION is False and MODEL_NAME != VISION_MODEL_NAME, should_decouple_vision is True
+    with (
+        patch.object(cfg, "MODEL_NAME", "qwen2.5:14b"),
+        patch.object(cfg, "VISION_MODEL_NAME", "gemma4:12b"),
+        patch.object(cfg, "DECOUPLE_VISION", False),
+    ):
         should_decouple = bool(
-            getattr(cfg, "VISION_MODEL_NAME", None) and cfg.VISION_MODEL_NAME != cfg.MODEL_NAME
+            getattr(cfg, "VISION_MODEL_NAME", None)
+            and (getattr(cfg, "DECOUPLE_VISION", True) or cfg.VISION_MODEL_NAME != cfg.MODEL_NAME)
+        )
+        assert should_decouple is True
+
+    # When DECOUPLE_VISION is False and MODEL_NAME == VISION_MODEL_NAME, should_decouple_vision is False (native multimodal)
+    with (
+        patch.object(cfg, "MODEL_NAME", "gemma4:12b"),
+        patch.object(cfg, "VISION_MODEL_NAME", "gemma4:12b"),
+        patch.object(cfg, "DECOUPLE_VISION", False),
+    ):
+        should_decouple = bool(
+            getattr(cfg, "VISION_MODEL_NAME", None)
+            and (getattr(cfg, "DECOUPLE_VISION", True) or cfg.VISION_MODEL_NAME != cfg.MODEL_NAME)
         )
         assert should_decouple is False

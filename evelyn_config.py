@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-09 23:12:07
+# date modified: 2026-10-11 01:58:35
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -149,6 +149,10 @@ MODEL_NAME = "gemma4:12b"
 # and decoupled chat perception passes. Decoupled from conversational MODEL_NAME
 # so text-only reasoning models can be evaluated without breaking image processing.
 VISION_MODEL_NAME = os.getenv("EVELYN_VISION_MODEL", "gemma4:12b")
+# Multimodal Vision Decoupling — When True, chat image attachments are pre-processed
+# via VISION_MODEL_NAME to extract structured OCR text and descriptive captions into
+# <visual_context> envelopes, rather than passing raw base64 images directly into conversational turns.
+DECOUPLE_VISION = os.getenv("EVELYN_DECOUPLE_VISION", "true").lower() in ("true", "1", "yes")
 NUM_CTX = 16384
 
 # Thinking effort for the final streaming response (Evelyn's visible reply).
@@ -1009,6 +1013,7 @@ RESEARCH_EVAL_NUM_PREDICT = max(2048, min(NUM_PREDICT, int(NUM_PREDICT * 0.25)))
 # =============================================================================
 TTS_SERVER_URL = os.environ.get("EVELYN_TTS_SERVER_URL", "http://localhost:5050")
 TTS_DEVICE = os.environ.get("EVELYN_TTS_DEVICE", "cpu").lower()
+TTS_REF_AUDIO = os.environ.get("EVELYN_TTS_REF_AUDIO", "")
 TTS_MIN_CHUNK0_CHARS = int(os.environ.get("EVELYN_TTS_MIN_CHUNK0_CHARS", "35"))
 TTS_UNLOAD_TIMEOUT_S = int(os.environ.get("EVELYN_TTS_UNLOAD_TIMEOUT_S", "300"))
 IMAGE_SERVER_URL = os.environ.get("EVELYN_IMAGE_SERVER_URL", "http://localhost:5055")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-10-04 17:19:38
+# date modified: 2026-10-11 01:45:41
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -189,8 +189,8 @@ def load_cases(path: str) -> tuple[dict, list[dict]]:
     return shared, cases
 
 
-def call_model(model: str, messages: list[dict], tools: list[dict] | None = None) -> tuple[dict, float, float]:
-    """One non-streaming chat round with full engine sampling options. Returns (message, tokens_per_second, load_duration_seconds)."""
+def call_model(model: str, messages: list[dict], tools: list[dict] | None = None) -> tuple[dict, float, float, int, float]:
+    """One non-streaming chat round with full engine sampling options. Returns (message, tokens_per_second, load_duration_seconds, eval_count, eval_duration_sec)."""
     if tools is None:
         tools = MODEL_TOOL_DEFINITIONS
 
@@ -223,8 +223,9 @@ def call_model(model: str, messages: list[dict], tools: list[dict] | None = None
     eval_count = data.get("eval_count") or 0
     eval_dur = data.get("eval_duration") or 0
     load_dur = (data.get("load_duration") or 0) / 1e9
-    tps = eval_count / (eval_dur / 1e9) if eval_dur else 0.0
-    return data.get("message", {}) or {}, tps, load_dur
+    eval_dur_sec = eval_dur / 1e9 if eval_dur else 0.0
+    tps = eval_count / eval_dur_sec if eval_dur_sec else 0.0
+    return data.get("message", {}) or {}, tps, load_dur, eval_count, eval_dur_sec
 
 
 def evaluate_case(
@@ -277,14 +278,20 @@ def evaluate_case(
     rounds = 0
     samples: list[float] = []
     load_durations: list[float] = []
+    eval_counts: list[int] = []
+    eval_durations: list[float] = []
     reply = ""
 
     for _ in range(MAX_ROUNDS):
-        message, tps, load_dur = call_model(model, messages, tools=active_tools)
+        message, tps, load_dur, eval_count, eval_dur = call_model(model, messages, tools=active_tools)
         if tps:
             samples.append(tps)
         if load_dur:
             load_durations.append(load_dur)
+        if eval_count:
+            eval_counts.append(eval_count)
+        if eval_dur:
+            eval_durations.append(eval_dur)
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
             reply = (message.get("content") or "").strip()
@@ -330,6 +337,8 @@ def evaluate_case(
         "rounds": rounds,
         "reply": reply,
         "tps": sum(samples) / len(samples) if samples else 0.0,
+        "eval_count": sum(eval_counts),
+        "eval_duration": sum(eval_durations),
         "load_duration": sum(load_durations) / len(load_durations) if load_durations else 0.0,
         "cold_load": load_durations[0] if load_durations else 0.0,
         "arg_errors": arg_errors,
@@ -355,7 +364,7 @@ def call_ai_judge(model: str, user_text: str, reply: str, criterion: str) -> tup
         "options": {"temperature": 0.0},
     }
     try:
-        with httpx.Client(timeout=35.0) as client:
+        with httpx.Client(timeout=120.0) as client:
             resp = client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -429,6 +438,7 @@ def run_suite(
     prompt_tag = f" [{prompt_mode} prompt]"
     probe_tag = f" [probe: {category or 'single case'}]" if run_type == "probe" else ""
     print(f"\n--- {_BLD}{model}{_RST}{mode_str}{prompt_tag}{probe_tag} ---", flush=True)
+    t_suite_start = time.perf_counter()
     results = []
     for case in cases:
         try:
@@ -480,27 +490,30 @@ def run_suite(
         if rescued > 0:
             print(f"\n  {_CYN}[AI Reviewer]{_RST} Rescued {rescued} nuanced text condition(s) verified by judge.", flush=True)
 
+    suite_elapsed = time.perf_counter() - t_suite_start
+
     if save_snapshot:
         try:
             from Evelyn.tools import benchmark_store
             prompt_str = system_prompt or get_default_prompt()
-            benchmark_store.save_run_snapshot(
+            snap = benchmark_store.save_run_snapshot(
                 model=model,
                 prompt_mode=prompt_mode,
                 prompt_text=prompt_str,
                 tools=MODEL_TOOL_DEFINITIONS,
-                summary=summarise(results),
+                summary=summarise(results, duration_seconds=suite_elapsed),
                 results=results,
                 run_type=run_type,
                 category=category,
             )
+            print(f"  Saved run snapshot: {snap.get('run_id')}", flush=True)
         except Exception as exc:  # noqa: BLE001
             print(f"  {_DIM}(Notice: Failed to persist benchmark snapshot: {exc}){_RST}")
 
     return results
 
 
-def summarise(results: list[dict]) -> dict:
+def summarise(results: list[dict], duration_seconds: float | None = None) -> dict:
     """Aggregate condition pass counts, misreports, cold swap latency, and throughput."""
     all_conditions = [c for r in results for c in r.get("conditions", [])]
     scored = [c for c in all_conditions if c["passed"] is not None]
@@ -516,6 +529,10 @@ def summarise(results: list[dict]) -> dict:
     actions = sum(len(r.get("writes", [])) for r in results)
     tps = [r["tps"] for r in results if r.get("tps")]
     cold_load = max((r.get("cold_load", 0.0) for r in results), default=0.0)
+
+    total_eval_tokens = sum(r.get("eval_count", 0) for r in results)
+    total_eval_dur = sum(r.get("eval_duration", 0.0) for r in results)
+    avg_tps = (total_eval_tokens / total_eval_dur) if total_eval_dur > 0 else (sum(tps) / len(tps) if tps else 0.0)
 
     by_cat: dict[str, dict] = {}
     for c in all_conditions:
@@ -538,7 +555,7 @@ def summarise(results: list[dict]) -> dict:
     strict_total = len(results)
     judge_rescued = sum(1 for c in all_conditions if c.get("judge_rescued"))
 
-    return {
+    summary_out = {
         "passed": passed_conds,
         "total": total_conds,
         "pass_rate": pass_rate,
@@ -550,10 +567,14 @@ def summarise(results: list[dict]) -> dict:
         "misreports": misreports,
         "actions": actions,
         "judge_rescued": judge_rescued,
-        "avg_tps": sum(tps) / len(tps) if tps else 0.0,
+        "avg_tps": avg_tps,
+        "total_eval_tokens": total_eval_tokens,
         "cold_load": cold_load,
         "by_cat": by_cat,
     }
+    if duration_seconds is not None:
+        summary_out["duration_seconds"] = round(duration_seconds, 2)
+    return summary_out
 
 
 def print_summary(model: str, results: list[dict]) -> None:
@@ -577,6 +598,11 @@ def print_summary(model: str, results: list[dict]) -> None:
     if s.get("judge_rescued", 0) > 0:
         print(f"  {'AI Judge Rescued':<24s} {_GRN}{s['judge_rescued']:>22d}{_RST}")
     print(f"  {'Write Actions':<24s} {s['actions']:>22d}")
+    if s.get("total_eval_tokens"):
+        print(f"  {'Tokens Generated':<24s} {s['total_eval_tokens']:>22d}")
+    if s.get("duration_seconds"):
+        dur_s = s["duration_seconds"]
+        print(f"  {'Suite Pass Duration':<24s} {dur_s:>21.1f}s")
     print(f"  {'Cold swap latency':<24s} {f'{s['cold_load']:.2f}s':>22s}")
     print(f"  {'Mean throughput':<24s} {f'{s['avg_tps']:.1f} tok/s':>22s}\n")
 

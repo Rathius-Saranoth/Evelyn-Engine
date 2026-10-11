@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-04 20:58:47
+# date modified: 2026-10-11 01:45:41
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2058,7 +2058,7 @@ async def _process_chat_background(
         visual_ctx = None
         should_decouple_vision = bool(
             getattr(cfg, "VISION_MODEL_NAME", None)
-            and cfg.VISION_MODEL_NAME != cfg.MODEL_NAME
+            and (getattr(cfg, "DECOUPLE_VISION", True) or cfg.VISION_MODEL_NAME != cfg.MODEL_NAME)
         )
         if images and should_decouple_vision:
             from Evelyn.tools.visual_indexer import extract_visual_metadata_from_ollama
@@ -4214,9 +4214,19 @@ async def get_thinking_telemetry(limit: int = 50, _: None = Depends(check_auth))
             (limit,),
         ).fetchall()
 
+        tps_row = cur.execute(
+            """
+            SELECT SUM(eval_count), SUM(eval_duration)
+            FROM message_metrics
+            WHERE eval_count > 0 AND eval_duration > 0
+            """
+        ).fetchone()
+        live_tps = round(tps_row[0] / (tps_row[1] / 1e9), 1) if (tps_row and tps_row[1] and tps_row[1] > 0) else None
+
         return {
             "status": "ok",
             "total_tracked": total_tracked,
+            "avg_generation_tps": live_tps,
             "effort_breakdown": effort_counts,
             "source_breakdown": source_counts,
             "recent_records": [dict(r) for r in recent_records],
@@ -8884,6 +8894,7 @@ async def run_benchmark_task(
     _benchmark_run_state["logs"] = []
     _benchmark_run_state["error"] = None
     _benchmark_run_state["started_at"] = time.time()
+    _benchmark_run_state["repeat"] = repeat
 
     script_path = str(BASE_DIR / "scripts" / "benchmark_behavior.py")
     cmd = [
@@ -8902,7 +8913,11 @@ async def run_benchmark_task(
     if repeat > 1:
         cmd.extend(["--repeat", str(repeat)])
 
-    task_manager.set_running("benchmark", phase=f"Benchmarking {model} ({prompt_mode}{phase_cat})")
+    task_manager.set_running(
+        "benchmark",
+        phase=f"Benchmarking {model} ({prompt_mode}{phase_cat})",
+        sub_status={"repeat": repeat, "model": model, "prompt_mode": prompt_mode},
+    )
     proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -8926,7 +8941,7 @@ async def run_benchmark_task(
                         _benchmark_run_state["logs"] = _benchmark_run_state["logs"][-100:]
                     if line.startswith(("[", "Running:", "Saved run snapshot", "=== Final Results")):
                         _benchmark_run_state["phase"] = line[:80]
-                        task_manager.set_running("benchmark", phase=line[:60])
+                        task_manager.set_running("benchmark", phase=line[:60], task_obj=proc)
                     if "Saved run snapshot:" in line:
                         parts = line.split("Saved run snapshot:")
                         if len(parts) > 1:
@@ -9068,23 +9083,31 @@ async def get_benchmark_status(_: None = Depends(check_auth)):
     started_at = _benchmark_run_state.get("started_at", 0.0)
     is_launching = (time.time() - started_at) < 8.0
 
-    if not is_launching and (
-        (proc is not None and getattr(proc, "returncode", None) is not None)
-        or (proc is None and task_manager.get_status("benchmark") == "running")
-    ):
-        task_manager.clear_running("benchmark", status="idle")
-        if _benchmark_run_state.get("status") == "running":
-            _benchmark_run_state["status"] = "idle"
-            _benchmark_run_state["phase"] = "Idle"
+    tm_status = task_manager.get_status("benchmark")
+    if not is_launching:
+        if (
+            (proc is not None and getattr(proc, "returncode", None) is not None)
+            or (proc is None and tm_status == "running")
+        ):
+            task_manager.clear_running("benchmark", status="idle")
+            if _benchmark_run_state.get("status") == "running":
+                _benchmark_run_state["status"] = "idle"
+                _benchmark_run_state["phase"] = "Idle"
+        elif tm_status in ("timed_out", "error", "cancelled") and _benchmark_run_state.get("status") == "running":
+            _benchmark_run_state["status"] = tm_status
+            _benchmark_run_state["phase"] = f"Benchmark {tm_status}."
 
-    is_running = (task_manager.get_status("benchmark") == "running") or (
-        _benchmark_run_state.get("status") == "running"
-    )
+    tm_status = task_manager.get_status("benchmark")
+    is_running = (tm_status == "running") and (_benchmark_run_state.get("status") == "running")
     is_queued = task_manager.is_task_queued("benchmark") or (_benchmark_run_state.get("status") == "enqueued")
+    from Evelyn.tools import benchmark_store
+
+    throughput = benchmark_store.get_latest_throughput()
     return {
         "running": is_running,
         "queued": is_queued,
-        "task_manager_status": task_manager.get_status("benchmark"),
+        "task_manager_status": tm_status,
+        "throughput": throughput,
         "state": _benchmark_run_state,
     }
 

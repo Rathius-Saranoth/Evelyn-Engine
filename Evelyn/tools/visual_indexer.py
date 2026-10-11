@@ -1,6 +1,6 @@
 # visual_indexer.py
 # date created: 2026-08-21 19:44:00
-# date modified: 2026-10-02 17:02:06
+# date modified: 2026-10-11 00:45:04
 # tags: #vision, #indexer, #chroma, #multimodal, #taxonomy, #rag
 
 """visual_indexer.py — Asynchronous Visual Memory Extraction and Vector Indexer.
@@ -19,6 +19,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -28,6 +29,7 @@ import httpx
 
 import evelyn_config as cfg
 from Evelyn.tools import chroma_rag, media_db
+from Evelyn.tools.string_utils import strip_thinking_tags
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +105,17 @@ async def extract_visual_metadata_from_ollama(
             data = resp.json()
             raw_content = data.get("message", {}).get("content", "").strip()
 
-            # Clean potential code fence artifacts
-            if raw_content.startswith("```"):
-                lines = raw_content.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                raw_content = "\n".join(lines).strip()
+            clean_text = strip_thinking_tags(raw_content)
 
-            parsed = json.loads(raw_content)
+            # Clean potential code fence artifacts
+            fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean_text)
+            candidate = fence_match.group(1).strip() if fence_match else clean_text
+
+            # Isolate outermost JSON object if model included commentary
+            json_match = re.search(r"(\{[\s\S]*\})", candidate)
+            json_str = json_match.group(1) if json_match else candidate
+
+            parsed = json.loads(json_str)
             return {
                 "caption": parsed.get("caption", "").strip(),
                 "ocr_text": parsed.get("ocr_text", "").strip(),

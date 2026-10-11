@@ -1,6 +1,6 @@
 # benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-04 17:19:38
+# date modified: 2026-10-11 01:45:41
 # tags: #benchmark, #evaluation, #history, #diff, #storage
 
 """
@@ -533,6 +533,50 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
         "test_notes": notes,
         "markers": markers or expect_tools or claim_markers,
         "matched_markers": matched_markers or matched_claims or matched_denials,
+    }
+
+
+def get_latest_throughput(model: str | None = None) -> dict[str, Any]:
+    """Retrieve the latest measured TPS and suite pass duration for dynamic time budgeting."""
+    store = _load_raw_store()
+    candidates = [
+        r
+        for partition in ("live", "template")
+        for r in store.get(partition, [])
+        if r.get("run_type") != "probe" and r.get("summary", {}).get("total", 0) >= 10
+    ]
+    candidates.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    if not candidates:
+        return {"avg_tps": 20.0, "pass_duration_seconds": 5400.0, "source": "default"}
+
+    if model:
+        for c in candidates:
+            if c.get("model") == model:
+                sm = c.get("summary", {})
+                tps = sm.get("avg_tps", 0.0) or 20.0
+                dur = sm.get("duration_seconds")
+                if not dur:
+                    dur = max(3600.0, (100000.0 / tps))
+                return {
+                    "avg_tps": tps,
+                    "pass_duration_seconds": dur,
+                    "model": model,
+                    "run_id": c.get("run_id"),
+                    "source": "model_history",
+                }
+
+    latest = candidates[0]
+    sm = latest.get("summary", {})
+    tps = sm.get("avg_tps", 0.0) or 20.0
+    dur = sm.get("duration_seconds")
+    if not dur:
+        dur = max(3600.0, (100000.0 / tps))
+    return {
+        "avg_tps": tps,
+        "pass_duration_seconds": dur,
+        "model": latest.get("model", ""),
+        "run_id": latest.get("run_id"),
+        "source": "history",
     }
 
 

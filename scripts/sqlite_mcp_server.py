@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # sqlite_mcp_server.py
 # date created: 2026-08-28 12:29:50
-# date modified: 2026-10-09 23:41:24
+# date modified: 2026-10-11 01:45:41
 # tags:
 
 """
@@ -414,28 +414,32 @@ def get_thought_bubble() -> str:
 
 @server.tool()
 def get_telemetry(metric: str = "all") -> str:
-    """Retrieve system telemetry ('thinking', 'rag', 'vault_domains', or 'all').
+    """Retrieve system telemetry ('thinking', 'rag', 'vault_domains', 'throughput', or 'all').
 
     Args:
-        metric: Telemetry type ('thinking', 'rag', 'vault_domains', or 'all').
+        metric: Telemetry type ('thinking', 'rag', 'vault_domains', 'throughput', or 'all').
     """
     headers = {"X-Evelyn-Key": API_KEY}
     endpoints = {
         "thinking": f"{SERVER_URL}/telemetry/thinking",
         "rag": f"{SERVER_URL}/telemetry/rag",
         "vault_domains": f"{SERVER_URL}/api/vault/domains",
+        "throughput": f"{SERVER_URL}/api/benchmark/status",
     }
     if metric in endpoints:
         res = http_get_json(endpoints[metric], headers=headers)
+        if metric == "throughput" and isinstance(res, dict):
+            res = res.get("throughput", res)
         return json.dumps(res, indent=2)
     elif metric == "all":
         out = {}
         for k, ep in endpoints.items():
-            out[k] = http_get_json(ep, headers=headers)
+            r = http_get_json(ep, headers=headers)
+            out[k] = r.get("throughput", r) if k == "throughput" and isinstance(r, dict) else r
         return json.dumps(out, indent=2)
     else:
         return json.dumps({
-            "error": f"Unknown metric '{metric}'. Choose from: 'thinking', 'rag', 'vault_domains', 'all'"
+            "error": f"Unknown metric '{metric}'. Choose from: 'thinking', 'rag', 'vault_domains', 'throughput', 'all'"
         })
 
 

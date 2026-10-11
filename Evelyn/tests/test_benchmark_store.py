@@ -1,6 +1,6 @@
 # test_benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-02 19:59:59
+# date modified: 2026-10-11 01:45:41
 # tags: #test, #benchmark, #diff, #storage
 
 """Targeted unit tests for Evelyn/tools/benchmark_store.py rolling history and diff engine."""
@@ -167,6 +167,29 @@ class TestBenchmarkStore(unittest.TestCase):
         probe_history = benchmark_store.list_history(partition="probes")
         self.assertEqual(len(probe_history), 1)
         self.assertEqual(probe_history[0]["run_id"], probe["run_id"])
+
+    def test_get_latest_throughput(self):
+        # Empty store returns default fallback
+        empty_res = benchmark_store.get_latest_throughput()
+        self.assertEqual(empty_res["avg_tps"], 20.0)
+        self.assertEqual(empty_res["source"], "default")
+
+        # After saving a full run with avg_tps and duration_seconds
+        benchmark_store.save_run_snapshot(
+            model="qwen2.5:14b",
+            prompt_mode="live",
+            prompt_text="Live prompt",
+            tools=[],
+            summary={"passed": 20, "total": 20, "avg_tps": 45.0, "duration_seconds": 2200.0},
+            results=[{"id": f"c{i}", "category": "cat", "passed": True} for i in range(15)],
+            run_type="full",
+        )
+
+        res = benchmark_store.get_latest_throughput(model="qwen2.5:14b")
+        self.assertEqual(res["avg_tps"], 45.0)
+        self.assertEqual(res["pass_duration_seconds"], 2200.0)
+        self.assertEqual(res["model"], "qwen2.5:14b")
+        self.assertEqual(res["source"], "model_history")
 
 
 if __name__ == "__main__":

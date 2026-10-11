@@ -179,6 +179,7 @@ _.validate_cases
 # TTS service configuration (evelyn_config.py -> services/tts/tts_server.py)
 # AGENTS.md §11 category 1 — external service consumer outside Vulture scan paths.
 _.TTS_DEVICE
+_.TTS_REF_AUDIO
 _.TTS_MIN_CHUNK0_CHARS
 _.TTS_UNLOAD_TIMEOUT_S
 

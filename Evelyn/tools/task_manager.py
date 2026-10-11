@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-10-04 17:19:38
+# date modified: 2026-10-11 01:45:41
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -153,6 +153,18 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
 
     # 1. In-memory handle check from _active_handles
     handle = _active_handles.pop(name, None)
+    if handle is None and name == "benchmark":
+        for proc in _spawned_subprocesses:
+            pid = getattr(proc, "pid", None)
+            if pid and psutil.pid_exists(pid):
+                try:
+                    p = psutil.Process(pid)
+                    cmdline = " ".join(p.cmdline())
+                    if "benchmark_behavior.py" in cmdline:
+                        handle = proc
+                        break
+                except (psutil.NoSuchProcess, psutil.Error, OSError):
+                    pass
     if handle is not None:
         if hasattr(handle, "terminate") and callable(getattr(handle, "terminate", None)):
             try:
@@ -525,6 +537,21 @@ def get_dynamic_timeout(name: str) -> float:
             baseline = max(baseline or 4500.0, doc_timeout * 3.0)
         except (ImportError, AttributeError):
             pass
+
+    if name == "benchmark":
+        tasks = _get_background_tasks()
+        repeat = 1
+        if tasks and "benchmark" in tasks:
+            sub = tasks["benchmark"].get("sub_status") or {}
+            repeat = int(sub.get("repeat", 1) or 1)
+        try:
+            from Evelyn.tools import benchmark_store
+            perf = benchmark_store.get_latest_throughput()
+            measured_dur = float(perf.get("pass_duration_seconds", 5400.0))
+            per_pass = max(7200.0, measured_dur * 2.0)
+        except (ImportError, AttributeError, KeyError, TypeError, ValueError, OSError):
+            per_pass = 10800.0  # fallback 3.0 hours on Sanctum
+        baseline = max(14400.0, float(repeat) * per_pass)
 
     # Query SQLite database for up to 30 completed runs
     with contextlib.suppress(sqlite3.Error, OSError, ValueError):
@@ -1207,11 +1234,13 @@ def set_running(
     if task_obj is not None:
         _active_handles[name] = task_obj
     else:
-        with contextlib.suppress(RuntimeError):
-            import asyncio
-            current = asyncio.current_task()
-            if current:
-                _active_handles[name] = current
+        existing_handle = _active_handles.get(name)
+        if not (existing_handle is not None and (hasattr(existing_handle, "pid") or hasattr(existing_handle, "terminate"))):
+            with contextlib.suppress(RuntimeError):
+                import asyncio
+                current = asyncio.current_task()
+                if current:
+                    _active_handles[name] = current
 
     tasks = _get_background_tasks()
     if tasks is None:

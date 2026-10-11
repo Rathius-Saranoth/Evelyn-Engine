@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-09 23:41:24
+# date modified: 2026-10-11 00:45:04
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.024"
-__version_info__ = (0, 8, 24)
-__version_name__ = "Evelyn MCP Server Expansion & Tooling Integration"
+__version__ = "000.008.025"
+__version_info__ = (0, 8, 25)
+__version_name__ = "Split Entry Usability, Benchmark Scalability & Decoupled Vision Grounding"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

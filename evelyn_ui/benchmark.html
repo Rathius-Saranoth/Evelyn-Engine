@@ -1159,11 +1159,11 @@
 
           <div style="display: flex; flex-direction: column; gap: 6px;">
             <label class="filter-label" for="run-repeat-select">Passes (Iterations):</label>
-            <select class="input-field" id="run-repeat-select" style="min-width: 140px;" title="Execute multiple consecutive passes to observe statistical consistency">
-              <option value="1" selected>1 Pass (Standard)</option>
-              <option value="3">3 Passes</option>
-              <option value="5">5 Passes (Recommended)</option>
-              <option value="10">10 Passes</option>
+            <select class="input-field" id="run-repeat-select" style="min-width: 170px;" title="Execute multiple consecutive passes with dynamically scaled watchdog timeouts">
+              <option value="1" selected>1 Pass (~1.5h)</option>
+              <option value="3">3 Passes (~4.5h)</option>
+              <option value="5">5 Passes (~7.5h)</option>
+              <option value="10">10 Passes (~15h)</option>
             </select>
           </div>
 
@@ -1468,6 +1468,52 @@
           if (driftBadge) { driftBadge.textContent = 'Initial'; driftBadge.className = 'badge badge-cyan'; }
           if (driftDesc) driftDesc.textContent = 'First canonical snapshot recorded';
         }
+      }
+
+      updateDynamicPassDurations();
+    }
+
+    // Dynamically calibrate iterations dropdown pass durations based on measured TPS / pass seconds
+    function updateDynamicPassDurations() {
+      const select = document.getElementById('run-repeat-select');
+      if (!select) return;
+
+      const activeModel = (matrixData && matrixData.active_model) || 'gemma4:12b';
+      const targetModel = selectedModel || activeModel;
+
+      let avgTps = 0;
+      let durationSeconds = 0;
+
+      if (Array.isArray(historyData) && historyData.length > 0) {
+        const fullRuns = historyData.filter(h => h.run_type !== 'probe' && (h.summary?.total || 0) >= 10);
+        const modelRun = fullRuns.find(h => h.model === targetModel) || fullRuns[0];
+        if (modelRun && modelRun.summary) {
+          avgTps = modelRun.summary.avg_tps || 0;
+          durationSeconds = modelRun.summary.duration_seconds || 0;
+        }
+      }
+
+      // If duration not explicitly measured, estimate from avgTps (~100k generated tokens in full suite)
+      const passSec = durationSeconds > 0 ? durationSeconds : (avgTps > 0 ? (100000 / avgTps) : 5400);
+
+      function fmt(sec) {
+        if (sec < 3600) {
+          return `${Math.round(sec / 60)}m`;
+        }
+        const hours = (sec / 3600).toFixed(1);
+        return `${hours.endsWith('.0') ? hours.slice(0, -2) : hours}h`;
+      }
+
+      const passes = [1, 3, 5, 10];
+      const curVal = select.value || '1';
+      select.innerHTML = passes.map(p => {
+        const est = fmt(passSec * p);
+        return `<option value="${p}">${p} ${p === 1 ? 'Pass' : 'Passes'} (~${est})</option>`;
+      }).join('');
+      select.value = curVal;
+
+      if (avgTps > 0) {
+        select.title = `Estimated durations dynamically calibrated from ${targetModel} throughput (${avgTps.toFixed(1)} tok/s)`;
       }
     }
 
@@ -2178,6 +2224,7 @@
 
         // Re-render swimlanes with fresh history sparkline data
         renderSwimlanes();
+        updateDynamicPassDurations();
       } catch (err) {
         console.error('Failed to load history:', err);
         document.getElementById('history-table-body').innerHTML = `

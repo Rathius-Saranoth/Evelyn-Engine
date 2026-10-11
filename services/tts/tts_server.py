@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-10-06 19:40:21
+# date modified: 2026-10-11 01:58:35
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -67,7 +67,25 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).parent
-REF_AUDIO = str(BASE_DIR / "audio" / "reference" / "kbaudio_clip.mp3")
+
+
+def _resolve_ref_audio() -> str:
+    env_ref = os.environ.get("EVELYN_TTS_REF_AUDIO") or (getattr(cfg, "TTS_REF_AUDIO", "") if cfg else "")
+    if env_ref and os.path.exists(env_ref):
+        return env_ref
+    ref_dir = BASE_DIR / "audio" / "reference"
+    for candidate in ("ref_audio.wav", "ref_audio.mp3", "kbaudio_clip.mp3"):
+        p = ref_dir / candidate
+        if p.exists():
+            return str(p)
+    for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac"):
+        matches = sorted(ref_dir.glob(ext))
+        if matches:
+            return str(matches[0])
+    return str(ref_dir / "ref_audio.wav")
+
+
+REF_AUDIO = _resolve_ref_audio()
 OUTPUT_DIR = BASE_DIR / "audio" / "output"
 
 HOST = "127.0.0.1"
