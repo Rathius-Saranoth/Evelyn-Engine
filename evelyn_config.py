@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-11 01:58:35
+# date modified: 2026-10-11 12:14:33
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -877,7 +877,12 @@ CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
 # Flags single context entries exceeding this word count or containing multiple
 # distinct domain predicates for atomic decomposition.
 CONSOLIDATION_SPLIT_ENABLED = True
-CONSOLIDATION_SPLIT_WORD_THRESHOLD = 35
+CONSOLIDATION_SPLIT_WORD_THRESHOLD = 50
+
+# Semantic merges combine nuanced domain facts. By default, write all semantic
+# consolidation proposals to the review queue ('pending') rather than auto-applying
+# them silently, preventing uncontrolled compound fact bloat.
+CONSOLIDATION_AUTO_APPLY_MERGES = _env_flag("CONSOLIDATION_AUTO_APPLY_MERGES", False)
 
 # Per-cluster LLM call timeout (seconds). Consolidation uses think=True
 # for proposal generation — allow generous headroom for reasoning traces.

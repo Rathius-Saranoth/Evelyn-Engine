@@ -1,6 +1,6 @@
 # test_fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-10-11 12:14:33
 # tags: #test, #fact_deduplicator, #deduplication, #hysteresis, #telemetry
 
 """Targeted unit tests for fact_deduplicator and fact_categorizer child modules."""
@@ -137,3 +137,64 @@ class TestSplitProvenanceGuard:
     def test_null_parents_do_not_match_each_other(self):
         """Two NULL split_from_id values must not be treated as a shared parent."""
         assert self._f({"id": 7, "split_from_id": None}, {"id": 8, "split_from_id": None}) is False
+
+    def test_grandchild_and_grandparent_are_protected(self):
+        """Entry split from a child of root is protected against root."""
+        # 1 (root) -> 2 (child) -> 3 (grandchild)
+        mock_db = {
+            1: {"id": 1, "split_from_id": None},
+            2: {"id": 2, "split_from_id": 1},
+            3: {"id": 3, "split_from_id": 2},
+        }
+        from Evelyn.tools.fact_deduplicator import is_split_relative
+        assert is_split_relative(mock_db[3], mock_db[1], db_getter=lambda eid: mock_db.get(eid)) is True
+        assert is_split_relative(mock_db[1], mock_db[3], db_getter=lambda eid: mock_db.get(eid)) is True
+
+    def test_aunt_and_niece_are_protected(self):
+        """Child of one branch is protected against descendants of sibling branch."""
+        # 1 (root) -> 2 (child A) and 3 (child B); 2 -> 4 (grandchild)
+        mock_db = {
+            1: {"id": 1, "split_from_id": None},
+            2: {"id": 2, "split_from_id": 1},
+            3: {"id": 3, "split_from_id": 1},
+            4: {"id": 4, "split_from_id": 2},
+        }
+        from Evelyn.tools.fact_deduplicator import is_split_relative
+        # 4 (niece) vs 3 (aunt): share root 1 in ancestor chain
+        assert is_split_relative(mock_db[4], mock_db[3], db_getter=lambda eid: mock_db.get(eid)) is True
+        assert is_split_relative(mock_db[3], mock_db[4], db_getter=lambda eid: mock_db.get(eid)) is True
+
+
+@pytest.mark.asyncio
+async def test_consolidation_auto_apply_gated_by_config(mock_memory_db, monkeypatch):
+    """Verify semantic consolidation proposals remain pending unless CONSOLIDATION_AUTO_APPLY_MERGES is True."""
+    monkeypatch.setattr(cfg, "CONSOLIDATION_AUTO_APPLY_MERGES", False)
+
+    e1 = memory_db.insert_entry(category="Cat05-U", subject=cfg.USER_NAME, observation="User likes tea.", status="live")
+    e2 = memory_db.insert_entry(category="Cat05-U", subject=cfg.USER_NAME, observation="User enjoys tea daily.", status="live")
+
+    cluster = {
+        "category": "Cat05-U",
+        "topic": "Duplicate facts on #1",
+        "records": [memory_db.get_entry(e1), memory_db.get_entry(e2)],
+    }
+
+    mock_yaml = """```yaml
+verdict: merge
+merged_summary: "User enjoys drinking tea on a daily basis."
+merged_tags: "tea, routine"
+confidence: high
+reasoning: "Same preference."
+```"""
+
+    async def mock_call(*args, **kwargs):
+        return mock_yaml
+
+    pid = await fact_deduplicator.generate_consolidation_proposal(cluster, mock_call)
+    assert pid is not None
+    con = memory_db.get_db()
+    row = con.execute("SELECT status FROM proposals WHERE id = ?", (int(pid),)).fetchone()
+    con.close()
+    assert row is not None
+    # Must be pending for user review, NOT auto_applied!
+    assert row[0] == "pending"

@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-10-11 12:14:33
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -63,7 +63,7 @@ TASK:
    - 'keep_both' (entries are genuinely distinct specific facts, events, or observations that MUST remain separate).
 4. THE EVENT EXCEPTION: If the entries represent discrete events, moods, or occurrences tied to different dates (State-Data vs Time-Series Data), they are a historical log. You MUST choose 'keep_both'.
 5. If verdict is 'keep_both', set merged_summary to an empty string.
-6. DATA PRESERVATION RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining them causes a loss of specific detail, you must choose 'keep_both'.
+6. DATA PRESERVATION & ATOMICITY RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining the entries produces a bloated run-on sentence with multiple distinct domain predicates or clauses across different dates, or if combining them causes a loss of specific detail, you MUST choose 'keep_both'.
 7. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Format `merged_tags` as flat subject terms combined at retrieval time, not a tree — `coffee, routine`, never `home/coffee/espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). Lowercase always, hyphens joining words; never TitleCase or underscores. Singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). Named individuals are not tags at all. Prefer terms that already appear on the source entries over inventing new ones. Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.
 8. EXPLICIT NOUN SUBJECT MANDATE: The `merged_summary` MUST explicitly state the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn observes...', 'Biscuit the cat acts as...', 'Jordan is acclimating...'). NEVER begin the summary with a subject-less verb (e.g. 'Enjoys...', 'Prefers...', 'Acts as...') and NEVER use ambiguous floating pronouns ('He', 'She', 'They') as the primary subject referent. If one entity is observing or commenting on another, explicitly name BOTH entities in the text (e.g. 'Evelyn observes that Alex values clarity...').
 {cat_ref}
@@ -185,32 +185,94 @@ def fast_deduplicate_exact_matches(con: sqlite3.Connection | None = None) -> int
 # Section 2: Vector-First Semantic Candidate Discovery
 # ============================================================================
 
-def is_split_relative(entry_a: dict[str, Any], entry_b: dict[str, Any]) -> bool:
-    """Check whether two entries were deliberately separated by a split.
+def get_split_ancestors(
+    entry_id: int | None,
+    db_getter: Callable[[int], dict[str, Any] | None] | None = None,
+) -> set[int]:
+    """Retrieve all ancestor IDs in the split lineage tree above entry_id."""
+    if entry_id is None:
+        return set()
+    if db_getter is None:
+        db_getter = memory_db.get_entry
+
+    ancestors: set[int] = set()
+    visited: set[int] = set()
+    entry = db_getter(int(entry_id))
+    if not entry:
+        return ancestors
+
+    parent_id = entry.get("split_from_id")
+    while parent_id is not None and parent_id not in visited:
+        pid = int(parent_id)
+        visited.add(pid)
+        ancestors.add(pid)
+        p_entry = db_getter(pid)
+        if not p_entry:
+            break
+        parent_id = p_entry.get("split_from_id")
+
+    return ancestors
+
+
+def is_split_relative(
+    entry_a: dict[str, Any],
+    entry_b: dict[str, Any],
+    db_getter: Callable[[int], dict[str, Any] | None] | None = None,
+) -> bool:
+    """Check whether two entries were deliberately separated by a split at any ancestor depth.
 
     A split is an explicit judgement that two facts are distinct. The splitter records
-    that judgement as `split_from_id`, but the deduplicator never read it — so siblings
-    came back as two suspiciously similar facts and were merged again, undoing the split.
-    Re-splitting then re-merges, and the pair oscillates.
-
-    Covers all three shapes: siblings of one parent, and either entry being the other's
-    parent.
+    that judgement as `split_from_id`. This function protects:
+    1. Direct parent/child relationship (one was split from the other).
+    2. Sibling relationship (both share the same immediate parent).
+    3. Multi-generation ancestral relationship (one is a descendant of the other, or
+       both share any common ancestor in the split lineage tree).
 
     Args:
         entry_a: A context entry row.
         entry_b: Another context entry row.
+        db_getter: Optional entry lookup callable (defaults to memory_db.get_entry).
 
     Returns:
         bool: True if a split separated them and they must not be merged.
     """
     a_id, b_id = entry_a.get("id"), entry_b.get("id")
-    a_parent, b_parent = entry_a.get("split_from_id"), entry_b.get("split_from_id")
+    if a_id is not None and b_id is not None and int(a_id) == int(b_id):
+        return True
 
-    if a_parent is not None and a_parent == b_parent:
+    a_parent = entry_a.get("split_from_id")
+    b_parent = entry_b.get("split_from_id")
+
+    # Fast 1-hop checks
+    if a_parent is not None and b_parent is not None and int(a_parent) == int(b_parent):
         return True
-    if a_parent is not None and a_parent == b_id:
+    if a_parent is not None and b_id is not None and int(a_parent) == int(b_id):
         return True
-    return bool(b_parent is not None and b_parent == a_id)
+    if b_parent is not None and a_id is not None and int(b_parent) == int(a_id):
+        return True
+
+    # If neither has a parent, they cannot share a split ancestor
+    if a_parent is None and b_parent is None:
+        return False
+
+    # Deep ancestor tree walk
+    if db_getter is None:
+        db_getter = memory_db.get_entry
+
+    ancestors_a = get_split_ancestors(int(a_id), db_getter=db_getter) if a_id is not None else set()
+    if a_parent is not None:
+        ancestors_a.add(int(a_parent))
+
+    ancestors_b = get_split_ancestors(int(b_id), db_getter=db_getter) if b_id is not None else set()
+    if b_parent is not None:
+        ancestors_b.add(int(b_parent))
+
+    if a_id is not None and int(a_id) in ancestors_b:
+        return True
+    if b_id is not None and int(b_id) in ancestors_a:
+        return True
+
+    return bool(ancestors_a & ancestors_b)
 
 
 def find_deduplication_candidates(
@@ -301,10 +363,10 @@ def find_deduplication_candidates(
             if entry.get("subject") != anchor.get("subject"):
                 continue
 
-            # Never re-merge what a split deliberately separated.
-            if is_split_relative(anchor, entry):
+            # Never re-merge what a split deliberately separated from ANY cluster member.
+            if any(is_split_relative(existing, entry) for existing in cluster_records):
                 logger.debug(
-                    "[DEDUPLICATOR] Skipping #%s vs #%s — separated by a split.", anchor_id, nid
+                    "[DEDUPLICATOR] Skipping #%s vs cluster — separated by a split.", nid
                 )
                 continue
 
@@ -444,7 +506,8 @@ async def generate_consolidation_proposal(
     topic = cluster.get("topic", f"Fact Consolidation ({verdict})")
 
     source_ids = [int(r["id"]) for r in records]
-    status = "auto_applied" if confidence == "high" else "pending"
+    auto_apply = getattr(cfg, "CONSOLIDATION_AUTO_APPLY_MERGES", False)
+    status = "auto_applied" if (confidence == "high" and auto_apply) else "pending"
 
     # Route the model's chosen tags through admission before they are stored or applied.
     #

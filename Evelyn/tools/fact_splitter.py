@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-10-11 12:14:33
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -222,16 +222,32 @@ async def find_and_split_bloated_facts(
     records: list[dict[str, Any]],
     cat00: str,
     call_ollama_fn: Callable[..., Any],
-    word_threshold: int = 35,
+    word_threshold: int = 50,
     limit: int = 3,
 ) -> int:
     """Find live entries exceeding word_threshold and propose atomic decompositions."""
-    candidates = [
-        r for r in records
-        if len(str(r.get("observation") or r.get("summary") or "").split()) >= word_threshold
-        and not memory_db.has_pending_proposal_for([int(r["id"])])
-        and not _split_was_rejected_and_unchanged(r)
-    ]
+    candidates = []
+    for r in records:
+        text = str(r.get("observation") or r.get("summary") or "").strip()
+        words = len(text.split())
+        if words < word_threshold:
+            continue
+        rid = int(r["id"])
+        if memory_db.has_pending_proposal_for([rid]):
+            continue
+        if _split_was_rejected_and_unchanged(r):
+            continue
+        # Exemption: entries produced by an approved split (split_from_id is not None)
+        # were already deliberately decomposed and approved by the reviewer.
+        # Do not automatically re-split them in background idle sweeps unless they
+        # have been edited since creation or are excessively bloated (>= 70 words).
+        if r.get("split_from_id") is not None:
+            updated = float(r.get("updated_at") or 0.0)
+            created = float(r.get("created_at") or 0.0)
+            is_edited = updated > (created + 1.0)
+            if not is_edited and words < 70:
+                continue
+        candidates.append(r)
 
     splits_created = 0
     for cand in candidates[:limit]:

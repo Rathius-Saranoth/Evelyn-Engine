@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-10-05 18:17:20
+# date modified: 2026-10-11 12:14:33
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -191,7 +191,14 @@ def write_dream_entry(
     _reload()
     title = title or str(kwargs.get("dream_title") or kwargs.get("name") or "")
     description = description or str(
-        kwargs.get("body") or kwargs.get("text") or kwargs.get("dream_description") or ""
+        kwargs.get("body")
+        or kwargs.get("text")
+        or kwargs.get("dream_description")
+        or kwargs.get("narrative")
+        or kwargs.get("dream")
+        or kwargs.get("content")
+        or kwargs.get("raw")
+        or ""
     )
     date = date or str(kwargs.get("date_str") or "")
     feelings = feelings or str(kwargs.get("initial_feelings") or kwargs.get("thoughts") or "")
@@ -214,10 +221,14 @@ def write_dream_entry(
         )
 
     if not description.strip():
-        return (
-            "Error: write_dream_entry requires the user's raw dream narrative in 'description'. "
-            "Please supply the user's authentic dream description verbatim."
-        )
+        fallback_desc = dream_manager._get_latest_user_message_from_db()
+        if fallback_desc:
+            description = fallback_desc
+        else:
+            return (
+                "Error: write_dream_entry requires the user's raw dream narrative in 'description'. "
+                "Please supply the user's authentic dream description verbatim."
+            )
 
     tag_list = [t.strip() for t in tags.split(",")] if tags.strip() else []
     return dream_manager.create_dream_entry(
@@ -3352,7 +3363,7 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "description": {
                         "type": "string",
-                        "description": f"Mandatory raw, untouched dream description and narrative recounted by {cfg.USER_NAME}. Never omit.",
+                        "description": f"Raw, untouched dream description and narrative recounted by {cfg.USER_NAME}. If omitted, the engine automatically extracts {cfg.USER_NAME}'s latest message as the verbatim narrative.",
                     },
                     "feelings": {
                         "type": "string",
@@ -3375,7 +3386,7 @@ MODEL_TOOL_DEFINITIONS = [
                         "description": "Comma-separated atomic subject tags for the dream (e.g. 'anxiety, flying, ocean'). Lowercase singular nouns, zero slashes.",
                     },
                 },
-                "required": ["description"],
+                "required": [],
             },
         },
     },

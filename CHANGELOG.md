@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-11 01:45:41
+date modified: 2026-10-11 12:14:33
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,31 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.026] - 2026-10-11 — *Consolidation Lineage Protection, Merge Review Gating & Resilient Dream Recording*
+
+### Added
+
+- **Multi-Generation Split Lineage Protection (`Evelyn/tools/fact_deduplicator.py`)**:
+  - Implemented recursive `get_split_ancestors()` traversal in `is_split_relative()` to protect entire descendant trees (grandparents, grandchildren, aunts/uncles, cousins) from being clustered and merged by vector nearest-neighbor deduplication.
+  - Hardened cluster member validation in `find_deduplication_candidates()` to verify candidates against *all* existing entries in `cluster_records` rather than only the single anchor record.
+- **Configurable Merge Review Gating (`evelyn_config.py`, `Evelyn/tools/fact_deduplicator.py`)**:
+  - Added `CONSOLIDATION_AUTO_APPLY_MERGES` (default: `False`). Consolidation proposals generated during background deduplication sweeps are now routed into the unified review queue as `pending` instead of auto-applying 5 AM compound paragraph merges behind the scenes.
+- **Resilient Chat Fallback for Dream Entries (`Evelyn/tools/dream_manager.py`, `Evelyn/tools/evelyn_tools.py`)**:
+  - Implemented automatic conversational fallback in `create_dream_entry()` and `write_dream_entry`: when the model omits the `description` argument, Evelyn automatically extracts the user's authentic dream narrative from the latest chat turn in `evelyn_chat.db`.
+  - Added keyword argument aliases (`narrative`, `dream`, `content`, `raw`) and relaxed required parameters in `MODEL_TOOL_DEFINITIONS["write_dream_entry"]` to prevent failed tool execution when models supply alternative parameter keys.
+
+### Changed
+
+- **Fact Splitter Word Threshold & Split-Child Protection (`evelyn_config.py`, `Evelyn/tools/fact_splitter.py`, `Evelyn/tools/fact_consolidator.py`)**:
+  - Increased `CONSOLIDATION_SPLIT_WORD_THRESHOLD` from `35` to `50` words to accommodate detailed atomic sentences with explicit temporal clauses and subject grounding.
+  - Exempted newly split children (`split_from_id is not None`) under 70 words from immediate re-splitting during background sweeps, ending the recursive split-propose ping-pong loop.
+  - Refined LLM proposal prompt in `fact_deduplicator.py` to mandate `keep_both` if merging candidates would create a compound sentence spanning multiple predicates or dates.
+
+### Fixed
+
+- **Dream Journal Entry Recovery (`obsidian_vault/Dream Journal/Dream Entries/Dream Entry 2026-10-11.md`)**:
+  - Retroactively recorded the user's multi-part dream ("Flight, Defense, and Fragmented Grief") from message #32887 alongside Evelyn's companion analysis from message #32889, resolving the missed dream logging from this morning's failed tool invocation.
 
 ## [000.008.025] - 2026-10-11 — *Split Entry Usability, Benchmark Scalability & Decoupled Vision Grounding*
 

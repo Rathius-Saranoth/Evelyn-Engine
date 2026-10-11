@@ -1,6 +1,6 @@
 # test_dream_manager_and_procedures_cleanup.py
 # date created: 2026-08-29 07:48:00
-# date modified: 2026-10-05 18:17:20
+# date modified: 2026-10-11 12:14:33
 # tags: #tests, #dreams, #procedures, #consolidation
 
 """
@@ -98,14 +98,36 @@ def test_create_dream_entry_append_note(temp_vault_dir):
     assert "Dream Description: Second dream narrative with different elements." in body
 
 
-def test_create_dream_entry_requires_description(temp_vault_dir):
-    """Test that creating a dream entry without a description is rejected."""
+def test_create_dream_entry_requires_description(temp_vault_dir, monkeypatch):
+    """Test that creating a dream entry without a description is rejected when no chat history exists."""
+    monkeypatch.setattr(dream_manager, "_get_latest_user_message_from_db", lambda: "")
     result = dream_manager.create_dream_entry(
         title="Dream Without Description",
         description="",
         date_str="2026-08-29",
     )
     assert "requires the user's raw dream narrative in 'description'" in result
+
+
+def test_create_dream_entry_falls_back_to_chat_history(temp_vault_dir, monkeypatch):
+    """Test that creating a dream entry without a description falls back to latest chat user message."""
+    monkeypatch.setattr(
+        dream_manager,
+        "_get_latest_user_message_from_db",
+        lambda: "I had a dream about walking across glowing bridges over a foggy canyon.",
+    )
+    result = dream_manager.create_dream_entry(
+        title="Bridges Over Fog",
+        description="",
+        date_str="2026-08-29",
+        feelings="Wonder and calm",
+    )
+    assert "Successfully created new dream entry" in result
+    dream_file = os.path.join(temp_vault_dir, "Dream Journal", "Dream Entries", "Dream Entry 2026-08-29.md")
+    assert os.path.exists(dream_file)
+    with open(dream_file, encoding="utf-8") as f:
+        content = f.read()
+    assert "Dream Description: I had a dream about walking across glowing bridges over a foggy canyon." in content
 
 
 def test_create_dream_entry_amendment(temp_vault_dir):

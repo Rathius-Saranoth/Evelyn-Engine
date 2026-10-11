@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-09-15 17:23:43
+# date modified: 2026-10-11 12:14:33
 # tags: #facts, #consolidation, #deduplication, #orchestrator, #governance
 
 """
@@ -303,7 +303,7 @@ async def _do_consolidation() -> None:
     splits_processed = await fact_splitter.process_split_queue(cat00, _call_ollama)
     auto_splits = 0
     if getattr(cfg, "CONSOLIDATION_SPLIT_ENABLED", True):
-        threshold = getattr(cfg, "CONSOLIDATION_SPLIT_WORD_THRESHOLD", 35)
+        threshold = getattr(cfg, "CONSOLIDATION_SPLIT_WORD_THRESHOLD", 50)
         auto_splits = await fact_splitter.find_and_split_bloated_facts(
             records, cat00, _call_ollama, word_threshold=threshold, limit=3
         )

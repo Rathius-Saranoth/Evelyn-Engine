@@ -1,6 +1,6 @@
 # dream_manager.py
 # date created: 2026-08-29 07:45:00
-# date modified: 2026-10-05 18:17:20
+# date modified: 2026-10-11 12:14:33
 # tags: #dreams, #management, #entries, #vault, #protocols
 
 """
@@ -21,6 +21,7 @@ import datetime
 import importlib
 import os
 import re
+import sqlite3
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
 from Evelyn.tools.frontmatter_utils import (
@@ -116,6 +117,25 @@ def _resolve_dream_template() -> tuple[dict, str]:
     return default_meta, default_body
 
 
+def _get_latest_user_message_from_db() -> str:
+    """Retrieve the text of the latest user message from evelyn_chat.db."""
+    if not os.environ.get("PYTEST_CURRENT_TEST") and not getattr(cfg, "DISABLE_HOT_RELOAD", False):
+        importlib.reload(cfg)
+    chat_db_path = getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", "data"), "evelyn_chat.db"))
+    if not os.path.isfile(chat_db_path):
+        return ""
+    try:
+        con = sqlite3.connect(chat_db_path)
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        con.close()
+        return str(row[0]).strip() if row and row[0] else ""
+    except (sqlite3.Error, OSError):
+        return ""
+
+
 def create_dream_entry(
     title: str = "",
     description: str = "",
@@ -165,12 +185,17 @@ def create_dream_entry(
         except OSError as e:
             return f"Error updating existing dream entry note: {e}"
 
-    # Guard: description is mandatory for dream recordings
-    if not description.strip():
-        return (
-            "Error: write_dream_entry requires the user's raw dream narrative in 'description'. "
-            "Please supply the user's authentic dream description verbatim. Aborted."
-        )
+    # Guard: description is mandatory for dream recordings.
+    # If omitted by the model in the tool call, fall back to extracting the user's latest message from chat.
+    if not description or not description.strip():
+        fallback_desc = _get_latest_user_message_from_db()
+        if fallback_desc:
+            description = fallback_desc
+        else:
+            return (
+                "Error: write_dream_entry requires the user's raw dream narrative in 'description'. "
+                "Please supply the user's authentic dream description verbatim. Aborted."
+            )
 
     title_clean = title.strip() or "Recall Failure"
     description_clean = description.strip()
