@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-10-09 23:59:47
+date modified: 2026-10-12 11:44:44
 tags: [setup, guide, installation, configuration, deployment, bare-metal, sanctum, evelyn]
 ---
 
@@ -66,6 +66,9 @@ sudo apt update && sudo apt install -y \
 
 > [!NOTE]
 > On Ubuntu 24.04, the `numastat` binary is included directly inside the `numactl` package; do not attempt to install `numastat` as a standalone apt package.
+
+> [!IMPORTANT]
+> **Audio Transcoding Requirement (`ffmpeg`)**: The `ffmpeg` package is mandatory for the Voice-to-Text (VTT) and Speech-to-Text (`evelyn-stt.service`) pipeline. The STT service (`services/stt/stt_server.py`) decodes incoming browser audio streams (`audio/webm`, Opus, `audio/mp4`, WAV) via streaming `ffmpeg` pipes into 16kHz mono float32 PCM before running Faster-Whisper. If `ffmpeg` is omitted, speech transcription requests will fail with `[Errno 2] No such file or directory: 'ffmpeg'`.
 
 ### Headless NVIDIA Enterprise Drivers
 For headless enterprise accelerators (Tesla T4, Turing TU104), install the proprietary server driver. Avoid `-open` kernel module packages which are incompatible with Turing architecture:
@@ -172,6 +175,30 @@ python3 -m venv services/tts/venv
 services/tts/venv/bin/pip install --upgrade pip
 services/tts/venv/bin/pip install -r services/tts/requirements.txt
 ```
+
+### 4. Speech-to-Text (Faster-Whisper) & Offline Hugging Face Model Pre-Caching
+
+Evelyn enforces strict offline operation by default (`HF_HUB_OFFLINE=1` in `evelyn_config.py`) to prevent unexpected outbound network roundtrips and latency during inference. Consequently, **all local Hugging Face model weights must be pre-downloaded into the local cache before running production services**.
+
+If services are launched without pre-caching, `evelyn-stt.service` will fail during startup or inference with:
+```text
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, set 'HF_HUB_OFFLINE=0' as environment variable.
+```
+
+Pre-populate the Hugging Face cache using `HF_HUB_OFFLINE=0`:
+
+```bash
+# Pre-cache Faster-Whisper STT model (default: base.en, int8 CPU compute)
+HF_HUB_OFFLINE=0 /home/rathius/evelyn/venv/bin/python -c \
+  "from faster_whisper import WhisperModel; WhisperModel('base.en', device='cpu', compute_type='int8')"
+
+# Pre-cache BAAI/bge-large-en-v1.5 dense embedding model for ChromaDB RAG
+HF_HUB_OFFLINE=0 /home/rathius/evelyn/venv/bin/python -c \
+  "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-large-en-v1.5')"
+```
+
+> [!TIP]
+> Model weights are stored in `$HF_HOME` (`~/.cache/huggingface/hub/`). Once downloaded, the services operate hermetically offline without outbound internet access.
 
 ---
 
@@ -386,11 +413,23 @@ curl -sk -H "X-Evelyn-Key: ${API_KEY}" https://localhost:7860/status
 # Chatterbox TTS Health
 curl http://localhost:5050/health
 
-# Faster-Whisper STT Health
+# Faster-Whisper STT Health (confirms model_loaded: true)
 curl http://localhost:5060/health
 ```
 
-### 4. Code Hygiene & Test Verification
+### 4. End-to-End Voice-to-Text (VTT) Verification
+Test the audio transcoding and STT inference pipeline using synthetic audio:
+```bash
+# Transcode a 1-second synthetic audio tone and submit to STT endpoint
+ffmpeg -y -f lavfi -i sine=frequency=440:duration=1 -c:a libopus /tmp/stt_test.webm
+curl -s -X POST http://localhost:5060/v1/audio/transcriptions \
+  -F "file=@/tmp/stt_test.webm;type=audio/webm" \
+  -F "language=en"
+rm -f /tmp/stt_test.webm
+```
+A successful response returns JSON with `"text": ""` (tone rejected by VAD filter), `"duration_s": 1.0`, and inference timings under 200ms.
+
+### 5. Code Hygiene & Test Verification
 Run targeted test suites to confirm that tools, vector indexes, and AST wiring are verified:
 ```bash
 # Verify all tools end-to-end

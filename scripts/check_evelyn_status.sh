@@ -33,10 +33,20 @@ else
     ALL_CLEAR=false
 fi
 
-# 4. Check Faster-Whisper STT Server
+# 4. Check Faster-Whisper STT Server & FFmpeg Transcoder
 STT_PORT=5060
+if ! command -v ffmpeg > /dev/null 2>&1; then
+    echo -e "\033[0;31m❌ [FFmpeg] Transcoder binary is NOT installed (required for VTT audio decoding).\033[0m"
+    ALL_CLEAR=false
+fi
+
 if ss -tuln | grep -q ":$STT_PORT "; then
-    echo -e "\033[0;32m✅ [Faster-Whisper STT] Server is listening on port $STT_PORT (NUMA Node 1).\033[0m"
+    STT_HEALTH=$(curl -s --max-time 3 http://localhost:$STT_PORT/health 2>/dev/null)
+    if echo "$STT_HEALTH" | grep -q '"model_loaded":true'; then
+        echo -e "\033[0;32m✅ [Faster-Whisper STT] Server active on port $STT_PORT (model loaded, NUMA Node 1).\033[0m"
+    else
+        echo -e "\033[0;33m⚠️  [Faster-Whisper STT] Server listening on port $STT_PORT but model is NOT loaded.\033[0m"
+    fi
 else
     echo -e "\033[0;33m⚠️  [Faster-Whisper STT] Server is NOT running on port $STT_PORT.\033[0m"
 fi

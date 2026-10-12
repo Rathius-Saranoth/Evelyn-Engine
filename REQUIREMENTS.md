@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-10-08 19:23:58
+date modified: 2026-10-12 11:44:44
 tags: [requirements, dependencies, system, hardware, environment, evelyn]
 ---
 
@@ -21,6 +21,7 @@ tags: [requirements, dependencies, system, hardware, environment, evelyn]
 | ----------- | -------- | ------------------------------- | ---------------------------------------------- |
 | **Python**  | 3.11+    | Python 3.12 / 3.14 (venv)       | Multi-venv architecture for service isolation  |
 | **Linux**   | 6.x      | Ubuntu Server 24.04 LTS (x86_64)| Dedicated production platform (`sanctum`)      |
+| **FFmpeg**  | 6.0+     | FFmpeg 6.1.1 (apt: `ffmpeg`)    | Required for STT/VTT browser audio stream transcoding (WebM/Opus to 16kHz PCM) |
 
 ---
 
@@ -137,6 +138,28 @@ ollama pull nomic-embed-text
 | **Install** | https://tailscale.com/download                                         |
 | **Mesh IP** | Assigned Tailscale IP (`100.X.Y.Z`)                                    |
 
+### Faster-Whisper STT (Required for Voice-to-Text / VTT, Port 5060)
+
+| Detail       | Value                                                                             |
+| ------------ | --------------------------------------------------------------------------------- |
+| **What**     | Local Speech-to-Text inference service using CTranslate2 int8                     |
+| **Model**    | `Systran/faster-whisper-base.en` (pre-cached into `~/.cache/huggingface/hub`)     |
+| **Location** | `services/stt/` (`services/stt/stt_server.py`)                                    |
+| **Binary**   | Requires system `/usr/bin/ffmpeg` in `PATH` for browser container transcoding     |
+| **Affinity** | Bound to NUMA Node 1 (`CPUAffinity=24-47 72-95`, 24 physical cores)               |
+| **Service**  | System systemd service: `evelyn-stt.service`                                      |
+
+### Chatterbox Turbo TTS (Required for Voice Synthesis, Port 5050)
+
+| Detail       | Value                                                                             |
+| ------------ | --------------------------------------------------------------------------------- |
+| **What**     | Local Text-to-Speech microservice with paralinguistic and emotion tags             |
+| **Model**    | `ResembleAI/chatterbox-turbo` (pre-cached into `~/.cache/huggingface/hub`)        |
+| **Location** | `services/tts/` (`services/tts/tts_server.py`)                                    |
+| **Venv**     | Isolated PyTorch CUDA environment (`services/tts/venv`)                           |
+| **Affinity** | Bound to NUMA Node 0 (`0-23, 48-71`, GPU accelerated on Tesla T4)                 |
+| **Service**  | System systemd service: `evelyn-tts.service`                                      |
+
 ### Image Generation Microservice (Optional — FLUX.1 Schnell NF4, Port 5055)
 
 | Detail         | Value                                                                             |
@@ -163,6 +186,8 @@ ollama pull nomic-embed-text
 | Variable                 | Required    | Purpose                                                                            |
 | ------------------------ | ----------- | ---------------------------------------------------------------------------------- |
 | `EVELYN_API_KEY`         | Yes         | API key for thin auth on all endpoints. Set in system env or pass via VS Code task |
+| `HF_HUB_OFFLINE`         | Default: `1`| Enforces offline mode for Hugging Face Hub. Models must be pre-cached before boot   |
+| `TRANSFORMERS_OFFLINE`   | Default: `1`| Enforces offline loading for Transformers embeddings and tokenizers                |
 | `OLLAMA_KEEP_ALIVE`      | Recommended | Set to `-1` to keep the model loaded permanently (avoids cold-start penalty)       |
 | `OLLAMA_FLASH_ATTENTION` | Recommended | Set to `1` for faster inference on supported GPUs                                  |
 | `OLLAMA_KV_CACHE_TYPE`   | Recommended | Set to `q8_0` for quantized KV cache (saves VRAM)                                  |

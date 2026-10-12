@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-12 01:52:44
+date modified: 2026-10-12 11:44:44
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,21 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.029] - 2026-10-12 — *Voice-to-Text Setup Guide, Model Pre-Caching & FFmpeg Diagnostics*
+
+### Added
+
+- **Voice-to-Text & Speech-to-Text Setup Guidance (`SETUP_GUIDE.md`, `REQUIREMENTS.md`)**:
+  - Documented mandatory `ffmpeg` runtime requirement in Section 1 and Section 4 of `SETUP_GUIDE.md`: the STT pipeline (`services/stt/stt_server.py`) decodes browser audio streams (`audio/webm`, Opus, `audio/mp4`, WAV) via streaming `ffmpeg` pipes into 16kHz mono float32 PCM for Faster-Whisper inference. Without `ffmpeg`, transcriptions fail with `[Errno 2] No such file or directory: 'ffmpeg'`.
+  - Added Section 4.4 to `SETUP_GUIDE.md` detailing offline Hugging Face model pre-caching (`HF_HUB_OFFLINE=0` pre-population) for both Faster-Whisper (`Systran/faster-whisper-base.en`) and ChromaDB dense embeddings (`BAAI/bge-large-en-v1.5`), avoiding `LocalEntryNotFoundError` on fresh deployments when running in default offline mode (`HF_HUB_OFFLINE=1`).
+  - Added Section 9.4 synthetic audio transcode and curl verification probe for end-to-end VTT validation.
+  - Documented Faster-Whisper STT (`evelyn-stt.service`, port 5060) and Chatterbox Turbo TTS (`evelyn-tts.service`, port 5050) microservice architecture in `REQUIREMENTS.md`.
+
+### Changed
+
+- **FFmpeg & STT Model Readiness Diagnostics (`scripts/check_evelyn_status.sh`)**:
+  - Enhanced status diagnostic script to check for `/usr/bin/ffmpeg` installation in `PATH` and probe the STT service's `/health` endpoint to verify that `model_loaded: true`.
 
 ## [000.008.028] - 2026-10-12 — *TTS Hybrid Dialogue Emphasis Preservation & Paralinguistic Expansion*
 

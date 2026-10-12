@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-12 01:52:44
+# date modified: 2026-10-12 11:44:44
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.028"
-__version_info__ = (0, 8, 28)
-__version_name__ = "TTS Hybrid Dialogue Emphasis Preservation & Paralinguistic Expansion"
+__version__ = "000.008.029"
+__version_info__ = (0, 8, 29)
+__version_name__ = "Voice-to-Text Setup Guide, Model Pre-Caching & FFmpeg Diagnostics"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
