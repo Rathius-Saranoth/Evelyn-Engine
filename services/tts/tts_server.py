@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-10-11 01:58:35
+# date modified: 2026-10-12 01:52:05
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -274,13 +274,63 @@ SUPPORTED_TTS_TAGS = {
     "groan", "sniff", "shush", "clear throat",
 }
 
+PURE_EMOTE_VERBS = {
+    "smile", "smiles", "smiling", "smiled",
+    "grin", "grins", "grinning", "grinned",
+    "beam", "beams", "beaming", "beamed",
+    "wink", "winks", "winking", "winked",
+    "blush", "blushes", "blushing", "blushed",
+    "frown", "frowns", "frowning", "frowned",
+    "pout", "pouts", "pouting", "pouted",
+    "nod", "nods", "nodding", "nodded",
+    "shrug", "shrugs", "shrugging", "shrugged",
+    "wave", "waves", "waving", "waved",
+}
+
+STAGE_ACTION_TERMS = PURE_EMOTE_VERBS | {
+    "lean", "leans", "leaning", "leaned",
+    "reach", "reaches", "reaching", "reached",
+    "settle", "settles", "settling", "settled",
+    "blink", "blinks", "blinking", "blinked",
+    "gesture", "gestures", "gesturing", "gestured",
+    "pause", "pauses", "pausing", "paused",
+}
+
+
+def _is_dialogue_emote(inner: str) -> bool:
+    """Check if an asterisk token inside quotes is a bodily emote rather than vocal emphasis."""
+    s = inner.strip()
+    if not s:
+        return True
+    words = s.split()
+    if re.match(r"^(?:I|my|she|her|he|his|we|our|they|their)\b", s, re.IGNORECASE):
+        return True
+    if len(words) >= 4:
+        return True
+    lower_words = {re.sub(r"[^\w]", "", w.lower()) for w in words}
+    return bool(lower_words & PURE_EMOTE_VERBS)
+
+
+def _is_standalone_stage_direction(inner: str) -> bool:
+    """Check if an asterisk token in unquoted text is a stage direction rather than vocal emphasis."""
+    s = inner.strip()
+    if not s:
+        return True
+    words = s.split()
+    if re.match(r"^(?:I|my|she|her|he|his|we|our|they|their)\b", s, re.IGNORECASE):
+        return True
+    if len(words) >= 4:
+        return True
+    lower_words = {re.sub(r"[^\w]", "", w.lower()) for w in words}
+    return bool(lower_words & STAGE_ACTION_TERMS)
+
 
 def sanitize_and_tag_speech(text: str) -> str:
     """Prepare text for Chatterbox Turbo TTS synthesis.
 
     1. Normalizes unicode quotes, apostrophes, dashes, and ellipses.
     2. Preserves bold text while translating asterisk vocal emotes to native paralinguistic audio tags.
-    3. Strips remaining visual/bodily stage directions (*I lean in...*) so they are never voiced aloud.
+    3. Hybrid asterisk parsing: unwraps spoken emphasis (*you*) in dialogue while stripping visual/bodily stage directions (*I lean in...*).
     4. Converts soft delivery markers ([softly], [whispering]) into natural pauses while preserving supported tags.
     5. Strips markdown links, images, and extra noise.
     """
@@ -305,18 +355,47 @@ def sanitize_and_tag_speech(text: str) -> str:
     vocal_patterns = [
         (r'\*[^*]*(?:melodious\s+laugh|soft\s+laugh|small\s+laugh|airy\s+laugh|chuckles?\s+and\s+laughs?|burst\s+of\s+laughter|laughing|laughs?)[^*]*\*', ' [laugh] '),
         (r'\*[^*]*(?:chuckles?|giggles?|smirks?|snickers?)[^*]*\*', ' [chuckle] '),
-        (r'\*[^*]*(?:long,?\s+contented\s+breath|deep\s+breath|slow\s+breath|contented\s+sigh|soft\s+sigh|sighs?|exhales?)[^*]*\*', ' [sigh] '),
-        (r'\*[^*]*(?:gasps?)[^*]*\*', ' [gasp] '),
+        (r'\*[^*]*(?:long,?\s+contented\s+breath|deep\s+breath|slow\s+breath|contented\s+sigh|soft\s+sigh|sighs?|exhales?|soft\s+exhale)[^*]*\*', ' [sigh] '),
+        (r'\*[^*]*(?:gasps?|sharp\s+intake\s+of\s+breath)[^*]*\*', ' [gasp] '),
         (r'\*[^*]*(?:clears?\s+(?:my|her|the)?\s*throat)[^*]*\*', ' [clear throat] '),
         (r'\*[^*]*(?:coughs?)[^*]*\*', ' [cough] '),
         (r'\*[^*]*(?:groans?|grunts?)[^*]*\*', ' [groan] '),
+        (r'\*[^*]*(?:sniffs?|sniffling)[^*]*\*', ' [sniff] '),
+        (r'\*[^*]*(?:shush(?:es)?|hushes?)[^*]*\*', ' [shush] '),
         (r'\*[^*]*(?:pause[sd]?|silent\s+pause)[^*]*\*', ', '),
     ]
     for pattern, tag in vocal_patterns:
         clean = re.sub(pattern, tag, clean, flags=re.IGNORECASE)
 
-    # 5. Strip any remaining asterisk actions (visual/bodily stage directions)
-    clean = re.sub(r'\*[^*]+?\*', '', clean)
+    # 5. Hybrid asterisk processing: unwrap spoken emphasis, strip stage directions
+    has_quotes = bool(re.search(r'"(?:[^"\\]|\\.)*"', clean))
+    if has_quotes:
+        parts = re.split(r'("(?:[^"\\]|\\.)*")', clean)
+        processed_parts = []
+        for part in parts:
+            if part.startswith('"') and part.endswith('"') and len(part) >= 2:
+                # Inside quotes: unwrap dialogue emphasis unless it matches a bodily emote
+                inner_dialogue = part[1:-1]
+
+                def _dialogue_sub(m: re.Match) -> str:
+                    content = m.group(1)
+                    return "" if _is_dialogue_emote(content) else content
+
+                cleaned_dialogue = re.sub(r'\*([^*]+?)\*', _dialogue_sub, inner_dialogue)
+                processed_parts.append(f'"{cleaned_dialogue}"')
+            else:
+                # Outside quotes when quotes exist: all remaining asterisks are stage directions
+                cleaned_outside = re.sub(r'\*[^*]+?\*', '', part)
+                processed_parts.append(cleaned_outside)
+        clean = "".join(processed_parts)
+    else:
+        # No quotes in text: heuristic fallback distinguishing short emphasis from actions
+        def _standalone_sub(m: re.Match) -> str:
+            content = m.group(1)
+            return "" if _is_standalone_stage_direction(content) else content
+
+        clean = re.sub(r'\*([^*]+?)\*', _standalone_sub, clean)
+
     clean = clean.replace('*', '')
 
     # 6. Handle bracketed delivery markers: preserve supported tags, filter unsupported ones

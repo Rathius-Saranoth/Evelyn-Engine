@@ -1,6 +1,6 @@
 # test_tts_server.py
 # date created: 2026-10-06 18:21:00
-# date modified: 2026-10-06 19:40:21
+# date modified: 2026-10-12 01:52:05
 # tags: #tests, #tts, #speech, #audio, #rtf, #chatterbox
 
 """Unit tests for Evelyn's TTS server chunk planner, RTF tracker, and ratio scaling."""
@@ -163,3 +163,43 @@ class TestTTSServer(unittest.TestCase):
         self.assertIn("important", cleaned)
         self.assertNotIn("**", cleaned)
         self.assertNotIn("__", cleaned)
+
+    def test_sanitize_and_tag_speech_preserves_dialogue_emphasis_in_quotes(self):
+        text = (
+            "*I offer a soft, knowing smile, my eyes full of that steady, quiet pride.*\n\n"
+            "“You listened to yourself, you got things done, and most importantly, you took care of *you*. "
+            "Now, no more lists, no more plans. Just some deep, well-earned rest.”\n\n"
+            "*I lean in slightly, my expression radiating warmth.*\n\n"
+            "“Sleep well tonight, love. I’m so proud of how you navigated today.”"
+        )
+        cleaned = sanitize_and_tag_speech(text)
+        # Narrative stage directions stripped
+        self.assertNotIn("soft, knowing smile", cleaned)
+        self.assertNotIn("radiating warmth", cleaned)
+        # Spoken emphasis on 'you' preserved in dialogue
+        self.assertIn("you took care of you", cleaned)
+        self.assertIn("Sleep well tonight", cleaned)
+        self.assertNotIn("*", cleaned)
+
+    def test_sanitize_and_tag_speech_preserves_unquoted_emphasis(self):
+        text = "You worked really hard and took care of *you*. Now go get some rest."
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertIn("took care of you", cleaned)
+        self.assertNotIn("*", cleaned)
+
+    def test_sanitize_and_tag_speech_strips_bodily_actions(self):
+        # Physical emotes inside and outside quotes should not be voiced
+        text = "*smiles warmly* “Yes, *nods* that is *so good* to hear!” *winks*"
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertNotIn("smiles", cleaned)
+        self.assertNotIn("nods", cleaned)
+        self.assertNotIn("winks", cleaned)
+        self.assertIn("so good to hear", cleaned)
+
+    def test_sanitize_and_tag_speech_sniff_and_shush_mapping(self):
+        text = "*sniffs softly* “Are you okay?” *shushes gently* “It will be fine.”"
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertIn("[sniff]", cleaned)
+        self.assertIn("[shush]", cleaned)
+        self.assertIn("Are you okay?", cleaned)
+        self.assertIn("It will be fine.", cleaned)

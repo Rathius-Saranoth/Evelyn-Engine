@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-11 14:22:25
+date modified: 2026-10-12 01:52:44
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,21 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.028] - 2026-10-12 — *TTS Hybrid Dialogue Emphasis Preservation & Paralinguistic Expansion*
+
+### Added
+
+- **Multi-Tier Hybrid Asterisk Parsing (`services/tts/tts_server.py`)**:
+  - Implemented quote-aware dialogue scoping and lexical filtering in `sanitize_and_tag_speech`: single-asterisk tokens inside spoken quotes (`“...”` / `"..."`) are recognized as vocal dialogue emphasis (e.g. `*you*`, `*really*`, `*so good*`) and unwrapped to plain spoken text rather than stripped.
+  - Added physical emote filtering (`PURE_EMOTE_VERBS` and `STAGE_ACTION_TERMS`) to ensure physical bodily actions (e.g. `*smiles*`, `*nods*`, `*winks*`, `*shrugs*`) continue to be stripped from synthesis even if placed inside dialogue quotes.
+  - Implemented heuristic fallback for unquoted messages: single/two-word tokens without narrative pronouns or physical action verbs are preserved as emphasis, while narrative action clauses (4+ words or starting with narrative pronouns) are safely stripped.
+  - Expanded vocal action regex translation to support Chatterbox Turbo `[sniff]` and `[shush]` audio tags alongside expanded gasp and sigh patterns.
+
+### Fixed
+
+- **Omission of Emphasized Words in TTS Synthesis (`services/tts/tts_server.py`)**:
+  - Resolved an issue where single-asterisk emphasis on individual words (such as `*you*`) in conversational dialogue was matched as unvoiced stage directions and omitted entirely from audio synthesis.
 
 ## [000.008.027] - 2026-10-11 — *Temporal Heartbeat UTC-Date Normalization, Research Preemption Grace & GTasks Pruning*
 

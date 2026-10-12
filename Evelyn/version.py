@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-11 14:22:25
+# date modified: 2026-10-12 01:52:44
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.027"
-__version_info__ = (0, 8, 27)
-__version_name__ = "Temporal Heartbeat UTC-Date Normalization, Research Preemption Grace & GTasks Pruning"
+__version__ = "000.008.028"
+__version_info__ = (0, 8, 28)
+__version_name__ = "TTS Hybrid Dialogue Emphasis Preservation & Paralinguistic Expansion"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
