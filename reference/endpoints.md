@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-11 02:01:53
+date modified: 2026-10-12 22:55:33
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -104,7 +104,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `POST /tts/stream`
 * **Purpose**: Initiates chunked TTS generation via [[tts_server.py]]. Accepts an OpenAI-format body (`{"model": "...", "input": "<text>"}`).
-* **Returns**: Server-Sent Events stream. Emits a `data: {"chunk": "<filename.wav>"}` event per sentence group (split by paragraph boundaries first, then capped at `CHUNK_SENTENCES` sentences, default 3 for natural prosody and buffer continuity), followed by a terminal `data: {"done": true}` event. Errors yield `data: {"error": "<message>"}`.
+* **Returns**: Server-Sent Events stream. Emits a `data: {"chunk": "<filename.wav>"}` event per sentence group (split by paragraph boundaries first, then capped at `CHUNK_SENTENCES` sentences, default 3 for natural prosody and buffer continuity), followed by a terminal `data: {"done": true}` event. If the input cleans down to no spoken words (e.g. pure stage directions), an immediate `data: {"done": true}` event is yielded cleanly under HTTP 200 without error. Errors yield `data: {"error": "<message>"}`.
 * **Behaviour**: In CPU mode (`EVELYN_TTS_DEVICE=cpu`, default), reference voice conditionals are cached on model load and Ollama remains 100% resident in VRAM with zero eviction delay. In CUDA mode, Ollama is evicted from VRAM once at the start of the request; Chatterbox loads and stays resident for the full synthesis run, then unloads and prefetches Ollama in the background. Progressive playback begins on the client as soon as the first chunk event arrives.
 
 ### `GET /tts-audio/{filename}`

@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-10-12 01:52:05
+# date modified: 2026-10-12 22:52:54
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -56,7 +56,7 @@ except ImportError:
     sf = None
 import torch
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -330,7 +330,7 @@ def sanitize_and_tag_speech(text: str) -> str:
 
     1. Normalizes unicode quotes, apostrophes, dashes, and ellipses.
     2. Preserves bold text while translating asterisk vocal emotes to native paralinguistic audio tags.
-    3. Hybrid asterisk parsing: unwraps spoken emphasis (*you*) in dialogue while stripping visual/bodily stage directions (*I lean in...*).
+    3. Hybrid asterisk parsing: unwraps spoken emphasis (*you*) in dialogue while inserting natural pauses (, ) for visual/bodily stage directions (*I lean in...*).
     4. Converts soft delivery markers ([softly], [whispering]) into natural pauses while preserving supported tags.
     5. Strips markdown links, images, and extra noise.
     """
@@ -367,32 +367,32 @@ def sanitize_and_tag_speech(text: str) -> str:
     for pattern, tag in vocal_patterns:
         clean = re.sub(pattern, tag, clean, flags=re.IGNORECASE)
 
-    # 5. Hybrid asterisk processing: unwrap spoken emphasis, strip stage directions
+    # 5. Hybrid asterisk processing: unwrap spoken emphasis, insert natural pause for stage directions
     has_quotes = bool(re.search(r'"(?:[^"\\]|\\.)*"', clean))
     if has_quotes:
         parts = re.split(r'("(?:[^"\\]|\\.)*")', clean)
         processed_parts = []
         for part in parts:
             if part.startswith('"') and part.endswith('"') and len(part) >= 2:
-                # Inside quotes: unwrap dialogue emphasis unless it matches a bodily emote
+                # Inside quotes: unwrap dialogue emphasis, insert pause for bodily emotes
                 inner_dialogue = part[1:-1]
 
                 def _dialogue_sub(m: re.Match) -> str:
                     content = m.group(1)
-                    return "" if _is_dialogue_emote(content) else content
+                    return ", " if _is_dialogue_emote(content) else content
 
                 cleaned_dialogue = re.sub(r'\*([^*]+?)\*', _dialogue_sub, inner_dialogue)
                 processed_parts.append(f'"{cleaned_dialogue}"')
             else:
-                # Outside quotes when quotes exist: all remaining asterisks are stage directions
-                cleaned_outside = re.sub(r'\*[^*]+?\*', '', part)
+                # Outside quotes when quotes exist: replace stage directions with a natural pause
+                cleaned_outside = re.sub(r'\*[^*]+?\*', ', ', part)
                 processed_parts.append(cleaned_outside)
         clean = "".join(processed_parts)
     else:
         # No quotes in text: heuristic fallback distinguishing short emphasis from actions
         def _standalone_sub(m: re.Match) -> str:
             content = m.group(1)
-            return "" if _is_standalone_stage_direction(content) else content
+            return ", " if _is_standalone_stage_direction(content) else content
 
         clean = re.sub(r'\*([^*]+?)\*', _standalone_sub, clean)
 
@@ -413,9 +413,16 @@ def sanitize_and_tag_speech(text: str) -> str:
     clean = clean.replace('_', ' ').replace('#', '')
     clean = re.sub(r'([!?.]){2,}', r'\1', clean)
     clean = re.sub(r',\s*,+', ',', clean)
+    clean = re.sub(r',"\s*,', ',"', clean)
     clean = re.sub(r'(\n+)\s*,', r'\1', clean)
+    clean = re.sub(r'^[,\s]+', '', clean)
+    clean = re.sub(r'[,\s]+$', '', clean)
     clean = re.sub(r'[ \t]+', ' ', clean)
     clean = re.sub(r'\n{3,}', '\n\n', clean).strip()
+
+    # If the text has no word characters (only commas, spaces, punctuation), return empty
+    if not re.search(r'\w', clean):
+        return ""
 
     return clean
 
@@ -682,8 +689,15 @@ async def generate_speech_stream(data: SpeechRequest):
     """
     text = sanitize_and_tag_speech(data.input)
 
-    if not text:
-        raise HTTPException(status_code=400, detail="Missing or empty 'input' field after cleaning")
+    if not text or not re.search(r"\w", text):
+        async def _empty_stream():
+            yield 'data: {"done": true}\n\n'
+
+        return StreamingResponse(
+            _empty_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     chunks = calculate_chunk_plan(text, _rtf_tracker.value)
 

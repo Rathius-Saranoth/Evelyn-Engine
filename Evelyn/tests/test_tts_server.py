@@ -1,13 +1,13 @@
 # test_tts_server.py
 # date created: 2026-10-06 18:21:00
-# date modified: 2026-10-12 01:52:05
+# date modified: 2026-10-12 22:52:54
 # tags: #tests, #tts, #speech, #audio, #rtf, #chatterbox
 
 """Unit tests for Evelyn's TTS server chunk planner, RTF tracker, and ratio scaling."""
 
 import unittest
 
-from services.tts.tts_server import RTFTracker, calculate_chunk_plan, sanitize_and_tag_speech
+from services.tts.tts_server import RTFTracker, app, calculate_chunk_plan, sanitize_and_tag_speech
 
 
 class TestTTSServer(unittest.TestCase):
@@ -203,3 +203,42 @@ class TestTTSServer(unittest.TestCase):
         self.assertIn("[shush]", cleaned)
         self.assertIn("Are you okay?", cleaned)
         self.assertIn("It will be fine.", cleaned)
+
+    def test_sanitize_and_tag_speech_pure_stage_direction_returns_empty(self):
+        text = "*I smile softly as you mention the beverage, nodding in approval.*"
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertEqual(cleaned, "")
+
+    def test_sanitize_and_tag_speech_inserts_pause_for_stage_directions(self):
+        # Stage direction at opening trimmed without leading comma
+        text_start = "*I smile softly.* “Good call on that.”"
+        self.assertEqual(sanitize_and_tag_speech(text_start), '"Good call on that."')
+
+        # Stage direction between dialogue sentences inserts natural pause comma
+        text_mid = "“Good call on that.” *I say warmly.* “Your body needs rest.”"
+        self.assertEqual(
+            sanitize_and_tag_speech(text_mid),
+            '"Good call on that." , "Your body needs rest."',
+        )
+
+    def test_speech_stream_endpoint_handles_pure_action_input(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/audio/speech/stream",
+            json={"input": "*I smile softly, nodding in approval.*"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.text.strip(), 'data: {"done": true}')
+
+    def test_speech_stream_endpoint_handles_empty_input(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/audio/speech/stream",
+            json={"input": "   "},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.text.strip(), 'data: {"done": true}')

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-12 11:44:44
+date modified: 2026-10-12 22:53:54
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.030] - 2026-10-12 — *TTS Stage Direction Pause Substitution & In-Flight Empty Stream Handling*
+
+### Added
+
+- **Natural Vocal Pause Insertion for Stage Directions (`services/tts/tts_server.py`)**:
+  - Enhanced hybrid asterisk parsing in `sanitize_and_tag_speech`: non-vocal bodily actions and stage directions (e.g. `*I say warmly.*`, `*nods*`) are converted into natural cadence pause boundaries (`, `) instead of being stripped into empty space, providing realistic breathing pauses between dialogue phrases.
+  - Implemented boundary punctuation sanitization: leading commas/spaces (`^[,\s]+`) and trailing commas (`[,\s]+$`) are cleanly pruned so opening stage directions do not produce awkward audio glitches or leading silence.
+  - Added duplicate comma normalization across quote boundaries (`," ,` -> `,"`).
+
+### Fixed
+
+- **In-Flight SSE Streaming Abort on Opening Stage Direction Chunks (`services/tts/tts_server.py`)**:
+  - Resolved an issue where assistant turns beginning with stage directions (e.g. `*I smile softly as you mention...*`) resulted in empty text after cleaning, causing `/v1/audio/speech/stream` to raise `HTTPException(400, "Missing or empty 'input' field")`.
+  - The HTTP 400 error caused the browser's in-flight chunk stream reader (`_dispatchInFlightChunk`) to abort, preventing progressive playback and forcing the entire multi-paragraph message to be requested as a single monolithic block upon stream completion.
+  - The endpoint now immediately yields `data: {"done": true}\n\n` via HTTP 200 StreamingResponse when input text contains no spoken words, allowing the browser to cleanly consume opening action chunks without interruption.
 
 ## [000.008.029] - 2026-10-12 — *Voice-to-Text Setup Guide, Model Pre-Caching & FFmpeg Diagnostics*
 
