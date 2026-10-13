@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-10-02 17:02:06
+# date modified: 2026-10-13 01:01:49
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -34,6 +34,7 @@ Exports:
     detect_deterministic_read_intent() — Detects high-confidence 0-argument deterministic read queries.
     calculate_token_fuzzy_score() — Token-aligned fuzzy similarity with numerical discrepancy guards.
     sanitize_tool_input_text() — Sanitizes, strips HTML/fences, and bounds inbound tool text arguments.
+    check_standalone_context() — Evaluates observation for standalone self-containment (vacuum test).
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -1205,5 +1206,57 @@ def sanitize_tool_input_text(
         s = s[:max_length].rstrip()
 
     return s
+
+
+def check_standalone_context(observation: str) -> tuple[bool, str]:
+    """Evaluate whether an observation satisfies the Standalone Vacuum Test (Fullness of Context).
+
+    Detects dangling demonstratives, relative references, and ungrounded anaphora that
+    lack standalone context when retrieved in isolation in a vector RAG or memory store.
+
+    Args:
+        observation: The candidate observation text to evaluate.
+
+    Returns:
+        tuple[bool, str]: (is_valid, reason)
+            - (True, "") if the observation is self-contained.
+            - (False, "<reason>") if dangling context or unresolved anaphora is detected.
+    """
+    if not observation or not observation.strip():
+        return False, "Empty observation"
+
+    text = observation.strip()
+
+    # 1. Dangling demonstrative noun phrases (e.g., "these facial traits", "those features", "such changes", "these decisions")
+    m = re.search(
+        r"\b(these|those|such|the aforementioned)\s+(?:[a-z-]+\s+)?(?:traits?|features?|aspects?|changes?|decisions?|habits?|preferences?|events?|qualities?|actions?|details?|points?|factors?|items?|behaviors?|patterns?|choices?|styles?)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        # If immediately followed by a colon or appositive specification, it might inline them
+        suffix = text[m.end():].lstrip()
+        if not suffix.startswith((":", "--", "—")):
+            return False, f"Dangling demonstrative reference '{m.group(0)}' without inlined antecedent"
+
+    # 2. Dangling relative/locative references (e.g., "as mentioned above", "the above traits", "the previously stated")
+    m2 = re.search(
+        r"\b(?:as mentioned above|as noted above|the above (?:traits?|features?|points?|details?)|the former|the latter)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m2:
+        return False, f"Dangling relational reference '{m2.group(0)}'"
+
+    # 3. Sentence beginning with dangling demonstrative pronoun pointing to an unstated antecedent
+    m3 = re.search(
+        r"^(?:these|those)\s+(?:led to|resulted in|caused|prompted|influenced|shaped)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m3:
+        return False, f"Dangling demonstrative subject '{m3.group(0)}'"
+
+    return True, ""
 
 

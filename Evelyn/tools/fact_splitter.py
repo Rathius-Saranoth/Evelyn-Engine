@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-10-13 00:43:41
+# date modified: 2026-10-13 01:01:50
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -25,7 +25,7 @@ from typing import Any
 import yaml
 
 import evelyn_config as cfg
-from Evelyn.tools import memory_db, taxonomy_db
+from Evelyn.tools import memory_db, string_utils, taxonomy_db
 from Evelyn.tools.tag_librarian import normalize_tag_format
 
 logger = logging.getLogger("evelyn.fact_splitter")
@@ -60,10 +60,11 @@ async def generate_split_proposal(
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
         "3. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation. If an entry combines multiple events or routines, split into further discrete entries.\n"
-        "4. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "5. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
-        "6. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
-        "7. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
+        "4. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{getattr(cfg, 'USER_NAME', 'Alex')} loved the pointed ears and small nose in {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}\\'s imagery', NEVER '{getattr(cfg, 'USER_NAME', 'Alex')} loved these traits').\n"
+        "5. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
+        "6. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
+        "7. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
+        "8. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
         "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). "
         "Lowercase always; hyphens join words; singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). "
         "Named entities follow the same rule — no TitleCase, no underscores. Prefer terms that already exist over inventing near-duplicates. "
@@ -81,6 +82,10 @@ async def generate_split_proposal(
         f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
         "    tags: \"homelab, automation\"\n"
         f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} manages home automation devices using ZWave on a local server.\"\n"
+        f"  - category: Cat06-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
+        f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
+        "    tags: \"collaboration, software-architecture\"\n"
+        f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} and {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')} made a joint decision to adopt FastAPI for local services.\"\n"
         "```"
     )
 
@@ -131,6 +136,14 @@ async def generate_split_proposal(
         if len(c_obs.split()) > max_words:
             logger.warning(
                 f"[SPLITTER] Split child observation exceeds {max_words} words ({len(c_obs.split())} words) — rejecting bloated proposal: {c_obs[:60]}..."
+            )
+            return None
+
+        # Check Standalone Fullness of Context (The Vacuum Test)
+        is_self_contained, vacuum_reason = string_utils.check_standalone_context(c_obs)
+        if not is_self_contained:
+            logger.warning(
+                f"[SPLITTER] Split child observation failed Standalone Vacuum Test ({vacuum_reason}) — rejecting proposal: {c_obs[:60]}..."
             )
             return None
 

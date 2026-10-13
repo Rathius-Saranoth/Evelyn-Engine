@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-13 00:43:41
+# date modified: 2026-10-13 01:01:50
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -800,7 +800,12 @@ def _build_extraction_prompt(
         "State the exact specific fact with nouns, preferences, conditions, reasons, and temporal context. "
         "NEVER combine multiple separate life events, distinct routines, or unrelated preferences into a compound paragraph or essay. "
         "If a conversation covers multiple facts, output them as separate entries in the list.\n"
-        "5. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant):\n"
+        "5. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST):\n"
+        "   - Each extracted fact must be 100% self-contained and intelligible in complete isolation ('in a vacuum').\n"
+        "   - Memory facts are retrieved independently in vector RAG without access to other conversation turns.\n"
+        "   - NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', or 'such changes'.\n"
+        "   - Always explicitly inline the specific objects, features, or events being discussed (e.g. write 'expressed love for the pointed ears and small nose' instead of 'expressed love for these traits').\n"
+        "6. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant):\n"
         "   - Tags are strictly flat subject terms combined at retrieval time, not a tree. "
         "Write `coffee, routine`, never `Home/Coffee/Espresso`. Building hierarchy into the tag only fragments retrieval.\n"
         "   - Zero-Slash Invariant: NEVER include slashes (`/`), colons, or punctuation in tags. Hierarchies and facet prefixes are strictly forbidden in tags.\n"
@@ -812,7 +817,7 @@ def _build_extraction_prompt(
         "   - Prefer terms that already exist over inventing near-duplicates; a genuinely new "
         "term is fine, and goes to review before it joins the vocabulary.\n"
         "   - Name the specific subject, never the container it sits in. `work`, `home`, `tools`, `life`, `system`, `pets`, `wellness`, `environment`, `technology` and the like are not tags here: they are the folder headings a flat vocabulary removes, and they match so much that they narrow nothing. Write `firewall` not `work`, `cat` not `pets`, `thermostat` not `home`. If the only word that fits is a container, the tag is not earning its place — leave it out.\n"
-        "6. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
+        "7. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
         "Do NOT inject Category Reference titles into the observation text.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no durable facts are found, output an empty list.\n\n"

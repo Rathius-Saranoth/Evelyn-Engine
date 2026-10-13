@@ -1,6 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-09-22 21:57:21
+# date modified: 2026-10-13 01:01:50
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import sys
@@ -218,6 +218,75 @@ entries:
 
             # Cleanup queue
             memory_db.dequeue_split(test_id)
+
+    def test_check_standalone_context(self):
+        """Verify check_standalone_context detects dangling demonstratives and allows self-contained observations."""
+        from Evelyn.tools import string_utils
+
+        # Dangling demonstrative references
+        bad_obs1 = "Alex expressed immediate love for these facial traits in Evelyn's generated imagery."
+        ok, reason = string_utils.check_standalone_context(bad_obs1)
+        self.assertFalse(ok)
+        self.assertIn("these facial traits", reason)
+
+        bad_obs2 = "Alex decided to support those changes after further review."
+        ok, reason = string_utils.check_standalone_context(bad_obs2)
+        self.assertFalse(ok)
+        self.assertIn("those changes", reason)
+
+        bad_obs3 = "As mentioned above, Alex prefers working late into the night."
+        ok, reason = string_utils.check_standalone_context(bad_obs3)
+        self.assertFalse(ok)
+        self.assertIn("as mentioned above", reason.lower())
+
+        # Standalone, fully self-contained observations
+        good_obs1 = "Alex expressed immediate love for Evelyn's small nose and pointed ears in generated imagery."
+        ok, _ = string_utils.check_standalone_context(good_obs1)
+        self.assertTrue(ok)
+
+        good_obs2 = "Evelyn incorporates delicately pointed ears and a small nose into her physical profile."
+        ok, _ = string_utils.check_standalone_context(good_obs2)
+        self.assertTrue(ok)
+
+    def test_split_proposal_rejects_dangling_anaphora(self):
+        """Verify fact_splitter rejects proposals where a child observation fails the vacuum test."""
+        from Evelyn.tools import fact_splitter
+
+        test_source_id = memory_db.insert_entry(
+            category="Cat05-U",
+            subject="Alex",
+            observation="Prefers pointed ears in generated imagery and decided to adopt them.",
+            tags="aesthetic",
+            status="live",
+        )
+        self.created_entry_ids.append(test_source_id)
+
+        record = {
+            "id": test_source_id,
+            "category": "Cat05-U",
+            "subject": "Alex",
+            "summary": "Prefers pointed ears in generated imagery and decided to adopt them.",
+        }
+
+        mock_llm_response = """
+```yaml
+verdict: split
+reasoning: "Decomposing into appearance and reaction."
+entries:
+  - category: Cat01-U
+    subject: Evelyn
+    tags: "appearance"
+    observation: "Evelyn features delicately pointed ears in character descriptions."
+  - category: Cat06-U
+    subject: Alex
+    tags: "feedback"
+    observation: "Alex expressed immediate love for these facial traits in generated imagery."
+```
+"""
+        with patch("Evelyn.tools.fact_consolidator._call_ollama", return_value=mock_llm_response):
+            pid_str = asyncio_run(fact_splitter.generate_split_proposal(record, "Cat00 Index"))
+            # Proposal should be rejected because child 2 has dangling anaphora 'these facial traits'
+            self.assertIsNone(pid_str)
 
 
 

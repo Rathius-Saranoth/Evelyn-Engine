@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-13 00:43:41
+date modified: 2026-10-13 01:01:49
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.035] - 2026-10-13 — *Standalone Memory Vacuum Principle & Coreference Resolution in Fact Splitting*
+
+### Added
+
+- **Standalone Vacuum Test & Anaphora Validation (`Evelyn/tools/string_utils.py`)**:
+  - Authored canonical `check_standalone_context(observation)` in `string_utils.py` to evaluate whether memory observations satisfy the Standalone Vacuum Test (Fullness of Context).
+  - Detects dangling demonstrative noun phrases (`these traits`, `those features`, `such changes`), relative references (`as mentioned above`, `the aforementioned`), and ungrounded anaphora lacking inlined antecedents.
+
+### Fixed
+
+- **Dangling Demonstratives and Cross-Split Cohesion Loss (`Evelyn/tools/fact_splitter.py`, `evelyn_server.py`)**:
+  - Hardened decomposition prompt directives in `fact_splitter.py` and `preview_context_split` (`evelyn_server.py`) with explicit rules mandating that every split observation must be completely intelligible in isolation without depending on co-occurring entries.
+  - Enforced inlining of specific attributes, objects, or decisions instead of using relative demonstrative phrases.
+  - Integrated deterministic `check_standalone_context` rejection gates in `fact_splitter.generate_split_proposal` to automatically reject decomposition proposals that generate dangling references.
+- **Extraction Standalone Context Directives (`Evelyn/tools/fact_extractor.py`)**:
+  - Added Standalone Fullness of Context (Vacuum Test) rule to `_build_extraction_prompt` to prevent newly extracted facts from relying on external conversational turns for referent resolution.
 
 ## [000.008.034] - 2026-10-13 — *Upstream Fact Creation & Auditor Hardening for Entity Attribution and Atomicity*
 
