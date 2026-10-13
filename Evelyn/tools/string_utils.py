@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-10-13 01:26:46
+# date modified: 2026-10-13 21:56:05
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -1261,47 +1261,79 @@ def check_standalone_context(observation: str) -> tuple[bool, str]:
     return True, ""
 
 
-def strip_redundant_date_anchors(text: str) -> str:
-    """Strip redundant 'As of <date>' and similar mechanical date markers from an observation.
+_INTRINSIC_DATE_KEYWORDS = frozenset({
+    "birthday", "born", "birth", "anniversary", "appointment", "scheduled",
+    "schedule", "deadline", "court", "festival", "trip", "party", "flight",
+    "reservation", "named", "wedding", "ceremony", "conference", "tickets",
+})
+
+
+def strip_redundant_date_anchors(text: str, target_date: str | None = None) -> str:
+    """Strip redundant mechanical date markers from an observation while preserving intrinsic event dates.
 
     Dates are tracked canonically in entry metadata ('date' column) and RAG XML envelopes
-    (<memory_entry date="...">). Inlining mechanical date markers directly into the observation
-    text consumes token budget, clutters conversational RAG, and duplicates metadata.
+    (<memory_entry date="...">). Inlining mechanical conversation timestamps directly into the
+    observation text consumes token budget and clutters conversational RAG.
+
+    Safeguards:
+    - Never strips dates that represent intrinsic facts, such as birthdays, anniversaries,
+      future scheduled appointments, deadlines, court dates, trips, or milestones.
+    - If `target_date` is provided, only strips dates matching `target_date` (never touches
+      dates that differ from the conversation turn).
 
     Args:
         text: Raw observation text.
+        target_date: Optional ISO date string (YYYY-MM-DD) of the entry. If provided,
+            only matching dates are eligible for removal.
 
     Returns:
-        Cleaned observation text with date markers stripped and grammar normalized.
+        Cleaned observation text with redundant timestamps stripped and grammar normalized.
     """
     if not text:
         return ""
     s = text.strip()
 
-    # 1. Parenthetical (as of YYYY-MM-DD) or (on YYYY-MM-DD)
-    s = re.sub(r"\s*\((?:as of|on)\s+\d{4}-\d{2}-\d{2}\)", "", s, flags=re.IGNORECASE)
+    d_pat = re.escape(target_date) if target_date else r"\d{4}-\d{2}-\d{2}"
+    is_intrinsic = any(re.search(r"\b" + re.escape(k) + r"\b", s, re.IGNORECASE) for k in _INTRINSIC_DATE_KEYWORDS)
 
-    # 2. Leading 'As of YYYY-MM-DD, ' or 'On YYYY-MM-DD, '
-    m_lead = re.match(r"^(?:As of|On)\s+\d{4}-\d{2}-\d{2},?\s*(.*)", s, flags=re.IGNORECASE)
+    # 1. Parentheticals: (as of YYYY-MM-DD), (on YYYY-MM-DD), (noted YYYY-MM-DD)
+    s = re.sub(r"\s*\((?:as of|on|noted|observed|recorded)\s+" + d_pat + r"\)", "", s, flags=re.IGNORECASE)
+
+    # 2. Leading mechanical prefix: 'As of YYYY-MM-DD, ' or 'On YYYY-MM-DD, '
+    m_lead = re.match(r"^(?:As of|On)\s+" + d_pat + r",?\s*(.*)", s, flags=re.IGNORECASE)
     if m_lead:
         rest = m_lead.group(1).strip()
         if rest:
             s = rest[0].upper() + rest[1:]
 
-    # 3. Mid-sentence '; as of YYYY-MM-DD, ' -> '; '
-    s = re.sub(r";\s*as of \d{4}-\d{2}-\d{2},?\s*", "; ", s, flags=re.IGNORECASE)
+    # 3. Mid-sentence 'as of' transitions
+    s = re.sub(r";\s*as of " + d_pat + r",?\s*", "; ", s, flags=re.IGNORECASE)
+    s = re.sub(r",\s*but as of " + d_pat + r",?\s*", ", but ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s+as of " + d_pat + r"\s+(is|was|are|were)\b", r" \1", s, flags=re.IGNORECASE)
+    s = re.sub(r",\s*as of\s+" + d_pat + r",?", ",", s, flags=re.IGNORECASE)
 
-    # 4. Mid-sentence ', but as of YYYY-MM-DD, ' -> ', but '
-    s = re.sub(r",\s*but as of \d{4}-\d{2}-\d{2},?\s*", ", but ", s, flags=re.IGNORECASE)
+    # 4. If NOT an intrinsic event/milestone, clean conversational routine 'on YYYY-MM-DD' clauses
+    if not is_intrinsic:
+        # Time of day: 'on the morning of YYYY-MM-DD' -> 'in the morning'
+        s = re.sub(r"\bon\s+the\s+(morning|afternoon|evening)\s+of\s+" + d_pat + r"\b", r"in the \1", s, flags=re.IGNORECASE)
+        s = re.sub(r"\bon\s+the\s+night\s+of\s+" + d_pat + r"\b", "at night", s, flags=re.IGNORECASE)
+        s = re.sub(r"\bthrough\s+the\s+(morning|afternoon|evening)\s+of\s+" + d_pat + r"\b", r"through the \1", s, flags=re.IGNORECASE)
+        s = re.sub(r"\bby\s+the\s+(morning|afternoon|evening)\s+of\s+" + d_pat + r"\b", r"by the \1", s, flags=re.IGNORECASE)
+        s = re.sub(r"\bon\s+the\s+day\s+of\s+" + d_pat + r"\b", "", s, flags=re.IGNORECASE)
 
-    # 5. Mid-sentence ' as of YYYY-MM-DD is/was/are/were ' -> ' is/was/are/were '
-    s = re.sub(r"\s+as of \d{4}-\d{2}-\d{2}\s+(is|was|are|were)\b", r" \1", s, flags=re.IGNORECASE)
+        # Trailing ', on YYYY-MM-DD.' or ' on YYYY-MM-DD.'
+        s = re.sub(r",?\s*(?:as of|on)\s+" + d_pat + r"(\.?)$", r"\1", s, flags=re.IGNORECASE)
 
-    # 6. Trailing ', as of YYYY-MM-DD.' -> '.'
-    s = re.sub(r",?\s*as of \d{4}-\d{2}-\d{2}(\.?)$", r"\1", s, flags=re.IGNORECASE)
+        # Mid-sentence ' on YYYY-MM-DD' followed by punctuation or space
+        s = re.sub(r"\s+on\s+" + d_pat + r"(?=[,;.\s])", "", s, flags=re.IGNORECASE)
+    else:
+        # For intrinsic events, only strip trailing 'as of YYYY-MM-DD' if mechanically appended
+        s = re.sub(r",?\s*as of\s+" + d_pat + r"(\.?)$", r"\1", s, flags=re.IGNORECASE)
 
-    # Clean up duplicate spaces or comma-period artifacts
+    # Clean punctuation and spacing
+    s = re.sub(r"\s*,\s*,", ",", s)
     s = re.sub(r"\s*,\s*\.", ".", s)
+    s = re.sub(r"\s*;\s*;", ";", s)
     s = re.sub(r"\s{2,}", " ", s).strip()
     return s
 

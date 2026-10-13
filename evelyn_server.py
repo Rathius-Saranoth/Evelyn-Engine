@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-13 01:26:46
+# date modified: 2026-10-13 21:56:05
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8157,6 +8157,7 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
     subj = req.subject
     tags = req.tags
 
+    entry_date = None
     if req.entry_id:
         entry = memory_db.get_entry(req.entry_id)
         if entry:
@@ -8164,6 +8165,7 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
             cat = cat or entry.get("category")
             subj = subj or entry.get("subject")
             tags = tags or entry.get("tags")
+            entry_date = entry.get("date")
 
     if not obs or not obs.strip():
         raise HTTPException(status_code=400, detail="Observation text is required for split preview")
@@ -8183,7 +8185,7 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         "1. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation.\n"
         "2. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{cfg.USER_NAME} loved the pointed ears and small nose in {cfg.ASSISTANT_NAME}\\'s imagery', NEVER '{cfg.USER_NAME} loved these traits').\n"
         f"3. ACCURATE ENTITY SUBJECT ATTRIBUTION & NOUN GROUNDING: Explicitly name the subject/actor by name at the beginning. If an observation describes a third-party entity (family, friend, pet), assign 'subject' to that entity name and use suffix -{cfg.SUBJECT_CODE_USER} for User ledger.\n"
-        "4. STRIP MECHANICAL DATE ANCHORS: The date is tracked in entry metadata. NEVER prefix child observations with 'As of YYYY-MM-DD,' or 'On YYYY-MM-DD,'. State observations directly.\n"
+        f"4. STRIP CONVERSATION DATE CLUTTER BUT PRESERVE INTRINSIC EVENT DATES: The entry conversation date is tracked in metadata and RAG envelopes. DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities (e.g. do NOT write 'On YYYY-MM-DD, {cfg.USER_NAME} mowed the lawn' or '...mowed the lawn on YYYY-MM-DD' or 'As of YYYY-MM-DD...'). If an entry documents an evolution across dates (e.g. 'Previously X as of [date1], now Y as of [date2]'), split them into distinct atomic facts. HOWEVER, DO PRESERVE specific calendar dates that are the actual substance of the memory itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, or historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {cfg.ASSISTANT_NAME} on 2025-05-05').\n"
         "5. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
         "6. CONTROLLED VOCABULARY TAGS: Assign flat subject terms for each split item (e.g. "
         "`python, automation`, `coffee, routine`). They are combined at retrieval time, so a "
@@ -8242,7 +8244,9 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
     for item in entries_list:
         if not isinstance(item, dict):
             continue
-        c_obs = string_utils.strip_redundant_date_anchors(str(item.get("observation", "")).strip())
+        c_obs = string_utils.strip_redundant_date_anchors(
+            str(item.get("observation", "")).strip(), target_date=entry_date
+        )
         if not c_obs:
             continue
         c_subj = memory_db.normalize_subject_attribution(

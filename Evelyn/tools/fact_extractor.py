@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-13 01:27:54
+# date modified: 2026-10-13 21:56:05
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -793,7 +793,8 @@ def _build_extraction_prompt(
         f"   - If one entity is observing, feeling, or commenting on another entity, explicitly name BOTH entities in the text (e.g. '{cfg.ASSISTANT_NAME} observes that {cfg.USER_NAME} values clarity...', '{cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating...').\n"
         "3. TEMPORAL GROUNDING & HISTORICAL ANCHORING (METADATA SEPARATION):\n"
         "   - The observation date is recorded in entry metadata ('date' field) and RAG XML envelopes (<memory_entry date=\"...\">).\n"
-        f"   - DO NOT prefix observations with redundant date markers like 'As of YYYY-MM-DD,' or 'On YYYY-MM-DD,'. State the observation directly with an explicit subject (e.g. write '{cfg.USER_NAME} troubleshot a monitor outage' instead of 'On 2026-05-07, {cfg.USER_NAME} troubleshot a monitor outage').\n"
+        f"   - DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities (neither as a prefix like 'On YYYY-MM-DD,' nor as a suffix/clause like '...on YYYY-MM-DD' or '...on the morning of YYYY-MM-DD'). State the observation directly with an explicit subject (e.g. write '{cfg.USER_NAME} troubleshot a monitor outage', not '{cfg.USER_NAME} troubleshot a monitor outage on 2026-05-07').\n"
+        f"   - DO PRESERVE specific calendar dates when they are the subject of the fact itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, and historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {cfg.ASSISTANT_NAME} on 2025-05-05', 'Trip to Renaissance Festival on 2026-10-10').\n"
         "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately'). Use simple past or enduring present tense.\n"
         f"   - If an observation represents an enduring preference or trait, state it as a lasting fact naming the subject (e.g. '{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk').\n"
         "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS WITH STRICT ATOMICITY & CONCISE LENGTH CEILING: "
@@ -923,9 +924,9 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         if summ is None:
             print("[EXTRACTOR] Skipping fact — failed sanitization check.", flush=True)
             continue
-        summ = string_utils.strip_redundant_date_anchors(summ)
-        conf = str(item.get("confidence", "medium")).strip().lower()
         raw_date = str(item.get("date", "")).strip()
+        summ = string_utils.strip_redundant_date_anchors(summ, target_date=raw_date or None)
+        conf = str(item.get("confidence", "medium")).strip().lower()
 
         if not subj or not cat or not summ:
             continue

@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-10-13 01:26:46
+# date modified: 2026-10-13 21:56:05
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -60,8 +60,8 @@ async def generate_split_proposal(
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
         "3. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation. If an entry combines multiple events or routines, split into further discrete entries.\n"
-        "4. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{getattr(cfg, 'USER_NAME', 'Alex')} loved the pointed ears and small nose in {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}\\'s imagery', NEVER '{getattr(cfg, 'USER_NAME', 'Alex')} loved these traits').\n"
-        "5. STRIP MECHANICAL DATE ANCHORS: The date is tracked in entry metadata and RAG envelopes. NEVER prefix child observations with 'As of YYYY-MM-DD,' or 'On YYYY-MM-DD,'. If an entry documents an evolution across dates (e.g. 'Previously X as of [date1], now Y as of [date2]'), split them into distinct atomic facts and state each observation directly (e.g. '{getattr(cfg, 'USER_NAME', 'Alex')} was planning...' instead of 'As of 2026-04-18, {getattr(cfg, 'USER_NAME', 'Alex')} was planning...').\n"
+        f"4. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{getattr(cfg, 'USER_NAME', 'Alex')} loved the pointed ears and small nose in {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}\\'s imagery', NEVER '{getattr(cfg, 'USER_NAME', 'Alex')} loved these traits').\n"
+        f"5. STRIP CONVERSATION DATE CLUTTER BUT PRESERVE INTRINSIC EVENT DATES: The entry conversation date is tracked in metadata and RAG envelopes. DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities (e.g. do NOT write 'On YYYY-MM-DD, {getattr(cfg, 'USER_NAME', 'Alex')} mowed the lawn' or '...mowed the lawn on YYYY-MM-DD' or 'As of YYYY-MM-DD...'). If an entry documents an evolution across dates (e.g. 'Previously X as of [date1], now Y as of [date2]'), split them into distinct atomic facts. HOWEVER, DO PRESERVE specific calendar dates that are the actual substance of the memory itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, or historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')} on 2025-05-05').\n"
         "6. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
         "7. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
         "8. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
@@ -131,7 +131,9 @@ async def generate_split_proposal(
     for item in entries_list:
         if not isinstance(item, dict):
             continue
-        c_obs = string_utils.strip_redundant_date_anchors(str(item.get("observation", "")).strip())
+        c_obs = string_utils.strip_redundant_date_anchors(
+            str(item.get("observation", "")).strip(), target_date=record.get("date")
+        )
         if not c_obs:
             continue
         if len(c_obs.split()) > max_words:

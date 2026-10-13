@@ -1,6 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-10-13 01:26:46
+# date modified: 2026-10-13 21:56:05
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import sys
@@ -276,6 +276,36 @@ entries:
         obs5 = "Alex's goal is to learn theory; as of 2026-04-13, he is pursuing a course."
         cleaned5 = string_utils.strip_redundant_date_anchors(obs5)
         self.assertEqual(cleaned5, "Alex's goal is to learn theory; he is pursuing a course.")
+
+        # Trailing 'on YYYY-MM-DD.'
+        obs6 = "Alex planned to mow the lawn on 2026-06-06."
+        cleaned6 = string_utils.strip_redundant_date_anchors(obs6, target_date="2026-06-06")
+        self.assertEqual(cleaned6, "Alex planned to mow the lawn.")
+
+        # Mid-sentence 'on YYYY-MM-DD'
+        obs7 = "Biscuit the cat woke Alex up 15 minutes before his alarm on 2026-09-30."
+        cleaned7 = string_utils.strip_redundant_date_anchors(obs7, target_date="2026-09-30")
+        self.assertEqual(cleaned7, "Biscuit the cat woke Alex up 15 minutes before his alarm.")
+
+        # Time-of-day 'on the morning of YYYY-MM-DD'
+        obs8 = "Alex experienced a headache on the morning of 2026-05-10."
+        cleaned8 = string_utils.strip_redundant_date_anchors(obs8, target_date="2026-05-10")
+        self.assertEqual(cleaned8, "Alex experienced a headache in the morning.")
+
+        # SAFEGUARD: Intrinsic scheduled appointment date is PRESERVED
+        obs9 = "Alex has a flu shot scheduled for approximately 10:40 AM on 2026-10-12."
+        cleaned9 = string_utils.strip_redundant_date_anchors(obs9, target_date="2026-10-12")
+        self.assertEqual(cleaned9, "Alex has a flu shot scheduled for approximately 10:40 AM on 2026-10-12.")
+
+        # SAFEGUARD: Intrinsic birthday is PRESERVED
+        obs10 = "Alex's birthday is on 2026-05-23."
+        cleaned10 = string_utils.strip_redundant_date_anchors(obs10, target_date="2026-05-23")
+        self.assertEqual(cleaned10, "Alex's birthday is on 2026-05-23.")
+
+        # SAFEGUARD: Date differing from target_date is PRESERVED
+        obs11 = "Alex planned a trip to the Renaissance Festival on 2026-10-10."
+        cleaned11 = string_utils.strip_redundant_date_anchors(obs11, target_date="2026-10-09")
+        self.assertEqual(cleaned11, "Alex planned a trip to the Renaissance Festival on 2026-10-10.")
 
     def test_split_proposal_rejects_dangling_anaphora(self):
         """Verify fact_splitter rejects proposals where a child observation fails the vacuum test."""

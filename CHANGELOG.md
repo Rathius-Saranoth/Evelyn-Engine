@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-13 01:28:34
+date modified: 2026-10-13 21:58:07
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.037] - 2026-10-13 — *Balanced Temporal Grounding & Intrinsic Milestone Date Safeguarding*
+
+### Added
+
+- **Intrinsic Event & Milestone Safeguarding (`Evelyn/tools/string_utils.py`)**:
+  - Enhanced `strip_redundant_date_anchors` with an `_INTRINSIC_DATE_KEYWORDS` protection gate and an optional `target_date` filter.
+  - Automatically identifies and preserves dates representing intrinsic facts (birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, and historical milestones) while cleanly eliminating trailing and mid-clause conversation timestamps.
+  - Converts routine time-of-day anchors (`on the morning of [date]` -> `in the morning`, `on the night of [date]` -> `at night`) naturally.
+
+### Fixed
+
+- **Heavy-Handed Date Stripping Prevention Across Ingestion Pipelines (`Evelyn/tools/fact_extractor.py`, `Evelyn/tools/fact_splitter.py`, `evelyn_server.py`)**:
+  - Refined Rule 3 in `_build_extraction_prompt` and Rule 5 in split prompts to explicitly distinguish between redundant conversation logging timestamps (which must be omitted from observation bodies) and intrinsic calendar milestones (which must be retained in the observation text).
+  - Wired `target_date` propagation into `_parse_facts_yaml`, `generate_split_proposal`, and `preview_context_split` to prevent stripping dates that differ from the conversation turn.
+- **Database Remediation of Trailing & Mid-Sentence Date Noise**:
+  - Safely cleaned 840 active observations in `context_entries` that had redundant conversation timestamps appended, while preserving all 47 intrinsic appointment/milestone entries and all legitimate multi-day date spans.
+  - Enqueued 840 corresponding vector updates to ChromaDB via the custodian sync queue.
 
 ## [000.008.036] - 2026-10-13 — *Redundant Temporal Anchor Stripping & Discrete Multi-Date Split Enqueueing*
 
