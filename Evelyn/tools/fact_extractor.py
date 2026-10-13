@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-06 21:47:29
+# date modified: 2026-10-13 00:43:41
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -40,7 +40,7 @@ import httpx
 import yaml
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import backlog_drainer, chroma_rag, taxonomy_db
+from Evelyn.tools import backlog_drainer, chroma_rag, memory_db, taxonomy_db
 from Evelyn.tools.tag_librarian import (
     is_excluded_tag,
     is_umbrella_term,
@@ -785,6 +785,7 @@ def _build_extraction_prompt(
         f"   - Cat##-{cfg.SUBJECT_CODE_ASSISTANT} (Assistant Canon): Facts about {cfg.ASSISTANT_NAME}'s persona, values, creative style, internal routines, OR {cfg.ASSISTANT_NAME}'s observations/feelings regarding {cfg.USER_NAME} or third parties.\n"
         f"   - Third-party & shared environment facts (pets, friends, family, home fixtures) belong to Cat##-{cfg.SUBJECT_CODE_USER} when observed from {cfg.USER_NAME}'s life, or Cat##-{cfg.SUBJECT_CODE_ASSISTANT} when reflecting {cfg.ASSISTANT_NAME}'s personal sentiment.\n"
         f"   - The 'subject' field records the specific entity being observed or discussed (e.g. {_known_entity_roster()}).\n"
+        f"   - CRITICAL THIRD-PARTY ENTITY SUBJECT ATTRIBUTION: Do NOT attribute third-party actions, habits, school events, pets, or family occurrences to {cfg.USER_NAME}. If an observation is primarily about a third party (e.g. {cfg.EXAMPLE_THIRD_PARTY_NAME}, {cfg.EXAMPLE_PET_NAME}), 'subject' MUST be that specific entity name. Suffix -{cfg.SUBJECT_CODE_USER} denotes User ledger, while 'subject' denotes the entity.\n"
         "2. EXPLICIT NOUN SUBJECT & ACTOR GROUNDING:\n"
         "   - NEVER use ambiguous floating third-person pronouns ('he', 'she', 'they', 'him', 'her') to refer to the primary subject in the summary.\n"
         "   - NEVER begin a summary with a subject-less verb (e.g. Do NOT write 'Enjoys...', 'Prefers...', 'Acts as...', 'Has a...').\n"
@@ -794,8 +795,11 @@ def _build_extraction_prompt(
         "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately').\n"
         f"   - Anchor time-bound events, temporary states, or plans to the specific date discussed: (e.g. Write 'On 2025-10-25, {cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} was planning to visit' instead of '{cfg.EXAMPLE_THIRD_PARTY_NAME} will be coming over soon'; write 'Troubleshot a monitor outage on 2026-05-07' instead of '{cfg.USER_NAME} is currently troubleshooting...').\n"
         f"   - If an observation represents an enduring preference or trait, state it as a lasting fact naming the subject (e.g. '{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk').\n"
-        "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS: State the exact specific facts with nouns, preferences, "
-        "conditions, reasons, and temporal context. AVOID vague or shallow one-liners.\n"
+        "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS WITH STRICT ATOMICITY & CONCISE LENGTH CEILING: "
+        "Each observation must be a single, discrete, atomic fact (MAXIMUM 35 WORDS). "
+        "State the exact specific fact with nouns, preferences, conditions, reasons, and temporal context. "
+        "NEVER combine multiple separate life events, distinct routines, or unrelated preferences into a compound paragraph or essay. "
+        "If a conversation covers multiple facts, output them as separate entries in the list.\n"
         "5. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant):\n"
         "   - Tags are strictly flat subject terms combined at retrieval time, not a tree. "
         "Write `coffee, routine`, never `Home/Coffee/Espresso`. Building hierarchy into the tag only fragments retrieval.\n"
@@ -919,12 +923,14 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         if not subj or not cat or not summ:
             continue
 
+        subj = memory_db.normalize_subject_attribution(subj, summ)
+
         cat_base = cat.split("-")[0] if "-" in cat else cat
         if cat_base not in valid_cats:
             print(f"[EXTRACTOR] Skipping fact — unknown category: {cat}", flush=True)
             continue
         if not cat.endswith(f"-{cfg.SUBJECT_CODE_ASSISTANT}") and not cat.endswith(f"-{cfg.SUBJECT_CODE_USER}"):
-            suffix = f"-{cfg.SUBJECT_CODE_USER}" if subj.lower() == cfg.USER_NAME.lower() else f"-{cfg.SUBJECT_CODE_ASSISTANT}"
+            suffix = f"-{cfg.SUBJECT_CODE_ASSISTANT}" if subj.lower() == cfg.ASSISTANT_NAME.lower() else f"-{cfg.SUBJECT_CODE_USER}"
             cat = cat_base + suffix
             print(f"[EXTRACTOR] Inferred category suffix -> {cat}", flush=True)
 
@@ -1349,13 +1355,14 @@ def write_extracted_facts(facts: list[dict]) -> int:
         confidence = fact["confidence"]
         fact_date = fact.get("date") or today_str
 
-        # Dedup check against live entries in the same category
+        # Dedup check against live entries in the same category and subject
         # Adjust min_overlap for more or less strict duplicate detection
         similar = memory_db.find_similar_entries(
             category=category,
+            subject=subject,
             observation_text=summary,
             min_overlap=0.90,
-            status="live"
+            status="live",
         )
         if similar:
             print(f"[EXTRACTOR] Skipping duplicate ({similar[0]['overlap']:.2f} overlap): {summary[:80]}...", flush=True)

@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-10-02 16:50:29
+# date modified: 2026-10-13 00:43:41
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1452,6 +1452,124 @@ def _apply_priority_boost(chunks: list[dict]) -> list[dict]:
     return chunks
 
 
+def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = None) -> list[dict]:
+    """Adjust each chunk's distance based on category-aware exponential recency decay.
+
+    Applies half-life temporal decay to SQLite context entries based on observation date or
+    creation timestamp. Recent observations are boosted (closing distance); outdated facts
+    are penalized (expanding distance). Entries with status 'superseded' or 'deleted' are
+    assigned infinite distance so they are dropped by threshold filtering.
+
+    Args:
+        chunks: List of retrieved chunk dictionaries.
+        now_ts: Optional reference epoch timestamp for deterministic testing.
+
+    Returns:
+        list[dict]: Updated and re-sorted chunk list.
+    """
+    if not getattr(cfg, "RAG_TEMPORAL_DECAY_ENABLED", True):
+        return chunks
+
+    try:
+        from Evelyn.tools import memory_db as _mem_db
+    except ImportError:
+        import memory_db as _mem_db
+
+    # Identify all SQLite context entry IDs
+    entry_id_map: dict[int, dict] = {}
+    sqlite_ids: list[int] = []
+    for c in chunks:
+        src = c.get("source", "")
+        if src.startswith("sqlite::context_entry::"):
+            with suppress(ValueError):
+                sqlite_ids.append(int(src.rsplit("::", 1)[-1]))
+
+    if sqlite_ids:
+        try:
+            con = _mem_db.get_db()
+            placeholders = ",".join("?" * len(sqlite_ids))
+            rows = con.execute(
+                f"SELECT id, category, date, created_at, last_observed, status FROM context_entries WHERE id IN ({placeholders})",
+                sqlite_ids,
+            ).fetchall()
+            entry_id_map = {r["id"]: dict(r) for r in rows}
+            con.close()
+        except (sqlite3.Error, OSError, ValueError):
+            entry_id_map = {}
+
+    half_life_map = getattr(cfg, "RAG_CATEGORY_HALF_LIFE_DAYS", {})
+    w_rec = float(getattr(cfg, "RAG_RECENCY_WEIGHT", 0.35))
+    current_time = float(now_ts) if now_ts is not None else time.time()
+
+    for c in chunks:
+        src = c.get("source", "")
+        if not src.startswith("sqlite::context_entry::"):
+            continue
+
+        try:
+            eid = int(src.rsplit("::", 1)[-1])
+        except ValueError:
+            continue
+
+        entry = entry_id_map.get(eid)
+        if not entry:
+            continue
+
+        # Invalidation check: Drop superseded or soft-deleted records from active RAG
+        status = entry.get("status", "live")
+        if status in ("superseded", "deleted"):
+            c["distance"] = 999.0
+            continue
+
+        # Extract entry timestamp/age
+        entry_ts: float | None = None
+        date_str = entry.get("date")
+        if date_str:
+            date_clean = str(date_str).strip()[:10]
+            if not date_clean.startswith("0001"):
+                try:
+                    dt = datetime.datetime.strptime(date_clean, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
+                    entry_ts = dt.timestamp()
+                except ValueError:
+                    entry_ts = None
+
+        if entry_ts is None:
+            raw_obs = entry.get("last_observed") or entry.get("created_at")
+            if raw_obs is not None:
+                try:
+                    entry_ts = float(raw_obs)
+                except (ValueError, TypeError):
+                    entry_ts = None
+
+        if entry_ts is None or entry_ts <= 0:
+            # Unknown timestamp: neutral multiplier
+            continue
+
+        age_days = max(0.0, (current_time - entry_ts) / 86400.0)
+
+        # Look up category-specific half-life
+        cat = str(entry.get("category") or "")
+        cat_prefix_match = re.search(r"Cat(\d{2})", cat)
+        cat_key = f"Cat{cat_prefix_match.group(1)}" if cat_prefix_match else cat
+        half_life_days = half_life_map.get(cat_key, 90)
+
+        if half_life_days <= 0:
+            # Infinite half-life (e.g. Cat10 life events, Cat13 protocols): neutral
+            continue
+
+        # Half-life exponential decay: R in (0.0, 1.0]
+        # At age=0, R=1.0 -> mult = 1.0 + w_rec * (-0.5) -> closes distance (boost)
+        # At age=half_life, R=0.5 -> mult = 1.0 -> neutral
+        # At age>>half_life, R->0.0 -> mult = 1.0 + w_rec * 0.5 -> expands distance (penalty)
+        r_recency = 0.5 ** (age_days / float(half_life_days))
+        mult = 1.0 + w_rec * (0.5 - r_recency)
+
+        c["distance"] = c.get("distance", 1.0) * mult
+
+    chunks.sort(key=lambda x: x.get("distance", 1.0))
+    return chunks
+
+
 def _chunk_tags(chunk: dict) -> set[str]:
     """Read a chunk's tag set from its Chroma metadata.
 
@@ -1911,18 +2029,17 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     # that was retrieved, so without the wider pool it could reorder the top K but never
     # bring anything into it.
     relations_on = getattr(cfg, "RAG_RELATION_EXPANSION_ENABLED", False)
+    temporal_on = getattr(cfg, "RAG_TEMPORAL_DECAY_ENABLED", True)
     top_k = cfg.RAG_TOP_K
-    fetch_k = top_k * getattr(cfg, "RAG_RELATION_OVERFETCH", 2) if relations_on else top_k
+    fetch_k = top_k * getattr(cfg, "RAG_RELATION_OVERFETCH", 2) if (relations_on or temporal_on) else top_k
     all_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION, n_results=fetch_k)
 
     # Step 3: Priority re-ranking
     all_chunks = _apply_priority_boost(all_chunks)
 
-    # Step 3b: Relation re-ranking (§6.4), then back down to the normal result count so
-    # the over-fetch never widens what the caller actually receives.
+    # Step 3b: Relation re-ranking (§6.4)
     if relations_on:
         all_chunks, relation_stats = _apply_relation_boost(all_chunks)
-        all_chunks = all_chunks[:top_k]
         if cfg.DEBUG_LOGGING and relation_stats:
             print(
                 f"[RAG] relations seeds={len(relation_stats['seeds'])}"
@@ -1931,6 +2048,14 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
                 f" reordered={relation_stats['reordered']}",
                 flush=True,
             )
+
+    # Step 3c: Temporal recency re-ranking
+    if temporal_on:
+        all_chunks = _apply_temporal_recency_boost(all_chunks)
+
+    # Trim down to normal result count after all re-ranking stages have run across the over-fetch pool
+    if relations_on or temporal_on:
+        all_chunks = all_chunks[:top_k]
 
     threshold = cfg.RAG_DISTANCE_THRESHOLD
 
@@ -2097,7 +2222,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
                 con = _memory_db.get_db()
                 placeholders = ",".join("?" * len(entry_ids))
                 rows = con.execute(
-                    f"SELECT id, category, subject, date, tags, observation FROM context_entries WHERE id IN ({placeholders})",
+                    f"SELECT id, category, subject, date, tags, observation, status FROM context_entries WHERE id IN ({placeholders})",
                     entry_ids,
                 ).fetchall()
                 sqlite_entries_map = {r["id"]: dict(r) for r in rows}
@@ -2113,6 +2238,9 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
         except ValueError:
             eid = None
         db_entry = sqlite_entries_map.get(eid) if eid else None
+
+        if db_entry and db_entry.get("status") in ("superseded", "deleted"):
+            continue
 
         envelope_kwargs: dict[str, str] = {"id": entry_id_str}
         if db_entry:

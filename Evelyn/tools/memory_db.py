@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-10-02 17:26:33
+# date modified: 2026-10-13 00:43:42
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -272,6 +272,69 @@ def init_db() -> None:
 
 
 
+def normalize_subject_attribution(subj: str | None, observation: str = "") -> str:
+    """Normalize subject entity naming and reconcile third-party attributions.
+
+    Ensures proper casing, harmonizes user/assistant aliases, and prevents third-party
+    observations (e.g. family, pets, household members) from defaulting to the user.
+    Uses configured identity constants from evelyn_config (AGENTS.md §4).
+
+    Args:
+        subj: Raw candidate subject string (e.g. 'operator_alias', 'pet_alias', 'entity_name').
+        observation: Optional observation text for third-party subject inference.
+
+    Returns:
+        str: Canonical subject name.
+    """
+    user_name = getattr(cfg, "USER_NAME", "User")
+    asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+    legacy_aliases = [a.lower() for a in getattr(cfg, "USER_LEGACY_ALIASES", [])]
+    private_names = [n for n in getattr(cfg, "PRIVATE_IDENTITY_NAMES", []) if n]
+
+    raw_s = (subj or "").strip()
+    obs_clean = observation.strip()
+
+    # 1. Alias & Casing Harmonization for explicitly provided subject
+    if raw_s:
+        s_lower = raw_s.lower()
+        if s_lower == user_name.lower() or s_lower in legacy_aliases:
+            raw_s = user_name
+        elif s_lower == asst_name.lower():
+            raw_s = asst_name
+        else:
+            # Check private/third-party entity roster
+            for p in private_names:
+                p_lower = p.lower()
+                if s_lower == p_lower or s_lower.startswith(p_lower) or p_lower in s_lower:
+                    raw_s = p
+                    break
+
+    # 2. If subject is missing or defaulted to user, reconcile against observation text
+    if (not raw_s or raw_s.lower() == user_name.lower()) and obs_clean:
+        # Check if observation clearly begins with or focuses on a known third-party entity
+        for p in private_names:
+            p_lower = p.lower()
+            # Check for explicit name start: "Entity is...", "Entity was...", "Entity's..."
+            if re.match(rf"^{re.escape(p_lower)}\b", obs_clean, re.IGNORECASE):
+                return p
+            # Check for possessive or direct predicate: "Entity has...", "Entity prefers..."
+            entity_predicate = (
+                rf"\b{re.escape(p_lower)}\b\s+(?:is\b|was\b|has\b|prefers\b|enjoys\b|experiences\b|"
+                rf"tends\b|attended\b|shuts\b|finishing\b|facing\b|acclimating\b|loves\b|sleeps\b|"
+                rf"sits\b|trills\b)"
+            )
+            if re.search(entity_predicate, obs_clean, re.IGNORECASE):
+                # Ensure user is not the primary actor (e.g. "User helped Entity")
+                user_actor = (
+                    rf"^{re.escape(user_name.lower())}\b\s+(?:helped|assisted|drove|visited|"
+                    rf"cares|delivering|participated|handled|prepared|performed)"
+                )
+                if not re.search(user_actor, obs_clean, re.IGNORECASE):
+                    return p
+
+    return raw_s if raw_s else user_name
+
+
 # Context Entries — CRUD
 # ===========================================================================
 
@@ -301,6 +364,7 @@ def insert_entry(
     Returns:
         int: The auto-generated row ID of the new entry.
     """
+    subject = normalize_subject_attribution(subject, observation)
     now = time.time()
     con = get_db()
     cur = con.execute(
@@ -465,6 +529,9 @@ def update_entry(entry_id: int, **fields) -> bool:
         return False
 
     now = time.time()
+    if "subject" in updates:
+        updates["subject"] = normalize_subject_attribution(updates["subject"], str(updates.get("observation") or ""))
+
     if "category" in updates and "recategorized_at" not in updates:
         updates["recategorized_at"] = now
 
@@ -1142,6 +1209,7 @@ def find_similar_entries(
     observation_text: str,
     min_overlap: float = 0.5,
     status: str = "live",
+    subject: str | None = None,
 ) -> list[dict]:
     """Find entries in the same category with high keyword overlap.
 
@@ -1150,6 +1218,7 @@ def find_similar_entries(
         observation_text: The candidate observation to check against.
         min_overlap: Minimum keyword overlap ratio (0.0–1.0). Default 0.5.
         status: Filter by status. Default 'live'.
+        subject: Optional entity subject filter to prevent cross-entity duplicate matching.
 
     Returns:
         list[dict]: Matching entry dictionaries with an added 'overlap' key.
@@ -1164,6 +1233,8 @@ def find_similar_entries(
 
     matches = []
     for entry in candidates:
+        if subject and entry.get("subject") and entry["subject"].strip().lower() != subject.strip().lower():
+            continue
         existing_kws = _extract_keywords(entry["observation"])
         if not existing_kws:
             continue

@@ -1,6 +1,6 @@
 # test_category_attribution.py
 # date created: 2026-09-06 08:58:00
-# date modified: 2026-09-29 20:55:44
+# date modified: 2026-10-13 00:43:42
 # tags: #tests, #fast-memory, #category-attribution, #temporal-grounding
 
 import re
@@ -179,6 +179,93 @@ facts:
         self.assertEqual(m4.group(2).split()[0], "willing")
         statives = {"willing", "caring", "understanding", "pleasing"}
         self.assertIn(m4.group(2).split()[0], statives)
+
+    def test_normalize_subject_attribution_aliases_and_third_parties(self):
+        """Verify memory_db.normalize_subject_attribution normalizes aliases and reconciles third parties."""
+        from Evelyn.tools import memory_db
+
+        with patch.object(cfg, "PRIVATE_IDENTITY_NAMES", ["Jordan", "Biscuit"]):
+            # Operator alias normalization
+            self.assertEqual(memory_db.normalize_subject_attribution(cfg.USER_NAME.lower()), cfg.USER_NAME)
+            # Assistant casing
+            self.assertEqual(memory_db.normalize_subject_attribution(cfg.ASSISTANT_NAME.lower()), cfg.ASSISTANT_NAME)
+            # Third-party casing/alias
+            self.assertEqual(memory_db.normalize_subject_attribution("biscuit the cat"), "Biscuit")
+            self.assertEqual(memory_db.normalize_subject_attribution("jordan"), "Jordan")
+
+            # Reconciliation from observation when subject defaulted to user
+            obs_pet = "Biscuit prefers napping by the sunny window in the living room."
+            self.assertEqual(memory_db.normalize_subject_attribution(cfg.USER_NAME, obs_pet), "Biscuit")
+
+            obs_third = "Jordan is acclimating to online classes and personal routines."
+            self.assertEqual(memory_db.normalize_subject_attribution(cfg.USER_NAME, obs_third), "Jordan")
+
+            # Preserves user when user is the actor
+            obs_user_actor = f"{cfg.USER_NAME} helped Jordan downstairs after school."
+            self.assertEqual(memory_db.normalize_subject_attribution(cfg.USER_NAME, obs_user_actor), cfg.USER_NAME)
+
+    def test_suffix_inference_for_third_party_entities_defaults_to_user_canon(self):
+        """Verify _parse_facts_yaml assigns -U (User Canon ledger) to third-party entities rather than -A."""
+        yaml_content = """
+facts:
+  - category: "Cat01"
+    subject: "Jordan"
+    summary: "Jordan is acclimating to having greater independence."
+    confidence: "high"
+    tags: "family, routine"
+  - category: "Cat05"
+    subject: "Biscuit"
+    summary: "Biscuit the cat prefers sleeping on warm blankets."
+    confidence: "high"
+    tags: "cat, habits"
+"""
+        with patch.object(cfg, "PRIVATE_IDENTITY_NAMES", ["Jordan", "Biscuit"]):
+            facts = fact_extractor._parse_facts_yaml(yaml_content, fallback_date="2026-09-06")
+            self.assertEqual(len(facts), 2)
+            self.assertEqual(facts[0]["category"], f"Cat01-{cfg.SUBJECT_CODE_USER}")
+            self.assertEqual(facts[0]["subject"], "Jordan")
+            self.assertEqual(facts[1]["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
+            self.assertEqual(facts[1]["subject"], "Biscuit")
+
+    def test_find_similar_entries_scoped_by_subject(self):
+        """Verify memory_db.find_similar_entries prevents cross-entity suppression when subject is supplied."""
+        from Evelyn.tools import memory_db
+
+        e1 = memory_db.insert_entry(
+            category=f"Cat05-{cfg.SUBJECT_CODE_USER}",
+            subject=cfg.USER_NAME,
+            observation="Takes prescribed evening medication with a large glass of water.",
+            status="live",
+        )
+        e2 = memory_db.insert_entry(
+            category=f"Cat05-{cfg.SUBJECT_CODE_USER}",
+            subject="Jordan",
+            observation="Takes prescribed evening medication before bed.",
+            status="live",
+        )
+
+        # Without subject filter, e1 matches e2
+        all_matches = memory_db.find_similar_entries(
+            category=f"Cat05-{cfg.SUBJECT_CODE_USER}",
+            observation_text="Takes prescribed evening medication with water.",
+            min_overlap=0.80,
+            status="live",
+        )
+        matched_ids = [m["id"] for m in all_matches]
+        self.assertIn(e1, matched_ids)
+        self.assertIn(e2, matched_ids)
+
+        # With subject filter for Jordan, e1 is NOT returned
+        scoped_matches = memory_db.find_similar_entries(
+            category=f"Cat05-{cfg.SUBJECT_CODE_USER}",
+            subject="Jordan",
+            observation_text="Takes prescribed evening medication with water.",
+            min_overlap=0.80,
+            status="live",
+        )
+        scoped_ids = [m["id"] for m in scoped_matches]
+        self.assertIn(e2, scoped_ids)
+        self.assertNotIn(e1, scoped_ids)
 
 
 if __name__ == "__main__":

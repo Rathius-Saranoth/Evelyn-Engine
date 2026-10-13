@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-10-11 12:14:33
+# date modified: 2026-10-13 00:43:41
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -59,13 +59,15 @@ async def generate_split_proposal(
         "RULES:\n"
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
-        "3. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "4. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
+        "3. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation. If an entry combines multiple events or routines, split into further discrete entries.\n"
+        "4. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
+        "5. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
+        "6. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
+        "7. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
         "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). "
         "Lowercase always; hyphens join words; singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). "
         "Named entities follow the same rule — no TitleCase, no underscores. Prefer terms that already exist over inventing near-duplicates. "
-        "Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.\n"
-        "5. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n\n"
+        "Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.\n\n"
         "Output ONLY a YAML block:\n"
         "```yaml\n"
         "verdict: split   # split / atomic\n"
@@ -115,14 +117,32 @@ async def generate_split_proposal(
         return None
 
     valid_entries = []
+    max_words = getattr(cfg, "CONSOLIDATION_MERGE_MAX_WORDS", 35)
+    asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower()
+    asst_code = getattr(cfg, "SUBJECT_CODE_ASSISTANT", "A")
+    user_code = getattr(cfg, "SUBJECT_CODE_USER", "U")
+
     for item in entries_list:
         if not isinstance(item, dict):
             continue
         c_obs = str(item.get("observation", "")).strip()
         if not c_obs:
             continue
+        if len(c_obs.split()) > max_words:
+            logger.warning(
+                f"[SPLITTER] Split child observation exceeds {max_words} words ({len(c_obs.split())} words) — rejecting bloated proposal: {c_obs[:60]}..."
+            )
+            return None
+
+        c_subj = memory_db.normalize_subject_attribution(
+            str(item.get("subject", subj)).strip(), c_obs
+        )
         c_cat = str(item.get("category", cat)).strip()
-        c_subj = str(item.get("subject", subj)).strip()
+        cat_base = c_cat.split("-")[0] if "-" in c_cat else c_cat
+        expected_suffix = f"-{asst_code}" if c_subj.lower() == asst_name else f"-{user_code}"
+        if not c_cat.endswith(f"-{asst_code}") and not c_cat.endswith(f"-{user_code}"):
+            c_cat = f"{cat_base}{expected_suffix}"
+
         raw_t = str(item.get("tags", "")).strip()
         split_tags = taxonomy_db.canonicalize_tags(
             [normalize_tag_format(t) for t in raw_t.split(",") if t.strip()]
@@ -222,15 +242,20 @@ async def find_and_split_bloated_facts(
     records: list[dict[str, Any]],
     cat00: str,
     call_ollama_fn: Callable[..., Any],
-    word_threshold: int = 50,
+    word_threshold: int | None = None,
     limit: int = 3,
 ) -> int:
     """Find live entries exceeding word_threshold and propose atomic decompositions."""
+    thresh = (
+        word_threshold
+        if word_threshold is not None
+        else getattr(cfg, "CONSOLIDATION_SPLIT_WORD_THRESHOLD", 35)
+    )
     candidates = []
     for r in records:
         text = str(r.get("observation") or r.get("summary") or "").strip()
         words = len(text.split())
-        if words < word_threshold:
+        if words < thresh:
             continue
         rid = int(r["id"])
         if memory_db.has_pending_proposal_for([rid]):

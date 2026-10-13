@@ -1,6 +1,6 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-09-24 19:45:25
+# date modified: 2026-10-13 00:43:41
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
@@ -48,14 +48,17 @@ def append_context_log(
     # Normalize category
     norm_cat = validate_and_normalize_category(category_code, subject) or category_code
 
-    # Determine subject if not explicitly supplied
+    # Determine and normalize subject
     if not subject or not subject.strip():
         subject_code = norm_cat[-1].upper() if norm_cat else ""
-        subject = (
+        inferred = (
             cfg.ASSISTANT_NAME
             if subject_code == cfg.SUBJECT_CODE_ASSISTANT
-            else (cfg.USER_NAME if subject_code == cfg.SUBJECT_CODE_USER else "Unknown")
+            else cfg.USER_NAME
         )
+        subject = memory_db.normalize_subject_attribution(inferred, summary)
+    else:
+        subject = memory_db.normalize_subject_attribution(subject, summary)
 
     # Clean and combine tags / secondary categories.
     # Everything is put through the canonical normaliser (taxonomy §5) before storage.

@@ -1,6 +1,6 @@
 # test_memory_tag_backfill.py
 # date created: 2026-09-24
-# date modified: 2026-09-26 07:45:55
+# date modified: 2026-10-13 00:43:42
 # tags: #memory, #taxonomy, #backfill, #testing
 
 """The memory half of the 000.006.187 tag reset (B3).
@@ -16,6 +16,7 @@ stamped by every merge, so sharing it would have the two passes resetting each o
 
 import pytest
 
+import evelyn_config as cfg
 from Evelyn.tools import memory_db, tag_librarian, taxonomy_db
 
 
@@ -25,6 +26,8 @@ def vocabulary(monkeypatch: pytest.MonkeyPatch) -> None:
         taxonomy_db.upsert_master_tag(term, category="domestic-life")
     taxonomy_db.invalidate_alias_cache()
     monkeypatch.setattr(tag_librarian, "index_master_tag_in_chroma", lambda *a, **k: None)
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 1)
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", False)
 
 
 def _fact(observation: str, tags: str | None = None) -> int:

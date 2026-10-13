@@ -1,6 +1,6 @@
 # grounding_auditor.py
 # date created: 2026-09-14
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-10-13 00:43:41
 # tags: #memory, #auditor, #grounding, #pronouns, #review_queue
 
 """
@@ -257,28 +257,51 @@ def detect_grounding_issues(
                     f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
                     f"Corrected subject to '{user_name}' and grounded text."
                 )
-            elif matched_pronoun in ("She ", "Her ") and subj == user_name and is_assistant_canon:
+            elif matched_pronoun in ("She ", "Her ") and subj == user_name:
                 issue_type = "contradiction_pronoun_subject"
-                suggested_subject = assistant_name
                 remainder = obs[len(matched_pronoun):]
-                grounded_obs = (
-                    f"{assistant_name} {remainder}"
-                    if matched_pronoun == "She "
-                    else f"{assistant_name}'s {remainder}"
-                )
-                reason = (
-                    f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
-                    f"Corrected subject to '{assistant_name}' and grounded text."
-                )
+                if is_assistant_canon:
+                    suggested_subject = assistant_name
+                    grounded_obs = (
+                        f"{assistant_name} {remainder}"
+                        if matched_pronoun == "She "
+                        else f"{assistant_name}'s {remainder}"
+                    )
+                    reason = (
+                        f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
+                        f"Corrected subject to '{assistant_name}' and grounded text."
+                    )
+                else:
+                    # In User canon (-U), user is male; female pronoun refers to a third party or assistant
+                    third_party = memory_db.normalize_subject_attribution("", obs)
+                    if third_party and third_party.lower() != user_name.lower():
+                        suggested_subject = third_party
+                        grounded_obs = (
+                            f"{third_party} {remainder}"
+                            if matched_pronoun == "She "
+                            else f"{third_party}'s {remainder}"
+                        )
+                        reason = (
+                            f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
+                            f"Reconciled third-party subject to '{third_party}' and grounded text."
+                        )
+                    else:
+                        grounded_obs = None
+                        reason = (
+                            f"Observation refers to '{matched_pronoun.strip()}', but subject is '{user_name}'. "
+                            "Referent entity cannot be determined automatically without chat context."
+                        )
             else:
                 # Floating pronoun matching the subject column
-                issue_type = "floating_pronoun"
                 remainder = obs[len(matched_pronoun):]
-                target_name = subj if subj not in ("Unknown", "") else (user_name if is_user_canon else assistant_name)
+                target_name = memory_db.normalize_subject_attribution(
+                    subj if subj not in ("Unknown", "") else (user_name if is_user_canon else assistant_name),
+                    obs,
+                )
+                suggested_subject = target_name
+                issue_type = "floating_pronoun"
                 if matched_pronoun in ("He ", "She ", "They "):
                     grounded_obs = f"{target_name} {remainder}"
-                elif matched_pronoun in ("His ", "Her "):
-                    grounded_obs = f"{target_name}'s {remainder}"
                 else:
                     grounded_obs = f"{target_name}'s {remainder}"
                 reason = f"Grounded floating pronoun '{matched_pronoun.strip()}' with explicit noun '{target_name}'."
@@ -288,7 +311,10 @@ def detect_grounding_issues(
             for v_start in _COMMON_BARE_VERBS:
                 if obs.startswith(v_start):
                     issue_type = "bare_verb"
-                    target_name = subj if subj not in ("Unknown", "") else (user_name if is_user_canon else assistant_name)
+                    fallback = user_name if is_user_canon else assistant_name
+                    raw_target = subj if subj not in ("Unknown", "") else fallback
+                    target_name = memory_db.normalize_subject_attribution(raw_target, obs)
+                    suggested_subject = target_name
                     # Lowercase first character of verb if needed
                     v_rest = obs[0].lower() + obs[1:]
                     grounded_obs = f"{target_name} {v_rest}"

@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-11 12:14:33
+# date modified: 2026-10-13 00:43:41
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -603,6 +603,28 @@ RAG_REFORMULATE_TIMEOUT = 10  # Seconds before falling back to raw message
 # continuous excerpt before XML envelope formatting, eliminating redundant chunk headers.
 RAG_FUSE_CONTIGUOUS_CHUNKS = True
 
+# --- Temporal Recency Decay for Memory Retrieval ---
+# When True, re-ranks retrieved memory chunks by blending semantic cosine distance
+# with exponential half-life recency decay based on the entry's date or last observation.
+# Recent observations float to the top; outdated facts are penalized without being deleted.
+RAG_TEMPORAL_DECAY_ENABLED = _env_flag("RAG_TEMPORAL_DECAY_ENABLED", True)
+RAG_RECENCY_WEIGHT = 0.35  # Recency weighting factor (0.0 = pure vector distance, 1.0 = strong decay)
+
+# Category-specific half-life in days. Ephemeral states/routines decay quickly;
+# identity principles decay slowly; life events and system protocols do not decay (0 = infinite).
+RAG_CATEGORY_HALF_LIFE_DAYS: dict[str, int] = {
+    "Cat01": 30,   # Physical State / Health (ephemeral)
+    "Cat02": 30,   # Mood / Energy (ephemeral)
+    "Cat05": 75,   # Routines, Habits & Daily Preferences (adaptive state)
+    "Cat06": 120,  # Assistant Persona, Perception & Dynamics
+    "Cat07": 120,  # Interaction Patterns & Conversational Rapport
+    "Cat04": 365,  # Core Principles, Identity & Boundaries (stable traits)
+    "Cat03": 365,  # Family, Background & Social Circles (stable)
+    "Cat10": 0,    # Major Life Events & Personal History (0 = infinite / no decay)
+    "Cat13": 0,    # System, Cognitive Architecture & Meta Protocols (0 = infinite)
+    "Cat14": 180,  # Environment, Workspaces & Hardware (semi-stable)
+}
+
 # =============================================================================
 # Entry Management
 # =============================================================================
@@ -840,8 +862,9 @@ CONSOLIDATION_INCLUDE_EXTRACTED = True
 
 # True  — Preserve fact evolution in merged summaries
 #         (e.g., "Previously disliked apples [2020]; now likes them [2022].")
-# False — Overwrite: keep only the most recent fact, discard older versions.
-CONSOLIDATION_KEEP_HISTORY = True
+# False — Atomic: keep only the most recent fact, discard older versions.
+#         Prevents bloating entries into compound timeline essays.
+CONSOLIDATION_KEEP_HISTORY = False
 
 # Seconds of server inactivity before consolidation is allowed to run.
 # Default: 15 minutes (900s) so it never interrupts active conversations.
@@ -877,12 +900,19 @@ CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
 # Flags single context entries exceeding this word count or containing multiple
 # distinct domain predicates for atomic decomposition.
 CONSOLIDATION_SPLIT_ENABLED = True
-CONSOLIDATION_SPLIT_WORD_THRESHOLD = 50
+CONSOLIDATION_SPLIT_WORD_THRESHOLD = 35
 
 # Semantic merges combine nuanced domain facts. By default, write all semantic
 # consolidation proposals to the review queue ('pending') rather than auto-applying
 # them silently, preventing uncontrolled compound fact bloat.
 CONSOLIDATION_AUTO_APPLY_MERGES = _env_flag("CONSOLIDATION_AUTO_APPLY_MERGES", False)
+
+# Hard cap on word length of any proposed merge observation. If the model produces
+# an observation exceeding this word count, it is automatically rejected as bloat.
+CONSOLIDATION_MERGE_MAX_WORDS = 35
+
+# Minimum token Jaccard overlap required to cluster nearest neighbors for merge evaluation.
+CONSOLIDATION_JACCARD_MIN_OVERLAP = 0.50
 
 # Per-cluster LLM call timeout (seconds). Consolidation uses think=True
 # for proposal generation — allow generous headroom for reasoning traces.
@@ -891,8 +921,10 @@ CONSOLIDATION_TIMEOUT = 180
 
 # Semantic vector cosine distance threshold for pre-filtering comparison candidates.
 # Entries with distance > this value are deemed semantically distinct and skipped
-# before invoking the LLM detection prompt.
-CONSOLIDATION_VECTOR_PREFILTER_DISTANCE = 0.55
+# before invoking the LLM detection prompt. Tightened from 0.55 to 0.25 to prevent
+# merging merely topically-adjacent observations.
+CONSOLIDATION_VECTOR_PREFILTER_DISTANCE = 0.25
+
 
 
 # =============================================================================

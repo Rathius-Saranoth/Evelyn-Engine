@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-10-11 12:14:33
+# date modified: 2026-10-13 00:43:41
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -63,7 +63,7 @@ TASK:
    - 'keep_both' (entries are genuinely distinct specific facts, events, or observations that MUST remain separate).
 4. THE EVENT EXCEPTION: If the entries represent discrete events, moods, or occurrences tied to different dates (State-Data vs Time-Series Data), they are a historical log. You MUST choose 'keep_both'.
 5. If verdict is 'keep_both', set merged_summary to an empty string.
-6. DATA PRESERVATION & ATOMICITY RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining the entries produces a bloated run-on sentence with multiple distinct domain predicates or clauses across different dates, or if combining them causes a loss of specific detail, you MUST choose 'keep_both'.
+6. ATOMICITY & LENGTH CEILING RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST remain an atomic, single-predicate observation of at most 30 words. If combining the entries requires multiple distinct clauses, predicates, or exceeds 35 words, or if combining them loses specific detail, you MUST choose 'keep_both'. Never construct a compound paragraph or chronological essay.
 7. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Format `merged_tags` as flat subject terms combined at retrieval time, not a tree — `coffee, routine`, never `home/coffee/espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). Lowercase always, hyphens joining words; never TitleCase or underscores. Singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). Named individuals are not tags at all. Prefer terms that already appear on the source entries over inventing new ones. Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.
 8. EXPLICIT NOUN SUBJECT MANDATE: The `merged_summary` MUST explicitly state the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn observes...', 'Biscuit the cat acts as...', 'Jordan is acclimating...'). NEVER begin the summary with a subject-less verb (e.g. 'Enjoys...', 'Prefers...', 'Acts as...') and NEVER use ambiguous floating pronouns ('He', 'She', 'They') as the primary subject referent. If one entity is observing or commenting on another, explicitly name BOTH entities in the text (e.g. 'Evelyn observes that Alex values clarity...').
 {cat_ref}
@@ -370,10 +370,11 @@ def find_deduplication_candidates(
                 )
                 continue
 
-            # Check lexical Jaccard as confirmation if distance is on the border
+            # Check lexical Jaccard as confirmation: require strong token overlap
             n_obs = str(entry.get("observation") or "").strip()
             jaccard = calculate_token_jaccard(anchor_obs, n_obs)
-            if jaccard >= 0.15 or len(matched_entry_ids) == 1:
+            min_jaccard = getattr(cfg, "CONSOLIDATION_JACCARD_MIN_OVERLAP", 0.50)
+            if jaccard >= min_jaccard:
                 cluster_records.append(entry)
                 audited_ids.add(nid)
 
@@ -499,6 +500,13 @@ async def generate_consolidation_proposal(
         return None
 
     merged_summary = proposal_data["merged_summary"]
+    max_words = getattr(cfg, "CONSOLIDATION_MERGE_MAX_WORDS", 35)
+    if len(merged_summary.split()) > max_words:
+        logger.info(
+            f"[DEDUPLICATOR] Rejecting proposed merge ({len(merged_summary.split())} words > {max_words} word cap): bloat protection."
+        )
+        return None
+
     merged_tags = proposal_data.get("merged_tags")
     target_cat = proposal_data.get("target_category", category)
     confidence = proposal_data.get("confidence", "medium")

@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-08 19:23:58
+date modified: 2026-10-13 00:43:58
 ---
 # Evelyn Project Roadmap
 
@@ -31,6 +31,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Memory Management Tools**: Implemented journal writing/reading, context fact extraction, and background consolidation pipelines.
 - [x] **Fast Memory Attribution & Temporal Grounding**: Decoupled category canon codes from referent subjects for cross-perspective attribution, and integrated strict temporal grounding in memory extraction and RAG XML envelopes.
 - [x] **Modular Fact Consolidation & Subject Grounding Architecture**: Modularized fact consolidation into deduplication, anti-hysteresis categorization, and decomposition engines with soft-delete provenance lineage, explicit noun subject mandates, and non-destructive review-gated subject grounding with on-demand ephemeral source chat context.
+- [x] **Temporal RAG Filtering & Cross-Entity Memory Isolation**: Integrated recency-aware temporal scoring (exponential time decay + frequency boosting) in vector RAG to replace destructive fact merges, hardened atomic extraction and decomposition ceilings ($\le 35$ words), and isolated third-party entity attribution from operator persona.
 - [x] **Faceted Vault Taxonomy Standard**: Authored a governing post-coordinate classification standard (`.agents/rules/vault-tag-taxonomy.md`) grounded in ANSI/NISO Z39.19, ISO 25964 and DCMI application profiles, covering facet axes, format rules, authority control, literary warrant and admission criteria for the unified vault and memory vocabulary.
 - [x] **Generated-Vocabulary Reset**: Cleared the entire inherited tag corpus — registry, equivalence table and every assignment across both substrates — after establishing that the vocabulary had been produced by the same pipeline it was meant to correct, making each successive repair a refinement of its predecessor's errors. Prior state preserved in per-document manifests and pre-migration snapshots.
 - [x] **Controlled-Vocabulary Matching Layer**: Rebuilt subject reconciliation as a deterministic cascade with exact and near-exact lexical lookups, splitting of post-coordinate compound phrases, and dense vector fallback gated by explicit margin-guard abstain decisions.
