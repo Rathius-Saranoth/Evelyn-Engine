@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-13 01:01:50
+# date modified: 2026-10-13 01:27:54
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -40,7 +40,7 @@ import httpx
 import yaml
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import backlog_drainer, chroma_rag, memory_db, taxonomy_db
+from Evelyn.tools import backlog_drainer, chroma_rag, memory_db, string_utils, taxonomy_db
 from Evelyn.tools.tag_librarian import (
     is_excluded_tag,
     is_umbrella_term,
@@ -791,9 +791,10 @@ def _build_extraction_prompt(
         "   - NEVER begin a summary with a subject-less verb (e.g. Do NOT write 'Enjoys...', 'Prefers...', 'Acts as...', 'Has a...').\n"
         f"   - ALWAYS explicitly name the subject and actor at the beginning of the observation (e.g. Write '{cfg.USER_NAME} prefers...', '{cfg.ASSISTANT_NAME} observes...', '{cfg.EXAMPLE_PET_NAME} the cat acts as...', '{cfg.EXAMPLE_THIRD_PARTY_NAME} enjoys...').\n"
         f"   - If one entity is observing, feeling, or commenting on another entity, explicitly name BOTH entities in the text (e.g. '{cfg.ASSISTANT_NAME} observes that {cfg.USER_NAME} values clarity...', '{cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating...').\n"
-        "3. TEMPORAL GROUNDING & HISTORICAL ANCHORING:\n"
-        "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately').\n"
-        f"   - Anchor time-bound events, temporary states, or plans to the specific date discussed: (e.g. Write 'On 2025-10-25, {cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} was planning to visit' instead of '{cfg.EXAMPLE_THIRD_PARTY_NAME} will be coming over soon'; write 'Troubleshot a monitor outage on 2026-05-07' instead of '{cfg.USER_NAME} is currently troubleshooting...').\n"
+        "3. TEMPORAL GROUNDING & HISTORICAL ANCHORING (METADATA SEPARATION):\n"
+        "   - The observation date is recorded in entry metadata ('date' field) and RAG XML envelopes (<memory_entry date=\"...\">).\n"
+        f"   - DO NOT prefix observations with redundant date markers like 'As of YYYY-MM-DD,' or 'On YYYY-MM-DD,'. State the observation directly with an explicit subject (e.g. write '{cfg.USER_NAME} troubleshot a monitor outage' instead of 'On 2026-05-07, {cfg.USER_NAME} troubleshot a monitor outage').\n"
+        "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately'). Use simple past or enduring present tense.\n"
         f"   - If an observation represents an enduring preference or trait, state it as a lasting fact naming the subject (e.g. '{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk').\n"
         "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS WITH STRICT ATOMICITY & CONCISE LENGTH CEILING: "
         "Each observation must be a single, discrete, atomic fact (MAXIMUM 35 WORDS). "
@@ -922,6 +923,7 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         if summ is None:
             print("[EXTRACTOR] Skipping fact — failed sanitization check.", flush=True)
             continue
+        summ = string_utils.strip_redundant_date_anchors(summ)
         conf = str(item.get("confidence", "medium")).strip().lower()
         raw_date = str(item.get("date", "")).strip()
 

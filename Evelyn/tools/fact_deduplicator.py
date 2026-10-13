@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-10-13 00:43:41
+# date modified: 2026-10-13 01:26:46
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -461,10 +461,9 @@ async def generate_consolidation_proposal(
         )
 
     history_instruction = (
-        "Preserve the evolution of the fact in the merged summary "
-        "(e.g., 'Previously X as of [date], now Y as of [date]')."
+        "Synthesize a concise, unified summary capturing current and durable traits without embedding mechanical 'as of [date]' markers."
         if keep_history
-        else "Use only the most recent fact in the merged summary; discard older versions."
+        else "Use only the most recent fact in the merged summary; discard older versions without embedding mechanical 'as of [date]' markers."
     )
 
     cat_ref = f"\n\nCATEGORY REFERENCE:\n{cat00}" if cat00 else ""

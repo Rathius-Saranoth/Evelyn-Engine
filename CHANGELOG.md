@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-13 01:01:49
+date modified: 2026-10-13 01:28:34
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.036] - 2026-10-13 — *Redundant Temporal Anchor Stripping & Discrete Multi-Date Split Enqueueing*
+
+### Added
+
+- **Canonical Date Anchor Stripping Utility (`Evelyn/tools/string_utils.py`)**:
+  - Authored `strip_redundant_date_anchors(text: str) -> str` to eliminate mechanical date anchors (`As of YYYY-MM-DD`, `On YYYY-MM-DD`, `(as of YYYY-MM-DD)`, and mid-sentence/trailing date prefixes) from context observations.
+  - Automatically capitalizes following tokens and normalizes punctuation to ensure grammatical flow without altering historical metadata tracking.
+
+### Fixed
+
+- **Mechanical Date Anchor Clutter Across Ingestion Pipelines (`Evelyn/tools/fact_extractor.py`, `Evelyn/tools/fact_splitter.py`, `Evelyn/tools/fact_deduplicator.py`, `evelyn_server.py`)**:
+  - Hardened `_build_extraction_prompt` with strict directives forbidding mechanical date prefixes within observations, ensuring timestamps remain cleanly separated into metadata columns and RAG XML envelopes.
+  - Updated `fact_splitter.py` prompts and child observation sanitization to strip redundant date markers from proposed split units.
+  - Aligned `fact_deduplicator.py` instructions to prevent historical merge passes from synthesizing mechanical date clauses.
+  - Updated server interactive split endpoint (`preview_context_split`) to enforce date anchor stripping on proposed children.
+- **Database Remediation of Single-Date and Multi-Date Entries**:
+  - Executed safe SQLite update and Chroma enqueueing across 732 single-date active observations to remove mechanical date noise while preserving metadata and vector search parity.
+  - Enqueued 73 compound multi-date observations into `split_queue` for atomic decomposition into discrete temporal observations or duration intervals.
 
 ## [000.008.035] - 2026-10-13 — *Standalone Memory Vacuum Principle & Coreference Resolution in Fact Splitting*
 

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-13 01:01:49
+# date modified: 2026-10-13 01:28:34
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.035"
-__version_info__ = (0, 8, 35)
-__version_name__ = "Standalone Memory Vacuum Principle & Coreference Resolution in Fact Splitting"
+__version__ = "000.008.036"
+__version_info__ = (0, 8, 36)
+__version_name__ = "Redundant Temporal Anchor Stripping & Discrete Multi-Date Split Enqueueing"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

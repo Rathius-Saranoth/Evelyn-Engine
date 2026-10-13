@@ -1,6 +1,6 @@
 # test_category_attribution.py
 # date created: 2026-09-06 08:58:00
-# date modified: 2026-10-13 00:43:42
+# date modified: 2026-10-13 01:27:54
 # tags: #tests, #fast-memory, #category-attribution, #temporal-grounding
 
 import re
@@ -83,6 +83,7 @@ facts:
         self.assertIn("TEMPORAL GROUNDING & HISTORICAL ANCHORING", prompt)
         self.assertIn("NEVER use unanchored floating temporal adverbs", prompt)
         self.assertIn("currently", prompt)
+        self.assertIn("DO NOT prefix observations with redundant date markers", prompt)
 
     def test_chroma_rag_xml_envelope_attributes(self):
         """Verify build_enhanced_context_chunk renders category, subject, and date on memory_entry tags."""

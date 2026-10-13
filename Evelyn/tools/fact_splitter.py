@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-10-13 01:01:50
+# date modified: 2026-10-13 01:26:46
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -61,10 +61,11 @@ async def generate_split_proposal(
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
         "3. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation. If an entry combines multiple events or routines, split into further discrete entries.\n"
         "4. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{getattr(cfg, 'USER_NAME', 'Alex')} loved the pointed ears and small nose in {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}\\'s imagery', NEVER '{getattr(cfg, 'USER_NAME', 'Alex')} loved these traits').\n"
-        "5. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "6. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
-        "7. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
-        "8. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
+        "5. STRIP MECHANICAL DATE ANCHORS: The date is tracked in entry metadata and RAG envelopes. NEVER prefix child observations with 'As of YYYY-MM-DD,' or 'On YYYY-MM-DD,'. If an entry documents an evolution across dates (e.g. 'Previously X as of [date1], now Y as of [date2]'), split them into distinct atomic facts and state each observation directly (e.g. '{getattr(cfg, 'USER_NAME', 'Alex')} was planning...' instead of 'As of 2026-04-18, {getattr(cfg, 'USER_NAME', 'Alex')} was planning...').\n"
+        "6. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
+        "7. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
+        "8. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
+        "9. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
         "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). "
         "Lowercase always; hyphens join words; singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). "
         "Named entities follow the same rule — no TitleCase, no underscores. Prefer terms that already exist over inventing near-duplicates. "
@@ -130,7 +131,7 @@ async def generate_split_proposal(
     for item in entries_list:
         if not isinstance(item, dict):
             continue
-        c_obs = str(item.get("observation", "")).strip()
+        c_obs = string_utils.strip_redundant_date_anchors(str(item.get("observation", "")).strip())
         if not c_obs:
             continue
         if len(c_obs.split()) > max_words:

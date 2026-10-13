@@ -1,6 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-10-13 01:01:50
+# date modified: 2026-10-13 01:26:46
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import sys
@@ -247,6 +247,35 @@ entries:
         good_obs2 = "Evelyn incorporates delicately pointed ears and a small nose into her physical profile."
         ok, _ = string_utils.check_standalone_context(good_obs2)
         self.assertTrue(ok)
+
+    def test_strip_redundant_date_anchors(self):
+        """Verify strip_redundant_date_anchors cleanly removes mechanical date markers."""
+        from Evelyn.tools import string_utils
+
+        # Leading 'As of YYYY-MM-DD, '
+        obs1 = "As of 2026-05-14, Alex was working on a tool called 'the consolidator'."
+        cleaned1 = string_utils.strip_redundant_date_anchors(obs1)
+        self.assertEqual(cleaned1, "Alex was working on a tool called 'the consolidator'.")
+
+        # Leading 'On YYYY-MM-DD, '
+        obs2 = "On 2025-10-25, Alex troubleshot a monitor outage."
+        cleaned2 = string_utils.strip_redundant_date_anchors(obs2)
+        self.assertEqual(cleaned2, "Alex troubleshot a monitor outage.")
+
+        # Parenthetical '(as of YYYY-MM-DD)'
+        obs3 = "Previously sought meticulous care and technical refinement (as of 2026-04-20), evolving over time."
+        cleaned3 = string_utils.strip_redundant_date_anchors(obs3)
+        self.assertEqual(cleaned3, "Previously sought meticulous care and technical refinement, evolving over time.")
+
+        # Trailing 'as of YYYY-MM-DD'
+        obs4 = "Alex has a pet, who has been described as demanding lately as of 2026-04-07."
+        cleaned4 = string_utils.strip_redundant_date_anchors(obs4)
+        self.assertEqual(cleaned4, "Alex has a pet, who has been described as demanding lately.")
+
+        # Mid-sentence '; as of YYYY-MM-DD, '
+        obs5 = "Alex's goal is to learn theory; as of 2026-04-13, he is pursuing a course."
+        cleaned5 = string_utils.strip_redundant_date_anchors(obs5)
+        self.assertEqual(cleaned5, "Alex's goal is to learn theory; he is pursuing a course.")
 
     def test_split_proposal_rejects_dangling_anaphora(self):
         """Verify fact_splitter rejects proposals where a child observation fails the vacuum test."""

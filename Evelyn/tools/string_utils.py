@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-10-13 01:01:49
+# date modified: 2026-10-13 01:26:46
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -35,6 +35,7 @@ Exports:
     calculate_token_fuzzy_score() — Token-aligned fuzzy similarity with numerical discrepancy guards.
     sanitize_tool_input_text() — Sanitizes, strips HTML/fences, and bounds inbound tool text arguments.
     check_standalone_context() — Evaluates observation for standalone self-containment (vacuum test).
+    strip_redundant_date_anchors() — Strips redundant 'As of <date>' mechanical prefixes and parentheticals.
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -1258,5 +1259,50 @@ def check_standalone_context(observation: str) -> tuple[bool, str]:
         return False, f"Dangling demonstrative subject '{m3.group(0)}'"
 
     return True, ""
+
+
+def strip_redundant_date_anchors(text: str) -> str:
+    """Strip redundant 'As of <date>' and similar mechanical date markers from an observation.
+
+    Dates are tracked canonically in entry metadata ('date' column) and RAG XML envelopes
+    (<memory_entry date="...">). Inlining mechanical date markers directly into the observation
+    text consumes token budget, clutters conversational RAG, and duplicates metadata.
+
+    Args:
+        text: Raw observation text.
+
+    Returns:
+        Cleaned observation text with date markers stripped and grammar normalized.
+    """
+    if not text:
+        return ""
+    s = text.strip()
+
+    # 1. Parenthetical (as of YYYY-MM-DD) or (on YYYY-MM-DD)
+    s = re.sub(r"\s*\((?:as of|on)\s+\d{4}-\d{2}-\d{2}\)", "", s, flags=re.IGNORECASE)
+
+    # 2. Leading 'As of YYYY-MM-DD, ' or 'On YYYY-MM-DD, '
+    m_lead = re.match(r"^(?:As of|On)\s+\d{4}-\d{2}-\d{2},?\s*(.*)", s, flags=re.IGNORECASE)
+    if m_lead:
+        rest = m_lead.group(1).strip()
+        if rest:
+            s = rest[0].upper() + rest[1:]
+
+    # 3. Mid-sentence '; as of YYYY-MM-DD, ' -> '; '
+    s = re.sub(r";\s*as of \d{4}-\d{2}-\d{2},?\s*", "; ", s, flags=re.IGNORECASE)
+
+    # 4. Mid-sentence ', but as of YYYY-MM-DD, ' -> ', but '
+    s = re.sub(r",\s*but as of \d{4}-\d{2}-\d{2},?\s*", ", but ", s, flags=re.IGNORECASE)
+
+    # 5. Mid-sentence ' as of YYYY-MM-DD is/was/are/were ' -> ' is/was/are/were '
+    s = re.sub(r"\s+as of \d{4}-\d{2}-\d{2}\s+(is|was|are|were)\b", r" \1", s, flags=re.IGNORECASE)
+
+    # 6. Trailing ', as of YYYY-MM-DD.' -> '.'
+    s = re.sub(r",?\s*as of \d{4}-\d{2}-\d{2}(\.?)$", r"\1", s, flags=re.IGNORECASE)
+
+    # Clean up duplicate spaces or comma-period artifacts
+    s = re.sub(r"\s*,\s*\.", ".", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
 
 

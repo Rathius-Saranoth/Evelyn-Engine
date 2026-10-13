@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-13 01:01:50
+# date modified: 2026-10-13 01:26:46
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8183,15 +8183,16 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         "1. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation.\n"
         "2. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{cfg.USER_NAME} loved the pointed ears and small nose in {cfg.ASSISTANT_NAME}\\'s imagery', NEVER '{cfg.USER_NAME} loved these traits').\n"
         f"3. ACCURATE ENTITY SUBJECT ATTRIBUTION & NOUN GROUNDING: Explicitly name the subject/actor by name at the beginning. If an observation describes a third-party entity (family, friend, pet), assign 'subject' to that entity name and use suffix -{cfg.SUBJECT_CODE_USER} for User ledger.\n"
-        "4. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "5. CONTROLLED VOCABULARY TAGS: Assign flat subject terms for each split item (e.g. "
+        "4. STRIP MECHANICAL DATE ANCHORS: The date is tracked in entry metadata. NEVER prefix child observations with 'As of YYYY-MM-DD,' or 'On YYYY-MM-DD,'. State observations directly.\n"
+        "5. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
+        "6. CONTROLLED VOCABULARY TAGS: Assign flat subject terms for each split item (e.g. "
         "`python, automation`, `coffee, routine`). They are combined at retrieval time, so a "
         "hierarchy built into the tag only fragments it. Lowercase, hyphens join words, and "
         "named entities follow the same rule — no TitleCase, no underscores. Name the "
         "specific subject, never the container: `work`, `home`, `tools`, `pets`, `system` "
         "and the like are folder headings a flat vocabulary removes and narrow nothing. "
         "Write `firewall` not `work`, `cat` not `pets`.\n"
-        f"6. Assign the most fitting Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} code for each split entry.\n\n"
+        f"7. Assign the most fitting Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} code for each split entry.\n\n"
         "Output ONLY a fenced YAML block:\n"
         "```yaml\n"
         "entries:\n"
@@ -8241,7 +8242,7 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
     for item in entries_list:
         if not isinstance(item, dict):
             continue
-        c_obs = str(item.get("observation", "")).strip()
+        c_obs = string_utils.strip_redundant_date_anchors(str(item.get("observation", "")).strip())
         if not c_obs:
             continue
         c_subj = memory_db.normalize_subject_attribution(
