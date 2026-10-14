@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-13 21:58:07
+date modified: 2026-10-14 01:21:59
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.038] - 2026-10-14 — *Seamless Agentic Multi-Round Response Continuation*
+
+### Added
+
+- **Seamless Multi-Round Continuation Architecture (`evelyn_server.py`)**:
+  - Preserved pre-tool conversational content (`round_content`) in the assistant turn passed to subsequent tool synthesis rounds rather than resetting it to an empty string.
+  - Dynamically injected a continuation directive (`<tool_synthesis>` with `CRITICAL CONTINUATION DIRECTIVE`) informing the model of what it already stated to the user and directing it to resume seamlessly from that exact stopping point without repeating or restarting its opening.
+  - Automatically injected paragraph/whitespace delimiters (`\n\n` or ` `) between rounds as necessary so subsequent stream chunks and final messages flow naturally.
+  - Assembled `final_content` in `_agentic_stream_loop` across all rounds so persisted SQLite messages and frontend history match the exact unified stream without missing opening paragraphs or duplicate restarts.
+  - Retired speculative `quarantine_preamble` event emission to align the backend agentic pipeline with unified single-message streaming.
+- **Unit Test Coverage (`Evelyn/tests/test_agentic_stream.py`)**:
+  - Updated `test_03_seamless_multi_round_continuation` to verify that pre-tool conversational content is preserved in the assistant message history, continuation directives are injected, and final assembled content combines both rounds seamlessly.
 
 ## [000.008.037] - 2026-10-13 — *Balanced Temporal Grounding & Intrinsic Milestone Date Safeguarding*
 

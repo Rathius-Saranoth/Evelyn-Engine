@@ -1,6 +1,6 @@
 # test_agentic_stream.py
 # date created: 2026-08-27 09:35:00
-# date modified: 2026-09-12 11:58:29
+# date modified: 2026-10-14 01:21:59
 # tags: #test, #streaming, #agentic, #unified_stream, #v000_006_000
 
 import json
@@ -124,10 +124,10 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(state["metrics"]["eval_count"], 55)  # 30 + 25
             self.assertEqual(state["metrics"]["prompt_eval_count"], 550)  # 200 + 350
 
-    async def test_03_preamble_quarantining(self):
-        """Verify pre-tool conversational preamble text in Round 1 is quarantined."""
+    async def test_03_seamless_multi_round_continuation(self):
+        """Verify pre-tool conversational content in Round 1 is preserved and continued seamlessly."""
         round_1_chunks = [
-            json.dumps({"message": {"content": "Checking the system files for you now..."}}),
+            json.dumps({"message": {"content": "Checking the system files for you now."}}),
             json.dumps({
                 "message": {
                     "content": "",
@@ -148,10 +148,13 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
         ]
 
         call_count = 0
+        captured_round_2_msgs = []
 
         async def mock_stream(msgs, tools=None, think_effort=None):
             nonlocal call_count
             call_count += 1
+            if call_count == 2:
+                captured_round_2_msgs.extend([dict(m) for m in msgs])
             chunks = round_1_chunks if call_count == 1 else round_2_chunks
             for c in chunks:
                 yield c
@@ -165,13 +168,18 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
             ]
 
             events = [e for e in events if e.get("type") != "heartbeat"]
-            quarantine_events = [e for e in events if e.get("type") == "quarantine_preamble"]
-            self.assertTrue(len(quarantine_events) > 0)
-            self.assertIn("Checking the system files", quarantine_events[0]["text"])
 
+            # Assistant turn in Round 2 history must preserve Round 1 conversational content
+            asst_turn = next(m for m in captured_round_2_msgs if m.get("role") == "assistant")
+            self.assertEqual(asst_turn["content"], "Checking the system files for you now.")
+
+            # Continuation directive should be injected in Round 2
+            directive_turn = next(m for m in captured_round_2_msgs if m.get("role") == "system" and "<tool_synthesis" in m.get("content", ""))
+            self.assertIn("CRITICAL CONTINUATION DIRECTIVE", directive_turn["content"])
+
+            # Final content must cleanly combine Round 1 opening and Round 2 continuation
             state = events[-1]
-            # Final content should ONLY be the synthesis from round 2
-            self.assertEqual(state["content"], "Found 1 matching note in the vault.")
+            self.assertEqual(state["content"], "Checking the system files for you now.\n\nFound 1 matching note in the vault.")
 
     async def test_04_tool_error_resilience(self):
         """Verify tool exceptions are safely caught and fed back to the model without crashing."""

@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-13 21:56:05
+# date modified: 2026-10-14 01:21:59
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1386,6 +1386,7 @@ async def _agentic_stream_loop(
         str: SSE formatted JSON event lines.
     """
     accumulated_thinking = ""
+    accumulated_content = ""
     final_content = ""
     tools_used_list = []
     tool_metadata_list = []
@@ -1547,6 +1548,15 @@ async def _agentic_stream_loop(
                         if cleaned != text_delta:
                             dlog(f"Stripped leaked model token(s) from content delta in round {round_num}")
                         if cleaned:
+                            if (
+                                accumulated_content
+                                and not round_content
+                                and not accumulated_content.endswith(("\n", " "))
+                                and not cleaned.startswith(("\n", " "))
+                            ):
+                                sep = "\n\n" if accumulated_content.rstrip().endswith((".", "!", "?")) else " "
+                                accumulated_content += sep
+                                yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': sep})}\n\n"
                             round_content += cleaned
                             yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': cleaned})}\n\n"
 
@@ -1576,11 +1586,6 @@ async def _agentic_stream_loop(
         if round_tool_calls:
             dlog(f"Round {round_num}: model emitted {len(round_tool_calls)} tool call(s)")
 
-            # Preamble Quarantine: If text was streamed before/with tool calls,
-            # emit quarantine notification so UI doesn't render it in the response body
-            if round_content.strip():
-                yield f"data: {json.dumps({'type': 'quarantine_preamble', 'round': round_num, 'text': round_content})}\n\n"
-
             if round_thinking.strip():
                 accumulated_thinking += f"{round_thinking.strip()}\n\n"
 
@@ -1592,14 +1597,16 @@ async def _agentic_stream_loop(
             }
             round_records.append(round_record)
 
-            # Append assistant turn with tool calls
+            # Append assistant turn with tool calls, preserving any spoken conversational content
             msgs.append(
                 {
                     "role": "assistant",
-                    "content": "",
+                    "content": round_content,
                     "tool_calls": round_tool_calls,
                 }
             )
+            if round_content:
+                accumulated_content += round_content
 
             for tc in round_tool_calls:
                 fn_name = tc.get("function", {}).get("name", "unknown")
@@ -1753,20 +1760,45 @@ async def _agentic_stream_loop(
             # Inject synthesis directive for subsequent round
             user_name = getattr(cfg, "USER_NAME", "Alex")
             asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+            has_prior_content = bool(accumulated_content.strip())
+
             if round_num + 1 >= cfg.MAX_TOOL_ROUNDS:
-                synthesis_directive = (
-                    "<tool_synthesis status=\"terminal\">\n"
-                    f"All tool execution rounds are complete. Now synthesize your direct, personal response addressing {user_name}'s prompt using all gathered evidence above.\n"
-                    f"Maintain your persona as {asst_name}, do not dump raw tables or echo manuals, and deliver your thoughtful reflection as requested.\n"
-                    "</tool_synthesis>"
-                )
+                if has_prior_content:
+                    synthesis_directive = (
+                        "<tool_synthesis status=\"terminal\">\n"
+                        f"All tool execution rounds are complete.\n"
+                        f"CRITICAL CONTINUATION DIRECTIVE:\n"
+                        f"In your previous turn before executing tools, you already spoke the following opening to {user_name}:\n"
+                        f'"""\n{accumulated_content.strip()}\n"""\n'
+                        f"Do NOT repeat, restart, or rephrase that opening. {user_name} has already seen and heard it.\n"
+                        f"Continue your response seamlessly from that exact stopping point, delivering your thoughtful reflection in character as {asst_name}.\n"
+                        "</tool_synthesis>"
+                    )
+                else:
+                    synthesis_directive = (
+                        "<tool_synthesis status=\"terminal\">\n"
+                        f"All tool execution rounds are complete. Now synthesize your direct, personal response addressing {user_name}'s prompt using all gathered evidence above.\n"
+                        f"Maintain your persona as {asst_name}, do not dump raw tables or echo manuals, and deliver your thoughtful reflection as requested.\n"
+                        "</tool_synthesis>"
+                    )
             else:
-                synthesis_directive = (
-                    "<tool_synthesis status=\"in_progress\">\n"
-                    f"Tool results for this round are recorded above. If {user_name} requested multiple files, notes, or topics, or if you still need additional context to give a thorough and complete answer, invoke your remaining tools now.\n"
-                    f"Do not rush or guess unread material. When you have gathered all necessary information, deliver your thoughtful, complete reflection in character as {asst_name}.\n"
-                    "</tool_synthesis>"
-                )
+                if has_prior_content:
+                    synthesis_directive = (
+                        "<tool_synthesis status=\"in_progress\">\n"
+                        f"Tool results for this round are recorded above. You already began speaking to {user_name} with:\n"
+                        f'"""\n{accumulated_content.strip()}\n"""\n'
+                        f"CRITICAL CONTINUATION DIRECTIVE: Do NOT repeat, restart, or rephrase that opening. {user_name} has already seen and heard it.\n"
+                        f"If you still need additional context to give a thorough and complete answer, invoke your remaining tools now.\n"
+                        f"When ready to deliver your reflection, continue seamlessly from that exact stopping point without repeating what you already said.\n"
+                        "</tool_synthesis>"
+                    )
+                else:
+                    synthesis_directive = (
+                        "<tool_synthesis status=\"in_progress\">\n"
+                        f"Tool results for this round are recorded above. If {user_name} requested multiple files, notes, or topics, or if you still need additional context to give a thorough and complete answer, invoke your remaining tools now.\n"
+                        f"Do not rush or guess unread material. When you have gathered all necessary information, deliver your thoughtful, complete reflection in character as {asst_name}.\n"
+                        "</tool_synthesis>"
+                    )
             msgs.append({"role": "system", "content": synthesis_directive})
 
             # Tool effort escalation for subsequent rounds if needed
@@ -1790,7 +1822,10 @@ async def _agentic_stream_loop(
 
         else:
             # Terminal response reached (no tool calls)
-            final_content = round_content
+            if accumulated_content:
+                final_content = (accumulated_content + round_content).strip()
+            else:
+                final_content = round_content.strip()
             if round_thinking.strip():
                 accumulated_thinking += f"{round_thinking.strip()}\n\n"
             round_records.append(
