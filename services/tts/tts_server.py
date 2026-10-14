@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-10-12 22:52:54
+# date modified: 2026-10-14 01:39:57
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -297,30 +297,24 @@ STAGE_ACTION_TERMS = PURE_EMOTE_VERBS | {
 }
 
 
-def _is_dialogue_emote(inner: str) -> bool:
-    """Check if an asterisk token inside quotes is a bodily emote rather than vocal emphasis."""
+def _is_stage_direction(inner: str) -> bool:
+    """Check if an asterisk token is a stage direction/action rather than vocal emphasis."""
     s = inner.strip()
     if not s:
         return True
     words = s.split()
+    # Single-word tokens: only stage action terms (e.g. *nods*, *smiles*, *winks*) are actions
+    if len(words) == 1:
+        clean_word = re.sub(r"[^\w]", "", words[0].lower())
+        return clean_word in STAGE_ACTION_TERMS
+
+    # Multi-word tokens: narrative pronouns or 4+ words are stage directions
     if re.match(r"^(?:I|my|she|her|he|his|we|our|they|their)\b", s, re.IGNORECASE):
         return True
     if len(words) >= 4:
         return True
-    lower_words = {re.sub(r"[^\w]", "", w.lower()) for w in words}
-    return bool(lower_words & PURE_EMOTE_VERBS)
 
-
-def _is_standalone_stage_direction(inner: str) -> bool:
-    """Check if an asterisk token in unquoted text is a stage direction rather than vocal emphasis."""
-    s = inner.strip()
-    if not s:
-        return True
-    words = s.split()
-    if re.match(r"^(?:I|my|she|her|he|his|we|our|they|their)\b", s, re.IGNORECASE):
-        return True
-    if len(words) >= 4:
-        return True
+    # 2-3 word tokens containing stage action verbs (e.g. *leans in*, *smiles warmly*)
     lower_words = {re.sub(r"[^\w]", "", w.lower()) for w in words}
     return bool(lower_words & STAGE_ACTION_TERMS)
 
@@ -330,7 +324,7 @@ def sanitize_and_tag_speech(text: str) -> str:
 
     1. Normalizes unicode quotes, apostrophes, dashes, and ellipses.
     2. Preserves bold text while translating asterisk vocal emotes to native paralinguistic audio tags.
-    3. Hybrid asterisk parsing: unwraps spoken emphasis (*you*) in dialogue while inserting natural pauses (, ) for visual/bodily stage directions (*I lean in...*).
+    3. Asterisk parsing: unwraps spoken emphasis (*you*, *purpose*) while inserting natural pauses (, ) for visual/bodily stage directions (*I lean in...*).
     4. Converts soft delivery markers ([softly], [whispering]) into natural pauses while preserving supported tags.
     5. Strips markdown links, images, and extra noise.
     """
@@ -367,35 +361,12 @@ def sanitize_and_tag_speech(text: str) -> str:
     for pattern, tag in vocal_patterns:
         clean = re.sub(pattern, tag, clean, flags=re.IGNORECASE)
 
-    # 5. Hybrid asterisk processing: unwrap spoken emphasis, insert natural pause for stage directions
-    has_quotes = bool(re.search(r'"(?:[^"\\]|\\.)*"', clean))
-    if has_quotes:
-        parts = re.split(r'("(?:[^"\\]|\\.)*")', clean)
-        processed_parts = []
-        for part in parts:
-            if part.startswith('"') and part.endswith('"') and len(part) >= 2:
-                # Inside quotes: unwrap dialogue emphasis, insert pause for bodily emotes
-                inner_dialogue = part[1:-1]
+    # 5. Asterisk processing: unwrap spoken emphasis, insert natural pause for stage directions
+    def _asterisk_sub(m: re.Match) -> str:
+        content = m.group(1)
+        return ", " if _is_stage_direction(content) else content
 
-                def _dialogue_sub(m: re.Match) -> str:
-                    content = m.group(1)
-                    return ", " if _is_dialogue_emote(content) else content
-
-                cleaned_dialogue = re.sub(r'\*([^*]+?)\*', _dialogue_sub, inner_dialogue)
-                processed_parts.append(f'"{cleaned_dialogue}"')
-            else:
-                # Outside quotes when quotes exist: replace stage directions with a natural pause
-                cleaned_outside = re.sub(r'\*[^*]+?\*', ', ', part)
-                processed_parts.append(cleaned_outside)
-        clean = "".join(processed_parts)
-    else:
-        # No quotes in text: heuristic fallback distinguishing short emphasis from actions
-        def _standalone_sub(m: re.Match) -> str:
-            content = m.group(1)
-            return ", " if _is_standalone_stage_direction(content) else content
-
-        clean = re.sub(r'\*([^*]+?)\*', _standalone_sub, clean)
-
+    clean = re.sub(r'\*([^*]+?)\*', _asterisk_sub, clean)
     clean = clean.replace('*', '')
 
     # 6. Handle bracketed delivery markers: preserve supported tags, filter unsupported ones

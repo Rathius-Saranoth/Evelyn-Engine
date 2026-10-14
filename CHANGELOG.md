@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-14 01:21:59
+date modified: 2026-10-14 01:40:35
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,20 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.039] - 2026-10-14 — *Robust Asterisk Parsing for Spoken Emphasis & Split In-Flight Chunks*
+
+### Fixed
+
+- **Omission of Emphasized Words in In-Flight Streaming Audio (`services/tts/tts_server.py`)**:
+  - Resolved an issue where spoken words with emphasis (such as `*purpose*`) were omitted from TTS synthesis when sent in split streaming chunks.
+  - Previous asterisk parsing relied on balanced quotes (`"..."`) and unconditionally replaced all asterisk expressions outside of balanced quotes with pause commas. Because browser in-flight streaming (`processInFlightSpeech`) splits assistant turns at sentence boundaries (`[.!?]\s+|\n+`), multi-sentence quoted dialogue frequently spans across chunk boundaries, causing opening quotes to be isolated in earlier chunks and rendering subsequent chunks technically "unclosed."
+  - Replaced quote-dependent partitioning with unified content-based stage direction detection (`_is_stage_direction`):
+    - Single-word tokens (e.g. `*purpose*`, `*you*`, `*I*`, `*why*`, `*do*`) are recognized as spoken emphasis and preserved as plain spoken text, unless the word matches a recognized physical action verb (`STAGE_ACTION_TERMS`).
+    - Multi-word tokens starting with narrative pronouns (`I`, `my`, `she`, `her`, etc.) or containing 4+ words are recognized as narrative stage directions and substituted with cadence pauses (`, `).
+    - 2–3 word tokens containing action verbs (e.g. `*leans in*`, `*smiles warmly*`) are substituted with cadence pauses.
+- **Unit Test Coverage (`Evelyn/tests/test_tts_server.py`)**:
+  - Added unit tests for split-chunk unclosed quote emphasis preservation (`test_sanitize_and_tag_speech_preserves_emphasis_in_split_chunk`) and single-word pronoun/adverb emphasis (`test_sanitize_and_tag_speech_single_word_pronoun_emphasis`).
 
 ## [000.008.038] - 2026-10-14 — *Seamless Agentic Multi-Round Response Continuation*
 

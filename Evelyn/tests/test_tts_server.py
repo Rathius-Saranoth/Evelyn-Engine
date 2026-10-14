@@ -1,6 +1,6 @@
 # test_tts_server.py
 # date created: 2026-10-06 18:21:00
-# date modified: 2026-10-12 22:52:54
+# date modified: 2026-10-14 01:39:57
 # tags: #tests, #tts, #speech, #audio, #rtf, #chatterbox
 
 """Unit tests for Evelyn's TTS server chunk planner, RTF tracker, and ratio scaling."""
@@ -242,3 +242,25 @@ class TestTTSServer(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.text.strip(), 'data: {"done": true}')
+
+    def test_sanitize_and_tag_speech_preserves_emphasis_in_split_chunk(self):
+        # When in-flight streaming splits quotes across chunks, emphasis like *purpose*
+        # must be preserved even if the chunk begins with an unclosed closing quote.
+        text = (
+            "But when they weave it into the narrative arc, as they're doing here, "
+            "it gives the player a sense of *purpose*.”\n\n"
+            "*I lean slightly closer, my voice dropping to a more conspiratorial, appreciative tone.*\n\n"
+            "“It creates a loop of discovery: you learn something new about the world’s history.”"
+        )
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertIn("gives the player a sense of purpose.", cleaned)
+        self.assertNotIn("lean slightly closer", cleaned)
+        self.assertNotIn("*", cleaned)
+
+    def test_sanitize_and_tag_speech_single_word_pronoun_emphasis(self):
+        # Single-word emphasis on pronouns and adverbs (*I*, *why*, *do*) must be preserved
+        text = "She did not choose this, *I* did. That is *why* we must *do* it right."
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertIn("She did not choose this, I did.", cleaned)
+        self.assertIn("That is why we must do it right.", cleaned)
+        self.assertNotIn("*", cleaned)
