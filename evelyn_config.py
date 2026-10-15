@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-13 00:43:41
+# date modified: 2026-10-15 22:51:35
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -843,6 +843,12 @@ FACT_EXTRACTION_TOP_K_FACTS = 6
 # roughly chance for the question it was asked. Whether a fact introduces a new term is
 # answered by looking the term up in the registry, not by a distance band.
 
+# Minimum token overlap ratio (0.0–1.0) required to recognize an extracted fact as a duplicate
+# or re-affirmation of an existing live fact. When matched, the existing entry is reinforced
+# (incrementing observed_count and updating last_observed) rather than inserting a duplicate row.
+# Calibrated to 0.70 to reliably match concise facts with minor phrasing variations.
+FACT_EXTRACTION_DEDUP_MIN_OVERLAP = 0.70
+
 
 # =============================================================================
 # Idle-Time Consolidation
@@ -921,9 +927,9 @@ CONSOLIDATION_TIMEOUT = 180
 
 # Semantic vector cosine distance threshold for pre-filtering comparison candidates.
 # Entries with distance > this value are deemed semantically distinct and skipped
-# before invoking the LLM detection prompt. Tightened from 0.55 to 0.25 to prevent
-# merging merely topically-adjacent observations.
-CONSOLIDATION_VECTOR_PREFILTER_DISTANCE = 0.25
+# before invoking the LLM detection prompt. Calibrated to 0.35 to allow nuanced habit
+# and routine variations (typically 0.26–0.32 distance) while filtering topically distant facts.
+CONSOLIDATION_VECTOR_PREFILTER_DISTANCE = 0.35
 
 
 

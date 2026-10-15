@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evelyn — Context Entries Ledger Workstation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #07090e;
+      --bg-surface: #0e131f;
+      --bg-surface-elevated: #141b2d;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(30, 41, 59, 0.75);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-glow: rgba(99, 102, 241, 0.25);
+      --accent: #7c6af7;
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.2);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.2);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.2);
+      --rose: #f43f5e;
+      --rose-glow: rgba(244, 63, 94, 0.2);
+      --purple: #a855f7;
+      --purple-glow: rgba(168, 85, 247, 0.2);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --radius: 10px;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100vh;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      line-height: 1.5;
+    }
+
+    /* Sticky Workstation Header */
+    header {
+      background: rgba(14, 19, 31, 0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      font-size: 24px;
+      filter: drop-shadow(0 0 10px var(--cyan-glow));
+    }
+    .brand-text h1 {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .header-stats {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .stat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.3px;
+    }
+    .stat-pill strong {
+      color: #fff;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-nav {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-nav:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px 24px 80px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* Toolbar: Filters & Controls */
+    .toolbar {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .search-box {
+      flex: 2;
+      min-width: 260px;
+      position: relative;
+    }
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 9px 14px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    .filter-select {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 9px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      min-width: 140px;
+    }
+    .filter-select:focus {
+      border-color: var(--primary);
+    }
+
+    /* Buttons */
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 0 12px var(--primary-glow);
+    }
+    .btn-amber {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.35);
+      color: #fbbf24;
+    }
+    .btn-amber:hover {
+      background: rgba(245, 158, 11, 0.25);
+      border-color: var(--amber);
+    }
+    .btn-purple {
+      background: rgba(168, 85, 247, 0.15);
+      border-color: rgba(168, 85, 247, 0.35);
+      color: #c084fc;
+    }
+    .btn-purple:hover {
+      background: rgba(168, 85, 247, 0.25);
+      border-color: var(--purple);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .btn-danger {
+      background: rgba(244, 63, 94, 0.12);
+      border-color: rgba(244, 63, 94, 0.3);
+      color: #fda4af;
+    }
+    .btn-danger:hover {
+      background: rgba(244, 63, 94, 0.22);
+      border-color: var(--rose);
+      color: #fff;
+    }
+    .btn-sm {
+      padding: 5px 9px;
+      font-size: 11px;
+      border-radius: 5px;
+    }
+
+    /* Bulk Actions Bar */
+    .bulk-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      animation: fadeIn 0.2s ease-in-out;
+    }
+    .bulk-bar.visible {
+      display: flex;
+    }
+    .bulk-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      color: #c7d2fe;
+    }
+
+    /* Ledger Cards & Table */
+    .ledger-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .fact-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .fact-card:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      background: var(--bg-card-hover);
+    }
+    .fact-card.selected {
+      border-color: var(--primary);
+      background: rgba(99, 102, 241, 0.08);
+    }
+
+    .fact-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .fact-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .fact-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .checkbox-wrap {
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    .checkbox-wrap input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: var(--primary);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+    .badge-id {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border);
+      color: #cbd5e1;
+      cursor: pointer;
+    }
+    .badge-id:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    .badge-cat-user {
+      background: rgba(6, 182, 212, 0.15);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: #38bdf8;
+    }
+    .badge-cat-asst {
+      background: rgba(168, 85, 247, 0.15);
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      color: #d8b4fe;
+    }
+    .badge-subj {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: #e2e8f0;
+      font-family: var(--font-body);
+      text-transform: none;
+      font-weight: 500;
+    }
+    .badge-live {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #34d399;
+    }
+    .badge-deleted {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      color: #fb7185;
+    }
+    .badge-extracted {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #fbbf24;
+    }
+    .badge-archived {
+      background: rgba(148, 163, 184, 0.15);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      color: #94a3b8;
+    }
+    .badge-split-queued {
+      background: rgba(245, 158, 11, 0.2);
+      border: 1px solid var(--amber);
+      color: #fef08a;
+      box-shadow: 0 0 8px var(--amber-glow);
+    }
+    .badge-merge-queued {
+      background: rgba(168, 85, 247, 0.2);
+      border: 1px solid var(--purple);
+      color: #f3e8ff;
+      box-shadow: 0 0 8px var(--purple-glow);
+    }
+
+    /* Observation Body */
+    .fact-body {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #f1f5f9;
+      word-break: break-word;
+    }
+
+    .fact-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .tag-pill {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      color: #a5b4fc;
+      padding: 2px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tag-pill:hover {
+      background: rgba(99, 102, 241, 0.25);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .fact-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 8px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .fact-metrics {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Pagination */
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Modal / Drawer Overlays */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-card {
+      background: var(--bg-surface-elevated);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 780px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      animation: modalSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .modal-header h2 {
+      font-size: 16px;
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-close {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+    .btn-close:hover {
+      color: #fff;
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.2);
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .modal-footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Form Layouts */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-input, .form-textarea, .form-select {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 9px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus, .form-textarea:focus, .form-select:focus {
+      border-color: var(--primary);
+    }
+    .form-textarea {
+      resize: vertical;
+      min-height: 90px;
+      line-height: 1.5;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    /* Dual Mode Banner in Modal */
+    .mode-banner {
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12px;
+      color: #c7d2fe;
+      line-height: 1.45;
+    }
+    .mode-banner strong {
+      color: #fff;
+    }
+
+    /* Surrounding Chat Turn Box */
+    .chat-turn {
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 13px;
+    }
+    .chat-turn.match {
+      border-color: var(--primary);
+      background: rgba(99, 102, 241, 0.1);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+    .chat-role {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .chat-role.user { color: var(--cyan); }
+    .chat-role.assistant { color: var(--accent); }
+
+    /* Floating Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(14, 19, 31, 0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      z-index: 1000;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes modalSlideUp {
+      from { opacity: 0; transform: translateY(20px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🧠</div>
+      <div class="brand-text">
+        <h1>Context Ledger <span style="font-size: 12px; font-weight: normal; color: var(--text-dim);">memory.db</span></h1>
+        <p>Curate, search, split, and safely edit atomic context facts</p>
+      </div>
+    </div>
+
+    <div class="header-stats">
+      <span class="stat-pill" title="Total context facts stored in SQLite memory database">
+        Total Facts: <strong id="stat-total">0</strong>
+      </span>
+      <span class="stat-pill" title="Active live facts currently injected into conversational RAG">
+        Live: <strong id="stat-live" style="color: #34d399;">0</strong>
+      </span>
+      <span class="stat-pill" title="Most recent observation date recorded in the memory database">
+        Latest Fact: <strong id="stat-latest-date" style="color: #38bdf8;">Loading...</strong>
+      </span>
+      <span class="stat-pill" title="Entries queued for background split evaluation by Fact Consolidator">
+        Split Queue: <strong id="stat-splits" style="color: #fef08a;">0</strong>
+      </span>
+      <span class="stat-pill" title="Entries queued for background merge evaluation by Fact Consolidator">
+        Merge Queue: <strong id="stat-merges" style="color: #f3e8ff;">0</strong>
+      </span>
+    </div>
+
+    <div class="nav-actions">
+      <a href="/ui/profile_facts.html" class="btn-nav" title="Open the standalone Profile Facts Ledger Workstation to curate atomic persona facts and tiers">
+        📋 Profile Facts
+      </a>
+      <a href="/ui/taxonomy.html" class="btn-nav" title="Open the Taxonomy & Vocabulary Explorer to inspect controlled subject terms">
+        🏷️ Taxonomy
+      </a>
+      <a href="/ui/dev.html" class="btn-nav" title="Open Developer Review Queue to inspect proposals, extractions, and procedures">
+        🛠️ Dev Queue
+      </a>
+      <a href="/" class="btn-nav" title="Return to Evelyn conversational chat interface">
+        💬 Chat
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container">
+
+    <!-- Toolbar: Search & Filters -->
+    <section class="toolbar">
+      <div class="toolbar-row">
+        <div class="search-box">
+          <input 
+            type="text" 
+            id="search-input" 
+            class="search-input" 
+            placeholder="🔍 Search facts, tags, subject, category, or #ID (Press '/' to focus)..." 
+            title="Search observation text, domain tags, subject name, category code, or exact record ID"
+            oninput="handleSearchInput()"
+          >
+        </div>
+
+        <select id="filter-category" class="filter-select" onchange="triggerFilterChange()" title="Filter facts by fast memory taxonomy category code (Cat01-U to Cat16-A)">
+          <option value="all">All Categories</option>
+        </select>
+
+        <select id="filter-status" class="filter-select" onchange="triggerFilterChange()" title="Filter by lifecycle status (live, extracted, pending_review, archived, deleted)">
+          <option value="all">All Statuses</option>
+          <option value="live" selected>Live (Active)</option>
+          <option value="extracted">Extracted (Pending)</option>
+          <option value="pending_review">Pending Review</option>
+          <option value="archived">Archived</option>
+          <option value="deleted">Deleted</option>
+        </select>
+
+        <select id="filter-subject" class="filter-select" onchange="triggerFilterChange()" title="Filter by attributed entity or persona subject name">
+          <option value="all">All Subjects</option>
+        </select>
+
+        <select id="filter-confidence" class="filter-select" onchange="triggerFilterChange()" title="Filter by extraction confidence assessment">
+          <option value="all">All Confidence</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+
+        <button class="btn btn-primary" onclick="openNewFactModal()" title="Add a new atomic context fact directly to SQLite memory or stage pending review">
+          ➕ New Fact
+        </button>
+
+        <button class="btn btn-secondary" onclick="loadEntries()" title="Refresh facts ledger from SQLite memory database">
+          🔄 Refresh
+        </button>
+      </div>
+
+      <div class="toolbar-row" style="justify-content: space-between; font-size: 12px; color: var(--text-dim); padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.04);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>Sort by:</span>
+          <select id="sort-by" class="filter-select" style="min-width: 130px; padding: 4px 8px; font-size: 12px;" onchange="triggerFilterChange()" title="Choose sort column">
+            <option value="id" selected>ID</option>
+            <option value="date">Recorded Date</option>
+            <option value="last_observed">Last Observed</option>
+            <option value="created_at">Created At</option>
+            <option value="updated_at">Updated At</option>
+            <option value="observed_count">Observed Count</option>
+            <option value="retrieval_count">Retrieval Count</option>
+          </select>
+          <select id="sort-order" class="filter-select" style="min-width: 90px; padding: 4px 8px; font-size: 12px;" onchange="triggerFilterChange()" title="Choose sort direction">
+            <option value="desc" selected>Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span id="showing-summary">Showing 0 of 0 facts</span>
+          <select id="page-size" class="filter-select" style="min-width: 75px; padding: 4px 8px; font-size: 12px;" onchange="changePageSize()" title="Rows per page">
+            <option value="25">25 / page</option>
+            <option value="50" selected>50 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bulk Action Bar -->
+    <section class="bulk-bar" id="bulk-bar">
+      <div class="bulk-info">
+        <span id="bulk-selected-count">0 facts selected</span>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-purple btn-sm" onclick="queueBulkMerge()" title="Enqueue all selected context facts into fact_merge_queue for the idle Fact Consolidator to evaluate and consolidate">
+          🔗 Queue Merge for Selected (<span id="bulk-btn-count">0</span>)
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="clearSelection()" title="Clear all selected checkboxes">
+          Cancel Selection
+        </button>
+      </div>
+    </section>
+
+    <!-- Facts Ledger -->
+    <section class="ledger-container" id="ledger-container">
+      <div style="text-align: center; padding: 60px 20px; color: var(--text-dim);">
+        Loading context entries from SQLite database...
+      </div>
+    </section>
+
+    <!-- Pagination Controls -->
+    <section class="pagination-bar" id="pagination-bar">
+      <div class="pagination-controls">
+        <button class="btn btn-secondary btn-sm" id="btn-first" onclick="goToPage(0)" title="Go to first page">⏮ First</button>
+        <button class="btn btn-secondary btn-sm" id="btn-prev" onclick="goToPage(currentPage - 1)" title="Go to previous page">◀ Prev</button>
+        <span style="font-size: 12px; color: var(--text-muted); margin: 0 8px;" id="page-indicator">Page 1 of 1</span>
+        <button class="btn btn-secondary btn-sm" id="btn-next" onclick="goToPage(currentPage + 1)" title="Go to next page">Next ▶</button>
+        <button class="btn btn-secondary btn-sm" id="btn-last" onclick="goToLastPage()" title="Go to last page">Last ⏭</button>
+      </div>
+      <div style="font-size: 12px; color: var(--text-dim);" id="pagination-summary">
+        Displaying page 1
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Edit Context Entry Modal (Dual Mode Workstation) -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>
+          <span>✏️ Edit Context Fact</span>
+          <span class="badge badge-id" id="modal-fact-id">#0</span>
+        </h2>
+        <button class="btn-close" onclick="closeEditModal()" title="Close editor (Esc)">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Dual Mode Guidance Banner -->
+        <div class="mode-banner">
+          <div>🛡️</div>
+          <div>
+            <strong>Dual Mode Architecture:</strong> Choose <strong>Save Directly</strong> to immediately update SQLite and safely enqueue Chroma vector re-indexing into <code>chroma_sync_queue</code> (following the single-writer custodian rule). Or choose <strong>Stage as Proposal</strong> to submit a non-destructive refinement to the <code>proposals</code> queue for review or idle consolidation.
+          </div>
+        </div>
+
+        <input type="hidden" id="edit-id">
+
+        <div class="form-row">
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="edit-category">Category Code</label>
+            <select id="edit-category" class="form-select" title="Category code in the Cat##-U / Cat##-A taxonomy format">
+              <!-- Dynamically populated or filled with Cat01 to Cat16 -->
+            </select>
+          </div>
+
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="edit-subject">Subject Entity</label>
+            <input type="text" id="edit-subject" class="form-input" placeholder="e.g. User or Assistant" title="Entity or persona to whom this observation is attributed">
+          </div>
+
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="edit-status">Status</label>
+            <select id="edit-status" class="form-select" title="Lifecycle status in memory database">
+              <option value="live">Live (Active in RAG)</option>
+              <option value="extracted">Extracted (Pending)</option>
+              <option value="pending_review">Pending Review</option>
+              <option value="archived">Archived</option>
+              <option value="deleted">Deleted (Soft-Deleted)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="edit-observation">Observation Statement</label>
+          <textarea id="edit-observation" class="form-textarea" rows="4" placeholder="Concise, self-contained atomic statement of fact..." title="Atomic statement of fact stored in memory and indexed in Chroma vectors"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex: 2;">
+            <label class="form-label" for="edit-tags">Domain Tags (comma-separated)</label>
+            <input type="text" id="edit-tags" class="form-input" placeholder="e.g. coffee, morning, routine" title="Atomic lowercase kebab-case domain tags from master taxonomy">
+          </div>
+
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="edit-confidence">Confidence</label>
+            <select id="edit-confidence" class="form-select" title="Confidence level of this memory entry">
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="edit-date">Recorded Date (YYYY-MM-DD)</label>
+            <input type="text" id="edit-date" class="form-input" placeholder="YYYY-MM-DD" title="Calendar date when this fact occurred or was initially recorded (YYYY-MM-DD)">
+          </div>
+        </div>
+
+        <!-- Optional Proposal Reason -->
+        <div class="form-group">
+          <label class="form-label" for="edit-reason">Proposal Rationale (optional for Staging)</label>
+          <input type="text" id="edit-reason" class="form-input" placeholder="Why this edit is being proposed (used if Staging as Proposal)..." title="Reason rationale displayed in review queue if staged as a proposal">
+        </div>
+
+        <div id="edit-meta-info" style="font-size: 11px; color: var(--text-dim); display: flex; gap: 16px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 8px;">
+          <!-- Dynamically populated stats -->
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-amber btn-sm" id="btn-modal-split" onclick="queueModalSplit()" title="Enqueue this context entry for background split evaluation by the Fact Consolidator">
+            ✂️ Queue Split
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="openSurroundingChatFromModal()" title="View surrounding ephemeral chat conversation turns in evelyn_chat.db">
+            💬 View Chat Context
+          </button>
+        </div>
+
+        <div class="modal-footer-actions">
+          <button class="btn btn-secondary" onclick="closeEditModal()" title="Discard changes and close modal">
+            Cancel
+          </button>
+          <button class="btn btn-amber" onclick="submitEditAsProposal()" title="Stage this edit as a pending proposal in the proposals review queue without directly modifying SQLite yet">
+            📋 Stage as Proposal
+          </button>
+          <button class="btn btn-primary" onclick="submitDirectSave()" title="Directly commit edits to SQLite memory database and safely enqueue Chroma vector re-indexing for the idle custodian">
+            💾 Save Directly
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create New Fact Modal -->
+  <div class="modal-overlay" id="create-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>
+          <span>➕ Create New Context Fact</span>
+        </h2>
+        <button class="btn-close" onclick="closeCreateModal()" title="Close creator (Esc)">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="create-category">Category Code</label>
+            <select id="create-category" class="form-select" title="Fast memory taxonomy category code (Cat01-U to Cat16-A)">
+              <!-- Populated dynamically -->
+            </select>
+          </div>
+
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="create-subject">Subject Entity</label>
+            <input type="text" id="create-subject" class="form-input" placeholder="e.g. User or Assistant" title="Subject entity name">
+          </div>
+
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label" for="create-confidence">Confidence</label>
+            <select id="create-confidence" class="form-select" title="Confidence rating of fact">
+              <option value="high">High</option>
+              <option value="medium" selected>Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="create-observation">Fact Statement</label>
+          <textarea id="create-observation" class="form-textarea" rows="4" placeholder="Concise, self-contained atomic statement of fact..." title="Atomic statement of fact to create"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="create-tags">Domain Tags (comma-separated)</label>
+          <input type="text" id="create-tags" class="form-input" placeholder="e.g. coffee, routine, preferences" title="Comma-separated subject tags">
+        </div>
+
+        <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+          <input type="checkbox" id="create-stage-pending" style="width: 16px; height: 16px; cursor: pointer;" title="If checked, creates fact as pending review rather than immediately active in RAG">
+          <label for="create-stage-pending" style="font-size: 13px; color: var(--text-muted); cursor: pointer;" title="Stage with status='pending_review' for developer triage">
+            Stage as pending review (status='pending_review') instead of immediate live commit
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeCreateModal()" title="Cancel and close">
+          Cancel
+        </button>
+        <button class="btn btn-primary" onclick="submitCreateFact()" title="Save fact to SQLite and safely queue Chroma vector upsert">
+          ➕ Create Fact
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Surrounding Chat Modal -->
+  <div class="modal-overlay" id="chat-modal">
+    <div class="modal-card" style="max-width: 820px;">
+      <div class="modal-header">
+        <h2>
+          <span>💬 Originating Conversation Turns</span>
+          <span class="badge badge-id" id="chat-modal-fact-id">#0</span>
+        </h2>
+        <button class="btn-close" onclick="closeChatModal()" title="Close chat viewer (Esc)">✕</button>
+      </div>
+
+      <div class="modal-body" id="chat-modal-body">
+        <div style="text-align: center; padding: 40px; color: var(--text-dim);">
+          Searching chat history in evelyn_chat.db...
+        </div>
+      </div>
+
+      <div class="modal-footer" style="justify-content: flex-end;">
+        <button class="btn btn-secondary" onclick="closeChatModal()" title="Close chat context viewer">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Toast Notification -->
+  <div class="toast" id="toast">
+    <span id="toast-icon">✓</span>
+    <span id="toast-message">Action completed</span>
+  </div>
+
+  <script>
+    // Configuration & State
+    const API_BASE = window.location.origin;
+    const API_KEY = localStorage.getItem('evelyn_api_key') || '';
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      if (API_KEY) {
+        h['X-Evelyn-Key'] = API_KEY;
+        h['X-API-Key'] = API_KEY;
+      }
+      return h;
+    }
+
+    let currentPage = 0;
+    let pageSize = 50;
+    let totalEntries = 0;
+    let currentEntries = [];
+    let selectedEntryIds = new Set();
+    let searchDebounceTimer = null;
+    let cachedMetadata = null;
+    let activeEditEntry = null;
+
+    // Fast Memory Taxonomy Labels
+    const CATEGORY_NAMES = {
+      'Cat01': 'Identity & Personality',
+      'Cat02': 'Communication & Tone',
+      'Cat03': 'Directives & Protocols',
+      'Cat04': 'Tools & Execution',
+      'Cat05': 'Biography & Background',
+      'Cat06': 'Relationships & Social',
+      'Cat07': 'Philosophy & Values',
+      'Cat08': 'Routines & Daily Habits',
+      'Cat09': 'Preferences & Likes',
+      'Cat10': 'Aesthetics & Style',
+      'Cat11': 'Work & Projects',
+      'Cat12': 'Learning & Knowledge',
+      'Cat13': 'Emotional Dynamics',
+      'Cat14': 'Health & Wellbeing',
+      'Cat15': 'Spatial & Environment',
+      'Cat16': 'Long-term Aspirations'
+    };
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    const escapeAttr = escapeHtml;
+
+    function showToast(message, icon = '✓') {
+      const toast = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-message');
+      const iconEl = document.getElementById('toast-icon');
+      if (!toast || !msgEl) return;
+      msgEl.textContent = message;
+      if (iconEl) iconEl.textContent = icon;
+      toast.style.display = 'flex';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3800);
+    }
+
+    // Load Filter Metadata (Categories, Subjects, Counts)
+    async function loadMetadata() {
+      try {
+        const res = await fetch(`${API_BASE}/api/context/entries/metadata`, { headers: headers() });
+        if (!res.ok) return;
+        cachedMetadata = await res.json();
+
+        // Update Stat Badges
+        document.getElementById('stat-total').textContent = (cachedMetadata.total_all || 0).toLocaleString();
+        document.getElementById('stat-live').textContent = (cachedMetadata.total_live || 0).toLocaleString();
+        if (cachedMetadata.latest_date) {
+          document.getElementById('stat-latest-date').textContent = cachedMetadata.latest_date;
+        } else if (cachedMetadata.latest_last_observed) {
+          document.getElementById('stat-latest-date').textContent = new Date(cachedMetadata.latest_last_observed * 1000).toLocaleDateString();
+        } else {
+          document.getElementById('stat-latest-date').textContent = 'N/A';
+        }
+
+        // Populate Category Filter
+        const catSelect = document.getElementById('filter-category');
+        const editCatSelect = document.getElementById('edit-category');
+        const createCatSelect = document.getElementById('create-category');
+
+        const currentFilterVal = catSelect.value;
+        catSelect.innerHTML = '<option value="all">All Categories</option>';
+        editCatSelect.innerHTML = '';
+        createCatSelect.innerHTML = '';
+
+        (cachedMetadata.categories || []).forEach(c => {
+          const catNum = c.category.substring(0, 5);
+          const friendlyName = CATEGORY_NAMES[catNum] || 'General';
+          const optText = `${c.category} — ${friendlyName} (${c.count.toLocaleString()})`;
+          
+          const opt = document.createElement('option');
+          opt.value = c.category;
+          opt.textContent = optText;
+          catSelect.appendChild(opt);
+
+          const editOpt = document.createElement('option');
+          editOpt.value = c.category;
+          editOpt.textContent = `${c.category} — ${friendlyName}`;
+          editCatSelect.appendChild(editOpt);
+
+          const createOpt = document.createElement('option');
+          createOpt.value = c.category;
+          createOpt.textContent = `${c.category} — ${friendlyName}`;
+          createCatSelect.appendChild(createOpt);
+        });
+
+        if (currentFilterVal) catSelect.value = currentFilterVal;
+
+        // Populate Subject Filter
+        const subjSelect = document.getElementById('filter-subject');
+        const currentSubjVal = subjSelect.value;
+        subjSelect.innerHTML = '<option value="all">All Subjects</option>';
+        (cachedMetadata.subjects || []).forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.subject;
+          opt.textContent = `${s.subject} (${s.count.toLocaleString()})`;
+          subjSelect.appendChild(opt);
+        });
+        if (currentSubjVal) subjSelect.value = currentSubjVal;
+
+      } catch (err) {
+        console.error('Error loading metadata:', err);
+      }
+    }
+
+    // Fetch and Render Entries
+    async function loadEntries() {
+      const q = document.getElementById('search-input').value.trim();
+      const category = document.getElementById('filter-category').value;
+      const status = document.getElementById('filter-status').value;
+      const subject = document.getElementById('filter-subject').value;
+      const confidence = document.getElementById('filter-confidence').value;
+      const sortBy = document.getElementById('sort-by').value;
+      const sortOrder = document.getElementById('sort-order').value;
+
+      const params = new URLSearchParams({
+        limit: pageSize,
+        offset: currentPage * pageSize,
+        sort_by: sortBy,
+        sort_order: sortOrder
+      });
+
+      if (q) params.set('q', q);
+      if (category && category !== 'all') params.set('category', category);
+      if (status && status !== 'all') params.set('status', status);
+      if (subject && subject !== 'all') params.set('subject', subject);
+      if (confidence && confidence !== 'all') params.set('confidence', confidence);
+
+      const container = document.getElementById('ledger-container');
+      container.innerHTML = `
+        <div style="text-align: center; padding: 40px; color: var(--text-dim);">
+          Loading facts...
+        </div>
+      `;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/entries?${params.toString()}`, { headers: headers() });
+        if (!res.ok) {
+          container.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--rose);">Error loading entries: ${res.statusText}</div>`;
+          return;
+        }
+
+        const data = await res.json();
+        currentEntries = data.entries || [];
+        totalEntries = data.total || 0;
+
+        // Queue counts in header
+        const queuedSplits = currentEntries.filter(e => e.is_queued_split).length;
+        const queuedMerges = currentEntries.filter(e => e.is_queued_merge).length;
+        document.getElementById('stat-splits').textContent = queuedSplits;
+        document.getElementById('stat-merges').textContent = queuedMerges;
+
+        renderEntriesList();
+        renderPagination();
+      } catch (err) {
+        container.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--rose);">Network error: ${err.message}</div>`;
+      }
+    }
+
+    // Render Entries Cards
+    function renderEntriesList() {
+      const container = document.getElementById('ledger-container');
+      if (currentEntries.length === 0) {
+        container.innerHTML = `
+          <div style="text-align: center; padding: 60px 20px; color: var(--text-dim);">
+            <div style="font-size: 16px; font-weight: 600; color: #fff;">No matching context entries found.</div>
+            <div style="font-size: 13px; margin-top: 6px;">Try adjusting your query, category, or status filters.</div>
+          </div>
+        `;
+        return;
+      }
+
+      const html = currentEntries.map(entry => {
+        const isSelected = selectedEntryIds.has(entry.id);
+        const isUserCat = (entry.category || '').endsWith('-U');
+        const catBadgeClass = isUserCat ? 'badge-cat-user' : 'badge-cat-asst';
+        
+        let statusBadgeClass = 'badge-live';
+        if (entry.status === 'deleted') statusBadgeClass = 'badge-deleted';
+        else if (entry.status === 'extracted') statusBadgeClass = 'badge-extracted';
+        else if (entry.status === 'archived') statusBadgeClass = 'badge-archived';
+        else if (entry.status === 'pending_review') statusBadgeClass = 'badge-extracted';
+
+        const tagList = (entry.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+        const tagsHtml = tagList.map(tag => `
+          <span class="tag-pill" onclick="filterByTag('${escapeAttr(tag)}')" title="Filter by tag #${escapeAttr(tag)}">#${escapeHtml(tag)}</span>
+        `).join('');
+
+        return `
+          <div class="fact-card ${isSelected ? 'selected' : ''}" id="fact-card-${entry.id}">
+            <div class="fact-header">
+              <div class="fact-header-left">
+                <label class="checkbox-wrap" title="Select for bulk operations (like Queue Merge)">
+                  <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelectEntry(${entry.id}, this.checked)">
+                </label>
+
+                <span class="badge badge-id" onclick="filterById(${entry.id})" title="Click to filter by ID #${entry.id}">
+                  #${entry.id}
+                </span>
+
+                <span class="badge ${catBadgeClass}" title="Fast memory category ${escapeAttr(entry.category)}">
+                  ${escapeHtml(entry.category)}
+                </span>
+
+                <span class="badge badge-subj" title="Subject entity">
+                  👤 ${escapeHtml(entry.subject)}
+                </span>
+
+                <span class="badge ${statusBadgeClass}" title="Status: ${escapeAttr(entry.status)}">
+                  ${escapeHtml(entry.status)}
+                </span>
+
+                ${entry.is_queued_split ? `
+                  <span class="badge badge-split-queued" title="Enqueued in split_queue for Fact Consolidator idle evaluation">
+                    ✂️ Split Queued
+                  </span>
+                ` : ''}
+
+                ${entry.is_queued_merge ? `
+                  <span class="badge badge-merge-queued" title="Enqueued in fact_merge_queue for Fact Consolidator idle evaluation">
+                    🔗 Merge Queued
+                  </span>
+                ` : ''}
+              </div>
+
+              <div class="fact-header-right">
+                <button class="btn btn-secondary btn-sm" onclick="openEditModal(${entry.id})" title="Edit observation, category, tags, or stage as proposal">
+                  ✏️ Edit
+                </button>
+                <button class="btn btn-amber btn-sm" onclick="queueEntrySplit(${entry.id})" title="Enqueue this fact for decomposition into atomic components by idle consolidator">
+                  ✂️ Queue Split
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="openSurroundingChat(${entry.id})" title="View original conversational context turns from evelyn_chat.db">
+                  💬 Chat Context
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="deleteEntryPrompt(${entry.id})" title="Soft-delete or purge entry from database and Chroma vectors">
+                  🗑️
+                </button>
+              </div>
+            </div>
+
+            <div class="fact-body">
+              ${escapeHtml(entry.observation)}
+            </div>
+
+            ${tagsHtml ? `<div class="fact-tags">${tagsHtml}</div>` : ''}
+
+            <div class="fact-footer">
+              <div class="fact-metrics">
+                <span title="Calendar date when this fact occurred or was initially recorded">📅 Recorded: ${escapeHtml(entry.date || 'N/A')}</span>
+                ${entry.last_observed ? `
+                  <span title="Timestamp when this fact was most recently observed or reinforced in conversation">🕒 Last Observed: <strong>${new Date(entry.last_observed * 1000).toLocaleDateString()}</strong></span>
+                ` : ''}
+                <span title="Times this fact has been reinforced in conversations">🔄 Observed: <strong>${entry.observed_count || 1}x</strong></span>
+                <span title="Times this fact was retrieved via RAG for prompt injection">⚡ Retrieved: <strong>${entry.retrieval_count || 0}x</strong></span>
+                <span title="Confidence score">🎯 ${escapeHtml(entry.confidence || 'medium')}</span>
+              </div>
+
+              <div>
+                ${entry.updated_at ? `<span title="Last updated timestamp">Updated: ${new Date(entry.updated_at * 1000).toLocaleDateString()}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = html;
+    }
+
+    // Pagination Rendering
+    function renderPagination() {
+      const totalPages = Math.ceil(totalEntries / pageSize) || 1;
+      const startItem = totalEntries === 0 ? 0 : currentPage * pageSize + 1;
+      const endItem = Math.min((currentPage + 1) * pageSize, totalEntries);
+
+      document.getElementById('showing-summary').textContent = `Showing ${startItem}–${endItem} of ${totalEntries.toLocaleString()} facts`;
+      document.getElementById('page-indicator').textContent = `Page ${currentPage + 1} of ${totalPages.toLocaleString()}`;
+      document.getElementById('pagination-summary').textContent = `Displaying page ${currentPage + 1} of ${totalPages.toLocaleString()} (${totalEntries.toLocaleString()} total facts)`;
+
+      document.getElementById('btn-first').disabled = currentPage === 0;
+      document.getElementById('btn-prev').disabled = currentPage === 0;
+      document.getElementById('btn-next').disabled = currentPage >= totalPages - 1;
+      document.getElementById('btn-last').disabled = currentPage >= totalPages - 1;
+    }
+
+    function goToPage(page) {
+      const totalPages = Math.ceil(totalEntries / pageSize) || 1;
+      if (page < 0 || page >= totalPages) return;
+      currentPage = page;
+      loadEntries();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function goToLastPage() {
+      const totalPages = Math.ceil(totalEntries / pageSize) || 1;
+      goToPage(totalPages - 1);
+    }
+
+    function changePageSize() {
+      pageSize = parseInt(document.getElementById('page-size').value, 10);
+      currentPage = 0;
+      loadEntries();
+    }
+
+    // Search and Filter Events
+    function handleSearchInput() {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        currentPage = 0;
+        loadEntries();
+      }, 300);
+    }
+
+    function triggerFilterChange() {
+      currentPage = 0;
+      loadEntries();
+    }
+
+    function filterById(id) {
+      document.getElementById('search-input').value = String(id);
+      triggerFilterChange();
+    }
+
+    function filterByTag(tag) {
+      document.getElementById('search-input').value = tag;
+      triggerFilterChange();
+    }
+
+    // Selection & Bulk Merge
+    function toggleSelectEntry(id, isChecked) {
+      if (isChecked) {
+        selectedEntryIds.add(id);
+      } else {
+        selectedEntryIds.delete(id);
+      }
+      updateBulkBar();
+    }
+
+    function clearSelection() {
+      selectedEntryIds.clear();
+      updateBulkBar();
+      renderEntriesList();
+    }
+
+    function updateBulkBar() {
+      const bar = document.getElementById('bulk-bar');
+      const countEl = document.getElementById('bulk-selected-count');
+      const btnCountEl = document.getElementById('bulk-btn-count');
+      const count = selectedEntryIds.size;
+
+      if (count > 0) {
+        bar.classList.add('visible');
+        countEl.textContent = `${count} fact${count > 1 ? 's' : ''} selected`;
+        btnCountEl.textContent = count;
+      } else {
+        bar.classList.remove('visible');
+      }
+    }
+
+    async function queueBulkMerge() {
+      const ids = Array.from(selectedEntryIds);
+      if (ids.length < 2) {
+        alert('Please select at least 2 context entries to queue for consolidation.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/queue_merge`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ entry_ids: ids })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to queue merge: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        const data = await res.json();
+        showToast(`Enqueued ${ids.length} facts into fact_merge_queue (#${data.queue_id})`);
+        clearSelection();
+        loadEntries();
+      } catch (err) {
+        alert(`Error queueing merge: ${err.message}`);
+      }
+    }
+
+    // Modal: Edit Fact Workstation
+    function openEditModal(entryId) {
+      const entry = currentEntries.find(e => e.id === entryId);
+      if (!entry) return;
+      activeEditEntry = entry;
+
+      document.getElementById('edit-id').value = entry.id;
+      document.getElementById('modal-fact-id').textContent = `#${entry.id}`;
+      document.getElementById('edit-category').value = entry.category || 'Cat05-U';
+      document.getElementById('edit-subject').value = entry.subject || '';
+      document.getElementById('edit-status').value = entry.status || 'live';
+      document.getElementById('edit-observation').value = entry.observation || '';
+      document.getElementById('edit-tags').value = entry.tags || '';
+      document.getElementById('edit-confidence').value = entry.confidence || 'medium';
+      document.getElementById('edit-date').value = entry.date || '';
+      document.getElementById('edit-reason').value = '';
+
+      const metaInfo = document.getElementById('edit-meta-info');
+      metaInfo.innerHTML = `
+        <span>Observed: <strong>${entry.observed_count || 1}x</strong></span>
+        ${entry.last_observed ? `<span>Last Observed: <strong>${new Date(entry.last_observed * 1000).toLocaleDateString()}</strong></span>` : ''}
+        <span>Retrieved: <strong>${entry.retrieval_count || 0}x</strong></span>
+        <span>Source: <strong>${escapeHtml(entry.source || 'manual')}</strong></span>
+        ${entry.created_at ? `<span>Created: <strong>${new Date(entry.created_at * 1000).toLocaleDateString()}</strong></span>` : ''}
+      `;
+
+      document.getElementById('edit-modal').classList.add('open');
+      setTimeout(() => {
+        document.getElementById('edit-observation').focus();
+      }, 50);
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-modal').classList.remove('open');
+      activeEditEntry = null;
+    }
+
+    // Dual Mode: 1. Direct Safe Save (Queue Chroma Vector Upsert)
+    async function submitDirectSave() {
+      const id = parseInt(document.getElementById('edit-id').value, 10);
+      const observation = document.getElementById('edit-observation').value.trim();
+      const category = document.getElementById('edit-category').value;
+      const subject = document.getElementById('edit-subject').value.trim();
+      const status = document.getElementById('edit-status').value;
+      const tags = document.getElementById('edit-tags').value.trim();
+      const confidence = document.getElementById('edit-confidence').value;
+      const date = document.getElementById('edit-date').value.trim();
+
+      if (!observation) {
+        alert('Observation statement cannot be empty.');
+        document.getElementById('edit-observation').focus();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/entries/${id}`, {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify({
+            observation,
+            category,
+            subject,
+            status,
+            tags,
+            confidence,
+            date
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Error updating fact: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        closeEditModal();
+        showToast(`Saved Fact #${id} & queued Chroma vector sync`, '💾');
+        loadMetadata();
+        loadEntries();
+      } catch (err) {
+        alert(`Network error saving fact: ${err.message}`);
+      }
+    }
+
+    // Dual Mode: 2. Stage as Proposal
+    async function submitEditAsProposal() {
+      const id = parseInt(document.getElementById('edit-id').value, 10);
+      const observation = document.getElementById('edit-observation').value.trim();
+      const category = document.getElementById('edit-category').value;
+      const subject = document.getElementById('edit-subject').value.trim();
+      const tags = document.getElementById('edit-tags').value.trim();
+      const reason = document.getElementById('edit-reason').value.trim();
+
+      if (!observation) {
+        alert('Proposed observation statement cannot be empty.');
+        document.getElementById('edit-observation').focus();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/entries/${id}/propose`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            observation,
+            category,
+            subject,
+            tags,
+            reason: reason || 'Refinement via Context Ledger UI'
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Error staging proposal: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        const data = await res.json();
+        closeEditModal();
+        showToast(`Staged Proposal #${data.proposal_id} in review queue`, '📋');
+      } catch (err) {
+        alert(`Network error staging proposal: ${err.message}`);
+      }
+    }
+
+    // Queue Single Entry Split
+    async function queueEntrySplit(entryId) {
+      try {
+        const res = await fetch(`${API_BASE}/api/context/${entryId}/queue_split`, {
+          method: 'POST',
+          headers: headers()
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to queue split: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        showToast(`Fact #${entryId} enqueued into split_queue`, '✂️');
+        loadEntries();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    function queueModalSplit() {
+      const id = parseInt(document.getElementById('edit-id').value, 10);
+      if (id) {
+        queueEntrySplit(id);
+        closeEditModal();
+      }
+    }
+
+    // Surrounding Chat Viewer Modal
+    async function openSurroundingChat(entryId) {
+      document.getElementById('chat-modal-fact-id').textContent = `#${entryId}`;
+      const body = document.getElementById('chat-modal-body');
+      body.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-dim);">Searching ephemeral conversation history...</div>';
+      document.getElementById('chat-modal').classList.add('open');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/review/context_entry/${entryId}/surrounding_chat?window=3`, {
+          headers: headers()
+        });
+
+        if (!res.ok) {
+          body.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-dim);">No conversation context found in chat history for this memory fact.</div>`;
+          return;
+        }
+
+        const data = await res.json();
+        const messages = data.messages || [];
+
+        if (messages.length === 0) {
+          body.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-dim);">No surrounding conversation matches found in evelyn_chat.db.</div>`;
+          return;
+        }
+
+        body.innerHTML = messages.map(m => `
+          <div class="chat-turn ${m.is_match ? 'match' : ''}">
+            <div class="chat-role ${m.role}">
+              <span>${m.role === 'user' ? '👤 User' : '🤖 Assistant'}${m.is_match ? ' ★ (Matched Origin)' : ''}</span>
+              <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">${m.ts ? new Date(m.ts * 1000).toLocaleTimeString() : ''}</span>
+            </div>
+            <div style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(m.content)}</div>
+          </div>
+        `).join('');
+
+      } catch (err) {
+        body.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--rose);">Error: ${err.message}</div>`;
+      }
+    }
+
+    function openSurroundingChatFromModal() {
+      const id = parseInt(document.getElementById('edit-id').value, 10);
+      if (id) {
+        openSurroundingChat(id);
+      }
+    }
+
+    function closeChatModal() {
+      document.getElementById('chat-modal').classList.remove('open');
+    }
+
+    // Delete Prompt
+    async function deleteEntryPrompt(entryId) {
+      const choice = confirm(`Soft-delete context fact #${entryId}?\n\nThis marks its status as 'deleted' and safely enqueues its removal from Chroma vector embeddings.`);
+      if (!choice) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/entries/${entryId}`, {
+          method: 'DELETE',
+          headers: headers()
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to delete entry: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        showToast(`Soft-deleted fact #${entryId} and queued Chroma removal`, '🗑️');
+        loadMetadata();
+        loadEntries();
+      } catch (err) {
+        alert(`Error deleting entry: ${err.message}`);
+      }
+    }
+
+    // Modal: Create New Fact
+    function openNewFactModal() {
+      document.getElementById('create-observation').value = '';
+      document.getElementById('create-tags').value = '';
+      document.getElementById('create-stage-pending').checked = false;
+      document.getElementById('create-modal').classList.add('open');
+      setTimeout(() => {
+        document.getElementById('create-observation').focus();
+      }, 50);
+    }
+
+    function closeCreateModal() {
+      document.getElementById('create-modal').classList.remove('open');
+    }
+
+    async function submitCreateFact() {
+      const category = document.getElementById('create-category').value;
+      const subject = document.getElementById('create-subject').value.trim();
+      const confidence = document.getElementById('create-confidence').value;
+      const observation = document.getElementById('create-observation').value.trim();
+      const tags = document.getElementById('create-tags').value.trim();
+      const stagePending = document.getElementById('create-stage-pending').checked;
+
+      if (!observation) {
+        alert('Observation statement cannot be empty.');
+        document.getElementById('create-observation').focus();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/entries`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            category,
+            subject,
+            confidence,
+            observation,
+            tags,
+            stage_as_pending: stagePending
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Error creating fact: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        const data = await res.json();
+        closeCreateModal();
+        showToast(`Created Fact #${data.entry.id} (${stagePending ? 'pending review' : 'live'})`, '➕');
+        loadMetadata();
+        loadEntries();
+      } catch (err) {
+        alert(`Network error creating fact: ${err.message}`);
+      }
+    }
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeEditModal();
+        closeCreateModal();
+        closeChatModal();
+      } else if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.focus();
+      }
+    });
+
+    // Initialize
+    loadMetadata();
+    loadEntries();
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-10-13 00:43:41
+# date modified: 2026-10-15 22:38:50
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -107,7 +107,8 @@ _MEMORY_DB_PATH = getattr(cfg, "MEMORY_DB_PATH", r"/home/rathius/evelyn/data/eve
 
 def _get_queue_db() -> sqlite3.Connection:
     """Return a WAL-mode SQLite connection for chroma_sync_queue operations."""
-    con = sqlite3.connect(_MEMORY_DB_PATH, timeout=20.0)
+    db_path = getattr(cfg, "MEMORY_DB_PATH", _MEMORY_DB_PATH)
+    con = sqlite3.connect(db_path, timeout=20.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     return con
@@ -1521,23 +1522,35 @@ def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = Non
             c["distance"] = 999.0
             continue
 
-        # Extract entry timestamp/age
+        # Extract entry timestamp/age (prioritize most recent observation signal)
         entry_ts: float | None = None
+        obs_ts: float | None = None
+        raw_obs = entry.get("last_observed")
+        if raw_obs is not None:
+            try:
+                obs_ts = float(raw_obs)
+            except (ValueError, TypeError):
+                obs_ts = None
+
+        date_ts: float | None = None
         date_str = entry.get("date")
         if date_str:
             date_clean = str(date_str).strip()[:10]
             if not date_clean.startswith("0001"):
                 try:
                     dt = datetime.datetime.strptime(date_clean, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
-                    entry_ts = dt.timestamp()
+                    date_ts = dt.timestamp()
                 except ValueError:
-                    entry_ts = None
+                    date_ts = None
 
-        if entry_ts is None:
-            raw_obs = entry.get("last_observed") or entry.get("created_at")
-            if raw_obs is not None:
+        valid_ts = [t for t in (obs_ts, date_ts) if t is not None and t > 0]
+        if valid_ts:
+            entry_ts = max(valid_ts)
+        else:
+            raw_created = entry.get("created_at")
+            if raw_created is not None:
                 try:
-                    entry_ts = float(raw_obs)
+                    entry_ts = float(raw_created)
                 except (ValueError, TypeError):
                     entry_ts = None
 

@@ -132,3 +132,40 @@ def hello():
     return "Hello from Evelyn chat attachment!"
 
 --boundary--
+
+# ------------------------------------------------------------------------------
+# 6. Context Ledger & Memory Facts (evelyn_memory.db)
+# ------------------------------------------------------------------------------
+
+### Search Context Entries
+GET {{baseUrl}}/api/context/entries?limit=10&status=live
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Context Entries Metadata (Categories, Subjects, Counts)
+GET {{baseUrl}}/api/context/entries/metadata
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Direct Safe Save on Context Entry (Queue Chroma Vector Upsert)
+PATCH {{baseUrl}}/api/context/entries/1
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+    "observation": "Updated observation statement with refined phrasing.",
+    "category": "Cat08-U",
+    "tags": "routine, focus",
+    "confidence": "high"
+}
+
+### Stage Edit as Proposal in Proposals Queue
+POST {{baseUrl}}/api/context/entries/1/propose
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+    "observation": "Proposed refinement to observation statement.",
+    "category": "Cat08-U",
+    "reason": "Refinement via scratchpad"
+}

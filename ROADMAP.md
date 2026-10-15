@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-13 00:43:58
+date modified: 2026-10-15 22:54:19
 ---
 # Evelyn Project Roadmap
 
@@ -43,7 +43,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **RAG Relation Re-Ranking & Associative Expansion**: Benchmarked and activated `_apply_relation_boost` in `chroma_rag.py`, leveraging the curated `master_tag_related` graph to promote associative (`RT`) and hierarchical (`BT/NT`) concepts into retrieval context.
 - [x] **Vocabulary Bootstrap & Term-Aggregated Review**: Seeded a canonical subject vocabulary from the corpus with term-aggregated review in the triage queue and FAST authority promotion, establishing 970+ curated terms.
 - [x] **Vault Classification Backfill**: Classified the full note corpus against the seeded vocabulary, accumulating unmatched subjects into batched admission proposals and completing audit passes across 4,300+ vault documents.
-- [x] **Vocabulary Maintenance Re-enablement**: Restored equivalence merging with absorption invariants, stale-tag removal, and registry rebalancing behind interactive review gates.
+- [x] **Context Ledger Workstation & Observation Longevity Engine**: Deployed dedicated Context Ledger workstation (`ui/context_entries.html`) with safe dual-mode persistence (direct save with single-writer Chroma queueing, proposal staging, and autonomous batch merge queueing), and established real-time observation longevity reinforcement with calibrated lexical overlap and stemming across fact extraction and idle consolidation.
 - [ ] **Dedicated Health Observation Module**: Route physiological and symptom observations out of the general context entry pool into a purpose-built health store queried on demand, so historical health patterns remain available for reference and trend recognition without occupying general retrieval space or biasing conversational framing.
 
 ---

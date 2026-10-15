@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-10-13 00:43:42
+# date modified: 2026-10-15 22:38:50
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -442,6 +442,146 @@ def get_all_entries(statuses: list[str] | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def search_context_entries(
+    query: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    subject: str | None = None,
+    tag: str | None = None,
+    confidence: str | None = None,
+    sort_by: str = "id",
+    sort_order: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Search and paginate context entries with flexible filtering and sorting.
+
+    Args:
+        query: Optional search text (matches observation, tags, subject, category, or ID).
+        category: Optional category filter (e.g. 'Cat05-U').
+        status: Optional status filter ('live', 'extracted', 'pending_review', 'archived', 'deleted', 'all').
+        subject: Optional subject entity filter.
+        tag: Optional tag filter.
+        confidence: Optional confidence filter ('high', 'medium', 'low').
+        sort_by: Column to sort by ('id', 'date', 'created_at', 'updated_at', 'observed_count', 'retrieval_count', 'last_retrieved_at', 'category', 'subject').
+        sort_order: Sort direction ('asc' or 'desc').
+        limit: Max rows to return (1-200).
+        offset: Number of rows to skip.
+
+    Returns:
+        tuple[list[dict], int]: List of matching entry dicts and the total match count.
+    """
+    con = get_db()
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if query and query.strip():
+        q_raw = query.strip()
+        if q_raw.isdigit():
+            conditions.append(
+                "(id = ? OR observation LIKE ? OR tags LIKE ? OR subject LIKE ? OR category LIKE ?)"
+            )
+            like_val = f"%{q_raw}%"
+            params.extend([int(q_raw), like_val, like_val, like_val, like_val])
+        else:
+            conditions.append(
+                "(observation LIKE ? OR tags LIKE ? OR subject LIKE ? OR category LIKE ?)"
+            )
+            like_val = f"%{q_raw}%"
+            params.extend([like_val, like_val, like_val, like_val])
+
+    if category and category.strip() and category.strip() != "all":
+        conditions.append("category = ?")
+        params.append(category.strip())
+
+    if status and status.strip() and status.strip() != "all":
+        conditions.append("status = ?")
+        params.append(status.strip())
+
+    if subject and subject.strip() and subject.strip() != "all":
+        conditions.append("subject = ?")
+        params.append(subject.strip())
+
+    if tag and tag.strip():
+        clean_tag = tag.strip().lstrip("#")
+        conditions.append("tags LIKE ?")
+        params.append(f"%{clean_tag}%")
+
+    if confidence and confidence.strip() and confidence.strip() != "all":
+        conditions.append("confidence = ?")
+        params.append(confidence.strip())
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    count_sql = f"SELECT COUNT(*) FROM context_entries {where_clause}"
+    total_count = con.execute(count_sql, params).fetchone()[0]
+
+    allowed_sort_cols = {
+        "id": "id",
+        "date": "date",
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "last_observed": "last_observed",
+        "observed_count": "observed_count",
+        "retrieval_count": "retrieval_count",
+        "last_retrieved_at": "last_retrieved_at",
+        "category": "category",
+        "subject": "subject",
+        "confidence": "confidence",
+        "status": "status",
+    }
+    col = allowed_sort_cols.get(sort_by.lower(), "id")
+    order = "ASC" if sort_order.lower() == "asc" else "DESC"
+
+    clamped_limit = max(1, min(int(limit), 200))
+    clamped_offset = max(0, int(offset))
+
+    fetch_sql = f"""
+        SELECT * FROM context_entries
+        {where_clause}
+        ORDER BY {col} {order}, id {order}
+        LIMIT ? OFFSET ?
+    """
+    rows = con.execute(fetch_sql, [*params, clamped_limit, clamped_offset]).fetchall()
+    con.close()
+
+    return [dict(r) for r in rows], total_count
+
+
+def get_context_entries_metadata() -> dict[str, Any]:
+    """Retrieve distinct categories, subjects, and statuses for filter UI dropdowns."""
+    con = get_db()
+    cat_rows = con.execute(
+        "SELECT DISTINCT category, COUNT(*) as count FROM context_entries GROUP BY category ORDER BY category ASC"
+    ).fetchall()
+    subj_rows = con.execute(
+        "SELECT DISTINCT subject, COUNT(*) as count FROM context_entries GROUP BY subject ORDER BY count DESC, subject ASC"
+    ).fetchall()
+    status_rows = con.execute(
+        "SELECT DISTINCT status, COUNT(*) as count FROM context_entries GROUP BY status ORDER BY count DESC"
+    ).fetchall()
+    total_live = con.execute("SELECT COUNT(*) FROM context_entries WHERE status = 'live'").fetchone()[0]
+    total_all = con.execute("SELECT COUNT(*) FROM context_entries").fetchone()[0]
+    latest_row = con.execute(
+        "SELECT MAX(date) as max_date, MAX(last_observed) as max_lo, MAX(created_at) as max_created FROM context_entries WHERE status = 'live'"
+    ).fetchone()
+    con.close()
+
+    max_date = latest_row["max_date"] if latest_row else None
+    max_lo = latest_row["max_lo"] if latest_row else None
+    max_created = latest_row["max_created"] if latest_row else None
+
+    return {
+        "categories": [{"category": r["category"], "count": r["count"]} for r in cat_rows if r["category"]],
+        "subjects": [{"subject": r["subject"], "count": r["count"]} for r in subj_rows if r["subject"]],
+        "statuses": [{"status": r["status"], "count": r["count"]} for r in status_rows if r["status"]],
+        "total_live": total_live,
+        "total_all": total_all,
+        "latest_date": max_date,
+        "latest_last_observed": max_lo,
+        "latest_created_at": max_created,
+    }
+
 def fetch_next_entries_for_tag_audit(batch_size: int = 10) -> list[dict]:
     """Return the next live entries due a tag audit, untagged ones first.
 
@@ -642,25 +782,44 @@ def touch_entry_evolved(
         )
 
 
-def increment_entry_observed(entry_id: int, count_delta: int = 1) -> None:
-    """Increment observed_count and set last_observed to current time.
+def increment_entry_observed(
+    entry_id: int,
+    count_delta: int = 1,
+    observation_date: str | None = None,
+) -> None:
+    """Increment observed_count, set last_observed to current time, and optionally bump date.
 
     Args:
         entry_id: Row ID of the context entry.
         count_delta: Amount to increase observed_count by. Default 1.
+        observation_date: Optional YYYY-MM-DD date string. If provided and newer than existing date, updates date.
     """
     now = time.time()
     try:
         con = get_db()
-        con.execute(
-            """
-            UPDATE context_entries
-            SET observed_count = COALESCE(observed_count, 1) + ?,
-                last_observed  = ?
-            WHERE id = ?
-            """,
-            (count_delta, now, entry_id),
-        )
+        if observation_date:
+            con.execute(
+                """
+                UPDATE context_entries
+                SET observed_count = COALESCE(observed_count, 1) + ?,
+                    last_observed  = ?,
+                    date           = CASE WHEN ? > COALESCE(date, '') THEN ? ELSE date END,
+                    updated_at     = ?
+                WHERE id = ?
+                """,
+                (count_delta, now, observation_date, observation_date, now, entry_id),
+            )
+        else:
+            con.execute(
+                """
+                UPDATE context_entries
+                SET observed_count = COALESCE(observed_count, 1) + ?,
+                    last_observed  = ?,
+                    updated_at     = ?
+                WHERE id = ?
+                """,
+                (count_delta, now, now, entry_id),
+            )
         con.commit()
         con.close()
     except sqlite3.Error as e:
@@ -1221,7 +1380,8 @@ def find_similar_entries(
         subject: Optional entity subject filter to prevent cross-entity duplicate matching.
 
     Returns:
-        list[dict]: Matching entry dictionaries with an added 'overlap' key.
+        list[dict]: Matching entry dictionaries with an added 'overlap' key, sorted
+            by highest overlap first, then highest observed_count, then earliest ID.
     """
     candidates = get_entries_by_category(category, status=status)
     if not candidates:
@@ -1244,7 +1404,25 @@ def find_similar_entries(
             entry_copy["overlap"] = round(overlap, 3)
             matches.append(entry_copy)
 
+    # Sort matches: highest overlap first, highest observed count second, lowest ID (master) third
+    matches.sort(
+        key=lambda x: (
+            -x["overlap"],
+            -(x.get("observed_count") or 1),
+            x["id"],
+        )
+    )
     return matches
+
+
+def _stem_word(word: str) -> str:
+    """Apply lightweight suffix normalization for keyword overlap matching."""
+    for suffix in ("ings", "ies", "ing", "es", "ed", "ly", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            if suffix == "ies":
+                return word[:-3] + "y"
+            return word[:-len(suffix)]
+    return word
 
 
 def _extract_keywords(text: str) -> set[str]:
@@ -1269,6 +1447,19 @@ def _extract_keywords(text: str) -> set[str]:
         "about", "after", "being", "every", "first", "other",
         "since", "still", "those", "under", "where", "while", "would",
         "these", "there", "should", "really",
+        # Relational and auxiliary verbs / connectives that vary between extractions
+        "incorporate", "incorporates", "incorporating", "incorporated", "incorporat",
+        "involve", "involves", "involving", "involved", "involv",
+        "include", "includes", "including", "included", "includ",
+        "consist", "consists", "consisting", "consisted",
+        "contain", "contains", "containing", "contained",
+        "prefer", "prefers", "preferred", "preferring",
+        "enjoy", "enjoys", "enjoyed", "enjoying",
+        "tend", "tends", "tended", "tending",
+        "start", "starts", "started", "starting",
+        "begin", "begins", "began", "beginning",
+        "before", "during", "between", "through", "across",
+        "usually", "typically", "regularly", "often", "frequently", "always", "sometimes",
     }
     stopwords = _STATIC_STOPWORDS | {
         getattr(cfg, "USER_NAME", "Alex").lower(),
@@ -1279,7 +1470,7 @@ def _extract_keywords(text: str) -> set[str]:
         # Strip punctuation from edges
         clean = word.strip(".,;:!?\"'()[]{}—–-")
         if len(clean) >= 3 and clean not in stopwords:
-            words.add(clean)
+            words.add(_stem_word(clean))
     return words
 
 

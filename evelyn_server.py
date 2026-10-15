@@ -8367,6 +8367,394 @@ async def queue_context_merge(req: ContextMergeRequest, _: None = Depends(check_
     return {"status": "ok", "queue_id": queue_id}
 
 
+class ContextEntryUpdateRequest(BaseModel):
+    observation: str | None = None
+    category: str | None = None
+    subject: str | None = None
+    tags: str | None = None
+    confidence: str | None = None
+    status: str | None = None
+    date: str | None = None
+
+
+class ContextEntryProposeRequest(BaseModel):
+    observation: str
+    category: str | None = None
+    subject: str | None = None
+    tags: str | None = None
+    reason: str | None = None
+
+
+class ContextEntryCreateRequest(BaseModel):
+    category: str
+    observation: str
+    subject: str | None = None
+    tags: str | None = None
+    confidence: str = "medium"
+    stage_as_pending: bool = False
+
+
+@app.get("/api/context/entries")
+async def get_context_entries(
+    q: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    subject: str | None = None,
+    tag: str | None = None,
+    confidence: str | None = None,
+    sort_by: str = "id",
+    sort_order: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+    _: None = Depends(check_auth),
+):
+    """Search and paginate context entries with active queue status annotations."""
+    from Evelyn.tools import memory_db
+
+    def _fetch():
+        entries, total = memory_db.search_context_entries(
+            query=q,
+            category=category,
+            status=status,
+            subject=subject,
+            tag=tag,
+            confidence=confidence,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            limit=limit,
+            offset=offset,
+        )
+        split_ids = memory_db.get_all_queued_split_entry_ids()
+        merge_ids = memory_db.get_all_queued_fact_merge_ids()
+        for e in entries:
+            eid = e.get("id")
+            e["is_queued_split"] = eid in split_ids
+            e["is_queued_merge"] = eid in merge_ids
+        return entries, total
+
+    entries, total = await asyncio.to_thread(_fetch)
+    return {
+        "entries": entries,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@app.get("/api/context/entries/metadata")
+async def get_context_entries_metadata(_: None = Depends(check_auth)):
+    """Return distinct categories, subjects, statuses, and counts for UI filtering."""
+    from Evelyn.tools import memory_db
+
+    return await asyncio.to_thread(memory_db.get_context_entries_metadata)
+
+
+@app.get("/api/context/entries/{id}")
+async def get_single_context_entry(id: int, _: None = Depends(check_auth)):
+    """Fetch a single context entry by ID with evolutions and queue annotations."""
+    from Evelyn.tools import memory_db
+
+    def _fetch():
+        entry = memory_db.get_entry(id)
+        if not entry:
+            return None
+        split_ids = memory_db.get_all_queued_split_entry_ids()
+        merge_ids = memory_db.get_all_queued_fact_merge_ids()
+        entry["is_queued_split"] = id in split_ids
+        entry["is_queued_merge"] = id in merge_ids
+        entry["document_evolutions"] = memory_db.get_entry_document_evolutions(id)
+        return entry
+
+    entry = await asyncio.to_thread(_fetch)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Context entry not found")
+    return entry
+
+
+@app.patch("/api/context/entries/{id}")
+async def update_context_entry(
+    id: int,
+    body: ContextEntryUpdateRequest,
+    _: None = Depends(check_auth),
+):
+    """Directly update a context entry safely in SQLite and enqueue Chroma vector re-indexing.
+
+    Validates category, subject, and tags format. Enqueues vector update via
+    `chroma_rag.enqueue_upsert` so the single-writer custodian idle worker can process it.
+    """
+    import contextlib
+
+    from Evelyn.tools import chroma_rag, memory_db, tag_librarian
+    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
+
+    def _apply_save():
+        existing = memory_db.get_entry(id)
+        if not existing:
+            return None, "Context entry not found"
+
+        fields: dict[str, Any] = {}
+        target_subject = body.subject if body.subject is not None else existing.get("subject", "")
+        target_obs = body.observation if body.observation is not None else existing.get("observation", "")
+
+        # 1. Category validation
+        if body.category is not None:
+            norm_cat = validate_and_normalize_category(body.category, target_subject)
+            if not norm_cat:
+                return None, f"Invalid category code '{body.category}'"
+            fields["category"] = norm_cat
+
+        # 2. Subject normalization
+        if body.subject is not None:
+            fields["subject"] = memory_db.normalize_subject_attribution(body.subject, target_obs)
+
+        # 3. Observation
+        if body.observation is not None:
+            clean_obs = body.observation.strip()
+            if not clean_obs:
+                return None, "Observation cannot be empty"
+            fields["observation"] = clean_obs
+
+        # 4. Tags normalization & withholding
+        normalized_tags: list[str] = []
+        if body.tags is not None:
+            raw_tags = [t.strip() for t in body.tags.split(",") if t.strip()]
+            normalized_tags = [
+                norm for norm in (tag_librarian.normalize_tag_format(t) for t in raw_tags) if norm
+            ]
+            final_tags = ", ".join(dict.fromkeys(normalized_tags)) if normalized_tags else None
+            fields["tags"] = final_tags
+
+        # 5. Confidence, Status, Date
+        if body.confidence is not None:
+            fields["confidence"] = body.confidence
+        if body.status is not None:
+            fields["status"] = body.status
+        if body.date is not None:
+            fields["date"] = body.date
+
+        if not fields:
+            return existing, None
+
+        success = memory_db.update_entry(id, **fields)
+        if not success:
+            return None, "Failed to update entry in database"
+
+        # Safe Chroma vector queueing following single-writer rule
+        obs_for_vector = fields.get("observation") or existing.get("observation") or ""
+        status_for_vector = fields.get("status") or existing.get("status") or "live"
+        source_path = f"sqlite::context_entry::{id}"
+
+        if status_for_vector in ("deleted", "archived"):
+            chroma_rag.enqueue_delete(source_path=source_path, collection_name=cfg.CHROMA_MEMORY_COLLECTION)
+        else:
+            chroma_rag.enqueue_upsert(
+                source_path=source_path,
+                collection_name=cfg.CHROMA_MEMORY_COLLECTION,
+                content=obs_for_vector,
+            )
+
+        # Check tag withholding for unvetted terms
+        if body.tags is not None and normalized_tags:
+            cat_label = fields.get("category") or existing.get("category") or "fact"
+            with contextlib.suppress(sqlite3.Error, OSError):
+                kept = tag_librarian.withhold_unregistered_tags(
+                    id,
+                    normalized_tags,
+                    origin=f"context entry edit ({cat_label})",
+                    reason="Tag added via Context Ledger edit but absent from controlled vocabulary.",
+                )
+                if kept != normalized_tags:
+                    memory_db.update_entry(id, tags=", ".join(kept))
+
+        updated = memory_db.get_entry(id)
+        return updated, None
+
+    updated_entry, err = await asyncio.to_thread(_apply_save)
+    if err:
+        status_code = 404 if "not found" in err.lower() else 400
+        raise HTTPException(status_code=status_code, detail=err)
+
+    await start_refresh_memory_internal()
+    return {"status": "ok", "entry": updated_entry, "mode": "direct_save"}
+
+
+@app.post("/api/context/entries/{id}/propose")
+async def propose_context_entry_edit(
+    id: int,
+    body: ContextEntryProposeRequest,
+    _: None = Depends(check_auth),
+):
+    """Stage an edit as a pending proposal in the proposals table.
+
+    The edit is safely staged for review/consolidation without directly
+    altering the live entry immediately.
+    """
+    from Evelyn.tools import memory_db, tag_librarian
+    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
+
+    def _stage_proposal():
+        existing = memory_db.get_entry(id)
+        if not existing:
+            return None, "Context entry not found"
+
+        clean_obs = body.observation.strip()
+        if not clean_obs:
+            return None, "Proposed observation cannot be empty"
+
+        target_subject = (body.subject or existing.get("subject") or "").strip()
+        target_subject = memory_db.normalize_subject_attribution(target_subject, clean_obs)
+
+        norm_cat = None
+        if body.category and body.category.strip():
+            norm_cat = validate_and_normalize_category(body.category.strip(), target_subject)
+            if not norm_cat:
+                return None, f"Invalid category code '{body.category}'"
+
+        final_tags = None
+        if body.tags is not None:
+            raw_tags = [t.strip() for t in body.tags.split(",") if t.strip()]
+            normalized_tags = [
+                norm for norm in (tag_librarian.normalize_tag_format(t) for t in raw_tags) if norm
+            ]
+            final_tags = ", ".join(dict.fromkeys(normalized_tags)) if normalized_tags else None
+
+        topic = (
+            f"Subject: {target_subject}"
+            if target_subject != existing.get("subject")
+            else f"Context Fact #{id} Refinement"
+        )
+        user_reason = (
+            body.reason.strip()
+            if (body.reason and body.reason.strip())
+            else "Refinement via Context Ledger UI"
+        )
+
+        pid = memory_db.insert_proposal(
+            type="rephrase",
+            source_ids=[id],
+            merged_observation=clean_obs,
+            suggested_category=norm_cat or existing.get("category"),
+            merged_tags=final_tags if final_tags is not None else existing.get("tags"),
+            topic=topic,
+            reason=f"User proposed edit: {user_reason}",
+            confidence="high",
+            status="pending",
+        )
+        return pid, None
+
+    proposal_id, err = await asyncio.to_thread(_stage_proposal)
+    if err:
+        status_code = 404 if "not found" in err.lower() else 400
+        raise HTTPException(status_code=status_code, detail=err)
+
+    return {
+        "status": "ok",
+        "proposal_id": proposal_id,
+        "entry_id": id,
+        "mode": "proposal_staged",
+        "message": f"Proposal #{proposal_id} staged for review.",
+    }
+
+
+@app.post("/api/context/entries")
+async def create_context_entry(
+    req: ContextEntryCreateRequest,
+    _: None = Depends(check_auth),
+):
+    """Create a new context entry either directly (with queued Chroma vector upsert) or staged as pending review."""
+    import contextlib
+    from datetime import UTC, datetime
+
+    from Evelyn.tools import chroma_rag, memory_db, tag_librarian
+    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
+
+    def _create():
+        clean_obs = req.observation.strip()
+        if not clean_obs:
+            return None, "Observation cannot be empty"
+
+        target_subject = (req.subject or "").strip()
+        norm_cat = validate_and_normalize_category(req.category.strip(), target_subject)
+        if not norm_cat:
+            return None, f"Invalid category code '{req.category}'"
+
+        target_subject = memory_db.normalize_subject_attribution(target_subject, clean_obs)
+
+        normalized_tags: list[str] = []
+        if req.tags:
+            raw_tags = [t.strip() for t in req.tags.split(",") if t.strip()]
+            normalized_tags = [
+                norm for norm in (tag_librarian.normalize_tag_format(t) for t in raw_tags) if norm
+            ]
+        final_tags = ", ".join(dict.fromkeys(normalized_tags)) if normalized_tags else None
+        today = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+
+        status = "pending_review" if req.stage_as_pending else "live"
+
+        row_id = memory_db.insert_entry(
+            category=norm_cat,
+            subject=target_subject,
+            observation=clean_obs,
+            confidence=req.confidence or "medium",
+            source="manual",
+            status=status,
+            date=today,
+            tags=final_tags,
+        )
+
+        if status == "live":
+            chroma_rag.enqueue_upsert(
+                source_path=f"sqlite::context_entry::{row_id}",
+                collection_name=cfg.CHROMA_MEMORY_COLLECTION,
+                content=clean_obs,
+            )
+
+        if normalized_tags:
+            with contextlib.suppress(sqlite3.Error, OSError):
+                kept = tag_librarian.withhold_unregistered_tags(
+                    row_id,
+                    normalized_tags,
+                    origin=f"context entry create ({norm_cat})",
+                    reason="Tag attached to new entry but absent from controlled vocabulary.",
+                )
+                if kept != normalized_tags:
+                    memory_db.update_entry(row_id, tags=", ".join(kept))
+
+        return memory_db.get_entry(row_id), None
+
+    entry, err = await asyncio.to_thread(_create)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    await start_refresh_memory_internal()
+    return {"status": "ok", "entry": entry}
+
+
+@app.delete("/api/context/entries/{id}")
+async def delete_context_entry(id: int, hard: bool = False, _: None = Depends(check_auth)):
+    """Soft-delete (default) or hard-delete a context entry and enqueue Chroma deletion."""
+    from Evelyn.tools import chroma_rag, memory_db
+
+    def _delete():
+        existing = memory_db.get_entry(id)
+        if not existing:
+            return False
+        if hard:
+            memory_db.hard_delete_entry(id)
+        else:
+            memory_db.delete_entry(id)
+        chroma_rag.enqueue_delete(
+            source_path=f"sqlite::context_entry::{id}",
+            collection_name=cfg.CHROMA_MEMORY_COLLECTION,
+        )
+        return True
+
+    success = await asyncio.to_thread(_delete)
+    if not success:
+        raise HTTPException(status_code=404, detail="Context entry not found")
+    await start_refresh_memory_internal()
+    return {"status": "ok", "id": id, "action": "hard_delete" if hard else "soft_delete"}
+
+
 class ProcedureReviewBody(BaseModel):
     trigger_pattern: str | None = None
     steps: str | None = None

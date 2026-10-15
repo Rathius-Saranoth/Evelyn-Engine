@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-14 01:40:35
+date modified: 2026-10-15 22:54:19
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,76 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.043] - 2026-10-15 — *Idle Consolidation & Extraction Lexical Unification and Vector Prefilter Parity*
+
+### Fixed
+
+- **Idle Consolidation & Extraction Lexical Unification (`Evelyn/tools/fact_deduplicator.py`, `evelyn_config.py`)**:
+  - Eliminated architectural divergence between fact extraction and idle consolidation by retiring the legacy, ad-hoc 24-word stopwords list and unstemmed regex parser in `calculate_token_jaccard`.
+  - Re-routed `calculate_token_jaccard` to reuse the canonical `memory_db._extract_keywords` routine, establishing a single source of truth across both pipelines for keyword extraction, English suffix stemming (`_stem_word`), relational connective filtering, and identity scoping.
+  - Calibrated `CONSOLIDATION_VECTOR_PREFILTER_DISTANCE` in `evelyn_config.py` from `0.25` to `0.35`. Empirical testing proved that close semantic phrasing variations of established routines (e.g. "routine involving coffee and music" vs "incorporates coffee and music") produce cosine distances of `0.26` to `0.28`, which were previously dropped before reaching LLM cluster evaluation.
+- **Unit Test Parity (`Evelyn/tests/test_fact_deduplicator.py`)**:
+  - Added unit test `test_unified_token_jaccard_stemming_parity` proving that syntactic routine variations evaluate to identical keyword sets (`jaccard = 1.0`).
+
+## [000.008.042] - 2026-10-15 — *Fact Extraction Deduplication Overlap Calibration & Observation Longevity Reinforcement*
+
+### Fixed
+
+- **Extraction Deduplication Overlap Quantization Flaw (`Evelyn/tools/fact_extractor.py`, `Evelyn/tools/memory_db.py`, `evelyn_config.py`)**:
+  - Resolved an architectural issue where the fact extractor failed to identify duplicate or already-established facts (such as morning coffee and music routines) and repeatedly inserted redundant rows into `context_entries`.
+  - Diagnosed mathematical quantization error in `memory_db.find_similar_entries`: for concise atomic facts ($N \le 9$ non-stopword keywords), the previous hardcoded `min_overlap=0.90` threshold mathematically required **100% exact keyword match**. Slight phrasing variations from LLM prompts (e.g. "incorporates" vs "involving") dropped overlap to $\le 0.80$, bypassing deduplication entirely.
+  - Added configurable `FACT_EXTRACTION_DEDUP_MIN_OVERLAP = 0.70` in `evelyn_config.py` and calibrated `find_similar_entries` to reliably match concise facts.
+  - Added lightweight English suffix stemming (`_stem_word`) and expanded `_STATIC_STOPWORDS` with connective/relational verbs ("incorporates", "involves", "includes", "consists", "prefers", "enjoys", "tends", "starts", "begins") so syntactic verb variations do not penalize topical keyword overlap.
+  - Added deterministic match ranking in `find_similar_entries` (`-overlap`, `-observed_count`, `id`) so the highest-similarity match and earliest canonical master record is always chosen.
+
+### Added
+
+- **Fact Observation Longevity Reinforcement & Tag Enrichment (`Evelyn/tools/fact_extractor.py`, `Evelyn/tools/memory_db.py`)**:
+  - Replaced the silent duplicate drop (`continue`) in `fact_extractor.write_extracted_facts` with observation longevity reinforcement.
+  - When an extracted fact matches an existing live fact, invokes `memory_db.increment_entry_observed(matched_id, count_delta=1, observation_date=fact_date)`.
+  - Increments `observed_count`, updates `last_observed = time.time()`, and bumps `date` if the conversation date is newer than the stored date string.
+  - Performs non-destructive tag enrichment: unions any newly extracted vocabulary tags into the existing entry via `withhold_unregistered_tags`.
+  - Consolidated historical duplicate `#15456` into canonical master `#1777` in `evelyn_memory.db`, updating `#1777` to `observed_count = 2`, `last_observed` to current date, and safely enqueuing Chroma vector deletion for `#15456`.
+- **Deduplicator & Temporal RAG Recency Parity (`Evelyn/tools/fact_deduplicator.py`, `Evelyn/tools/chroma_rag.py`)**:
+  - Updated `fast_deduplicate_exact_matches` to propagate the newest `last_observed` timestamp and latest calendar date to the primary record during exact-match consolidation.
+  - Updated `_apply_temporal_recency_boost` in `chroma_rag.py` to prioritize `last_observed` alongside `date`, ensuring reaffirmed facts receive immediate conversational recency boosts in RAG retrieval.
+- **Hermetic Unit Test Suite (`Evelyn/tests/test_fact_deduplicator.py`)**:
+  - Added unit test `test_find_similar_entries_stemming_and_connective_verbs` verifying routine phrasing variations match at $\ge 0.70$ overlap.
+  - Added unit test `test_fast_deduplicate_exact_matches_propagates_latest_observation_and_date` verifying timestamp and date propagation.
+  - Added unit test `test_extractor_reinforces_existing_fact_instead_of_duplicating` verifying that extracting an established fact reinforces `observed_count`, updates `last_observed`, merges tags, and creates no duplicate rows.
+
+## [000.008.041] - 2026-10-15 — *Context Ledger Observation Longevity Disambiguation & Recency Analytics*
+
+### Added
+
+- **Observation Longevity Disambiguation & Recency Analytics (`evelyn_ui/context_entries.html`, `Evelyn/tools/memory_db.py`)**:
+  - Added `latest_date`, `latest_last_observed`, and `latest_created_at` telemetry to `memory_db.get_context_entries_metadata()` and surfaced a live "Latest Fact" metric badge in the Context Ledger header.
+  - Enabled sorting by `last_observed` in `memory_db.search_context_entries()` and added "Last Observed" to the sorting toolbar selector.
+  - Disambiguated calendar date (`entry.date`) from reinforcement timestamps (`entry.last_observed`): rendered both `📅 Recorded: YYYY-MM-DD` and `🕒 Last Observed: M/D/YYYY` on fact cards and in edit inspection modals.
+  - Clarified the edit modal date field label to `Recorded Date (YYYY-MM-DD)`.
+- **Architectural Fix Proposal for Fact Reinforcement (`data/planning/fact_observation_reinforcement_proposal.md`)**:
+  - Documented technical investigation identifying why established facts retain historical dates when repeated in chat (silent duplicate skip in `fact_extractor.py` without invoking `increment_entry_observed`).
+  - Outlined a 3-phase remediation plan to wire `memory_db.increment_entry_observed` on semantic duplicate matches in extraction and deduplication.
+
+## [000.008.040] - 2026-10-15 — *Context Ledger Workstation with Safe Dual-Mode Persistence & Idle Queueing*
+
+### Added
+
+- **Context Ledger Workstation (`evelyn_ui/context_entries.html`)**:
+  - Implemented a dedicated frontend workstation for searching, filtering, inspecting, editing, and queueing atomic memory facts stored in `context_entries` within `data/evelyn_memory.db`.
+  - Built-in multi-faceted search toolbar: debounced instant search (matches observation, tags, subject, category, or record ID), category dropdown (Cat01-U to Cat16-A with live counts), status filter (`live`, `extracted`, `pending_review`, `archived`, `deleted`, `all`), subject filter, confidence rating, sort selector (`id`, `date`, `created_at`, `updated_at`, `observed_count`, `retrieval_count`), and page size selector.
+  - Multi-select batch actions bar enabling one-click bulk enqueueing of multiple context facts into `fact_merge_queue` for asynchronous consolidation by the Fact Consolidator idle worker.
+  - Built-in Surrounding Chat Context modal fetching ephemeral conversation turns from `evelyn_chat.db` via `/api/review/context_entry/{entry_id}/surrounding_chat`.
+  - Beginner-friendly hover tooltips (`title="..."`) across all inputs, textareas, selectors, action buttons, and status/longevity badges in accordance with `.agents/rules/ui-standards.md`.
+  - Added global navigation links to the Context Ledger (`/ui/context_entries.html`) across `dev.html`, `profile_facts.html`, `taxonomy.html`, `benchmark.html`, and `index.html`.
+- **Safe Dual-Mode Persistence Architecture (`evelyn_server.py`, `Evelyn/tools/memory_db.py`)**:
+  - Direct Safe Save (`PATCH /api/context/entries/{id}`): Safely updates the SQLite database record after validating category taxonomy codes, normalizing subject attributions, and validating domain tags format; enqueues Chroma vector re-indexing into `chroma_sync_queue` via `chroma_rag.enqueue_upsert` (strictly observing the Chroma single-writer custodian rule); and triggers a background memory refresh.
+  - Proposal Staging (`POST /api/context/entries/{id}/propose`): Stages edits as non-destructive pending `rephrase` proposals in the `proposals` table, allowing operator edits to be reviewed or processed during idle consolidation cycles without directly mutating live facts immediately.
+  - Asynchronous Idle Queueing: Integrated one-click fact splitting (`POST /api/context/{id}/queue_split` into `split_queue`) and batch merging (`POST /api/context/queue_merge` into `fact_merge_queue`) for the autonomous idle-time Fact Consolidator.
+  - Search & Metadata APIs: Exposed `GET /api/context/entries` with pagination/filters and joined queue state indicators (`is_queued_split`, `is_queued_merge`), `GET /api/context/entries/metadata` for dynamic category/subject dropdown counts, and `DELETE /api/context/entries/{id}` for soft/hard deletion with queued Chroma vector pruning.
+- **Unit Test Coverage (`Evelyn/tests/test_context_entries_endpoints.py`)**:
+  - Added hermetic integration tests covering search filtering and pagination (`test_search_and_metadata_endpoints`), direct safe save and single-writer Chroma queueing (`test_direct_safe_save_with_chroma_queue`), proposal staging (`test_stage_as_proposal_mode`), split/merge queueing (`test_queue_split_and_queue_merge`), and entry creation/deletion lifecycle (`test_create_and_delete_endpoints`).
 
 ## [000.008.039] - 2026-10-14 — *Robust Asterisk Parsing for Spoken Emphasis & Split In-Flight Chunks*
 

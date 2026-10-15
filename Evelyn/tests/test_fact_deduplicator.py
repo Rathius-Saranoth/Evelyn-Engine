@@ -1,6 +1,6 @@
 # test_fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-10-11 12:14:33
+# date modified: 2026-10-15 22:51:35
 # tags: #test, #fact_deduplicator, #deduplication, #hysteresis, #telemetry
 
 """Targeted unit tests for fact_deduplicator and fact_categorizer child modules."""
@@ -198,3 +198,135 @@ reasoning: "Same preference."
     assert row is not None
     # Must be pending for user review, NOT auto_applied!
     assert row[0] == "pending"
+
+
+def test_find_similar_entries_stemming_and_connective_verbs(mock_memory_db):
+    """Verify find_similar_entries matches phrased variations of established routines."""
+    e1 = memory_db.insert_entry(
+        category="Cat05-U",
+        subject=cfg.USER_NAME,
+        observation=f"{cfg.USER_NAME} has a morning routine involving coffee and music.",
+        status="live",
+        date="2026-06-16",
+    )
+
+    # Candidate fact with different connective verb ("incorporates" vs "involving")
+    query = f"{cfg.USER_NAME} incorporates coffee and music into his morning routine."
+    matches = memory_db.find_similar_entries(
+        category="Cat05-U",
+        subject=cfg.USER_NAME,
+        observation_text=query,
+        min_overlap=0.70,
+        status="live",
+    )
+    assert len(matches) == 1
+    assert matches[0]["id"] == e1
+    assert matches[0]["overlap"] >= 0.70
+
+
+def test_fast_deduplicate_exact_matches_propagates_latest_observation_and_date(mock_memory_db):
+    """Verify fast_deduplicate_exact_matches updates master with newest date and last_observed."""
+    t_old = 1780000000.0
+    t_new = 1790000000.0
+
+    # Primary entry (older discussion date, older last_observed)
+    e1 = memory_db.insert_entry(
+        category="Cat05-U",
+        subject=cfg.USER_NAME,
+        observation="Enjoys fresh hazelnut coffee.",
+        status="live",
+        date="2026-05-01",
+        tags="coffee",
+    )
+    con = memory_db.get_db()
+    con.execute("UPDATE context_entries SET last_observed = ?, observed_count = 1 WHERE id = ?", (t_old, e1))
+    con.commit()
+
+    # Exact duplicate entry (newer discussion date, newer last_observed)
+    e2 = memory_db.insert_entry(
+        category="Cat05-U",
+        subject=cfg.USER_NAME,
+        observation="Enjoys fresh hazelnut coffee.",
+        status="live",
+        date="2026-10-15",
+        tags="coffee, morning",
+    )
+    con.execute("UPDATE context_entries SET last_observed = ?, observed_count = 2 WHERE id = ?", (t_new, e2))
+    con.commit()
+    con.close()
+
+    deleted = fact_deduplicator.fast_deduplicate_exact_matches()
+    assert deleted == 1
+
+    master = memory_db.get_entry(e1)
+    assert master is not None
+    assert master["observed_count"] == 3
+    assert master["date"] == "2026-10-15"
+    assert master["last_observed"] >= t_new
+    assert "morning" in master["tags"]
+    assert "coffee" in master["tags"]
+
+    dup = memory_db.get_entry(e2)
+    assert dup is None  # hard-deleted from live context_entries table
+
+
+def test_extractor_reinforces_existing_fact_instead_of_duplicating(mock_memory_db):
+    """Verify write_extracted_facts reinforces matching live facts without inserting duplicates."""
+    from Evelyn.tools import fact_extractor
+
+    e1 = memory_db.insert_entry(
+        category="Cat05-U",
+        subject=cfg.USER_NAME,
+        observation=f"{cfg.USER_NAME} has a morning routine involving coffee and music.",
+        status="live",
+        date="2026-06-16",
+        tags="routine",
+    )
+    orig_entry = memory_db.get_entry(e1)
+    assert orig_entry["observed_count"] == 1
+    orig_last_observed = orig_entry["last_observed"] or 0.0
+
+    time.sleep(0.05)
+
+    # Extract a fact that matches the existing habit
+    extracted_facts = [
+        {
+            "category": "Cat05-U",
+            "subject": cfg.USER_NAME,
+            "summary": f"{cfg.USER_NAME} incorporates coffee and music into his morning routine.",
+            "confidence": "high",
+            "date": "2026-10-15",
+            "tags": "coffee, music, routine",
+        }
+    ]
+
+    inserted_count = fact_extractor.write_extracted_facts(extracted_facts)
+    # Deduplicated, so not inserted as a new row
+    assert inserted_count == 0
+
+    # Verify master was reinforced
+    updated = memory_db.get_entry(e1)
+    assert updated is not None
+    assert updated["observed_count"] == 2
+    assert updated["last_observed"] > orig_last_observed
+    assert updated["date"] == "2026-10-15"
+
+    # Only 1 total entry exists in Cat05-U
+    all_entries = memory_db.get_entries_by_category("Cat05-U", status="live")
+    assert len(all_entries) == 1
+    assert all_entries[0]["id"] == e1
+
+
+def test_unified_token_jaccard_stemming_parity():
+    """Verify calculate_token_jaccard leverages canonical stemming and relational stopwords."""
+    t1 = f"{cfg.USER_NAME} has a morning routine involving coffee and music."
+    t2 = f"{cfg.USER_NAME} incorporates coffee and music into his morning routine."
+    t3 = f"{cfg.USER_NAME} starts his morning with coffee and music."
+
+    # Involving vs incorporates now normalize to identical keyword sets
+    j12 = fact_deduplicator.calculate_token_jaccard(t1, t2)
+    assert j12 == 1.0  # Identical keywords: routine, coffee, morn, music
+
+    # Starts vs routine: subset overlap
+    j13 = fact_deduplicator.calculate_token_jaccard(t1, t3)
+    assert j13 >= 0.50

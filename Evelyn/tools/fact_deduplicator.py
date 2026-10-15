@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-10-13 01:26:46
+# date modified: 2026-10-15 22:51:35
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -80,18 +80,9 @@ reasoning: "Brief explanation of the verdict."
 
 
 def calculate_token_jaccard(text_a: str, text_b: str) -> float:
-    """Calculate token-level Jaccard similarity between two texts, ignoring common stopwords."""
-    words_a = set(re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", text_a.lower()))
-    words_b = set(re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", text_b.lower()))
-    if not words_a or not words_b:
-        return 0.0
-    stopwords = {
-        "this", "that", "with", "from", "have", "been", "were", "will",
-        "when", "what", "which", "there", "their", "about", "also", "into",
-        "more", "some", "time", "than", "them", "then", "these", "only",
-    }
-    words_a -= stopwords
-    words_b -= stopwords
+    """Calculate token-level Jaccard similarity between two texts using canonical keyword extraction and stemming."""
+    words_a = memory_db._extract_keywords(text_a)
+    words_b = memory_db._extract_keywords(text_b)
     if not words_a or not words_b:
         return 0.0
     return len(words_a & words_b) / len(words_a | words_b)
@@ -119,7 +110,7 @@ def fast_deduplicate_exact_matches(con: sqlite3.Connection | None = None) -> int
     try:
         cur = con.cursor()
         rows = cur.execute(
-            """SELECT id, category, subject, observation, date, tags, observed_count, created_at
+            """SELECT id, category, subject, observation, date, tags, observed_count, created_at, last_observed
                FROM context_entries
                WHERE status = 'live'
                ORDER BY id ASC"""
@@ -148,13 +139,14 @@ def fast_deduplicate_exact_matches(con: sqlite3.Connection | None = None) -> int
                 t2 = {t.strip() for t in (r.get("tags") or "").split(",") if t.strip()}
                 merged_tags = ", ".join(sorted(t1 | t2)) if (t1 | t2) else None
 
-                best_date = primary.get("date") or r.get("date")
+                best_date = max(filter(None, [primary.get("date"), r.get("date")]), default=None)
+                latest_last_obs = max(filter(None, [primary.get("last_observed"), r.get("last_observed"), now]))
 
                 cur.execute(
                     """UPDATE context_entries
-                       SET observed_count = ?, tags = ?, date = ?, updated_at = ?, last_audited_at = ?
+                       SET observed_count = ?, tags = ?, date = ?, last_observed = ?, updated_at = ?, last_audited_at = ?
                        WHERE id = ?""",
-                    (merged_count, merged_tags, best_date, now, now, primary_id),
+                    (merged_count, merged_tags, best_date, latest_last_obs, now, now, primary_id),
                 )
 
                 cur.execute("DELETE FROM context_entries WHERE id = ?", (dup_id,))

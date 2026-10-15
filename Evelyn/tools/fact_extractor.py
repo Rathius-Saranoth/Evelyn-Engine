@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-13 21:56:05
+# date modified: 2026-10-15 22:38:50
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -1364,16 +1364,46 @@ def write_extracted_facts(facts: list[dict]) -> int:
         fact_date = fact.get("date") or today_str
 
         # Dedup check against live entries in the same category and subject
-        # Adjust min_overlap for more or less strict duplicate detection
+        # If an existing entry matches, reinforce it (bump observed_count and last_observed)
+        # rather than inserting a redundant duplicate row.
+        min_overlap = float(getattr(cfg, "FACT_EXTRACTION_DEDUP_MIN_OVERLAP", 0.70))
         similar = memory_db.find_similar_entries(
             category=category,
             subject=subject,
             observation_text=summary,
-            min_overlap=0.90,
+            min_overlap=min_overlap,
             status="live",
         )
         if similar:
-            print(f"[EXTRACTOR] Skipping duplicate ({similar[0]['overlap']:.2f} overlap): {summary[:80]}...", flush=True)
+            matched = similar[0]
+            matched_id = int(matched["id"])
+            memory_db.increment_entry_observed(
+                matched_id,
+                count_delta=1,
+                observation_date=fact_date,
+            )
+            # Tag enrichment: union any new vocabulary tags into the existing entry
+            fact_tags = [t.strip() for t in str(fact.get("tags") or "").split(",") if t.strip()]
+            if fact_tags:
+                existing_tags = [t.strip() for t in str(matched.get("tags") or "").split(",") if t.strip()]
+                combined_tags = sorted(set(existing_tags) | set(fact_tags))
+                if combined_tags != existing_tags:
+                    with contextlib.suppress(sqlite3.Error, OSError):
+                        kept = withhold_unregistered_tags(
+                            matched_id,
+                            combined_tags,
+                            origin=f"reinforced fact ({category})",
+                            reason="Tag enriched via observation reinforcement.",
+                        )
+                        if kept != existing_tags:
+                            memory_db.update_entry(matched_id, tags=", ".join(kept))
+
+            print(
+                f"[EXTRACTOR] Reinforced existing fact #{matched_id} "
+                f"({matched['overlap']:.2f} overlap, observed_count += 1, updated last_observed): "
+                f"{summary[:80]}...",
+                flush=True,
+            )
             continue
 
         # Auto-accept high confidence extractions
