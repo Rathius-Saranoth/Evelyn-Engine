@@ -2547,6 +2547,16 @@
           const textToDispatch = unparsed.trim();
           if (textToDispatch) {
             _inFlightTTS.dispatchedChars = fullText.length;
+            const spokenCandidate = textToDispatch
+              .replace(/\*([^*]+)\*/g, (m, inner) => (inner.trim().split(/\s+/).length === 1 ? inner : ""))
+              .replace(/[^\w]/g, "");
+
+            if (!spokenCandidate) {
+              _ttsStreamDone = true;
+              if (!_ttsPlaying && _ttsQueue.length === 0) _stopTTS();
+              return;
+            }
+
             _inFlightTTS.chunkCount++;
             const sid = _inFlightTTS.sessionId;
             _inFlightTTS.activePromise = _inFlightTTS.activePromise.then(() =>
@@ -2565,20 +2575,44 @@
         const minChars = _inFlightTTS.chunkCount === 0 ? 35 : 120;
         if (unparsed.length < minChars) return;
 
-        const match = unparsed.match(/([.!?])\s+|\n+/);
-        if (!match || match.index === undefined) return;
+        const boundaryRegex = /([.!?])\s+|\n+/g;
+        let match;
+        let chosenBoundaryEnd = -1;
 
-        const boundaryEnd = match.index + match[0].length;
-        const segment = unparsed.slice(0, boundaryEnd).trim();
+        while ((match = boundaryRegex.exec(unparsed)) !== null) {
+          const boundaryEnd = match.index + match[0].length;
+          const candidateSeg = unparsed.slice(0, boundaryEnd).trim();
+          if (candidateSeg.length < minChars) continue;
 
-        if (segment.length >= minChars) {
-          _inFlightTTS.dispatchedChars += boundaryEnd;
-          _inFlightTTS.chunkCount++;
-          const sid = _inFlightTTS.sessionId;
-          _inFlightTTS.activePromise = _inFlightTTS.activePromise.then(() =>
-            _dispatchInFlightChunk(segment, false, sid)
-          );
+          // Ensure we don't cut inside an unclosed asterisk block (*...*)
+          const asteriskCount = (candidateSeg.match(/\*/g) || []).length;
+          if (asteriskCount % 2 !== 0) continue;
+
+          chosenBoundaryEnd = boundaryEnd;
+          break;
         }
+
+        if (chosenBoundaryEnd === -1) return;
+
+        const segment = unparsed.slice(0, chosenBoundaryEnd).trim();
+        _inFlightTTS.dispatchedChars += chosenBoundaryEnd;
+
+        // Check if candidate segment contains any spoken speech (outside multi-word asterisks)
+        const spokenCandidate = segment
+          .replace(/\*([^*]+)\*/g, (m, inner) => (inner.trim().split(/\s+/).length === 1 ? inner : ""))
+          .replace(/[^\w]/g, "");
+
+        if (!spokenCandidate) {
+          // Pure stage direction segment: advance dispatchedChars without audio dispatch,
+          // preserving chunkCount === 0 for fast-dispatch on the first real spoken words.
+          return;
+        }
+
+        _inFlightTTS.chunkCount++;
+        const sid = _inFlightTTS.sessionId;
+        _inFlightTTS.activePromise = _inFlightTTS.activePromise.then(() =>
+          _dispatchInFlightChunk(segment, false, sid)
+        );
       }
 
       async function playTTS(text, btn) {

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-15 22:51:35
+# date modified: 2026-10-15 23:08:50
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.043"
-__version_info__ = (0, 8, 43)
-__version_name__ = "Idle Consolidation & Extraction Lexical Unification and Vector Prefilter Parity"
+__version__ = "000.008.044"
+__version_info__ = (0, 8, 44)
+__version_name__ = "In-Flight Balanced Asterisk Boundary Slicing & TTS Action Simplification"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

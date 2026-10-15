@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-10-14 01:39:57
+# date modified: 2026-10-15 23:08:09
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -274,57 +274,13 @@ SUPPORTED_TTS_TAGS = {
     "groan", "sniff", "shush", "clear throat",
 }
 
-PURE_EMOTE_VERBS = {
-    "smile", "smiles", "smiling", "smiled",
-    "grin", "grins", "grinning", "grinned",
-    "beam", "beams", "beaming", "beamed",
-    "wink", "winks", "winking", "winked",
-    "blush", "blushes", "blushing", "blushed",
-    "frown", "frowns", "frowning", "frowned",
-    "pout", "pouts", "pouting", "pouted",
-    "nod", "nods", "nodding", "nodded",
-    "shrug", "shrugs", "shrugging", "shrugged",
-    "wave", "waves", "waving", "waved",
-}
-
-STAGE_ACTION_TERMS = PURE_EMOTE_VERBS | {
-    "lean", "leans", "leaning", "leaned",
-    "reach", "reaches", "reaching", "reached",
-    "settle", "settles", "settling", "settled",
-    "blink", "blinks", "blinking", "blinked",
-    "gesture", "gestures", "gesturing", "gestured",
-    "pause", "pauses", "pausing", "paused",
-}
-
-
-def _is_stage_direction(inner: str) -> bool:
-    """Check if an asterisk token is a stage direction/action rather than vocal emphasis."""
-    s = inner.strip()
-    if not s:
-        return True
-    words = s.split()
-    # Single-word tokens: only stage action terms (e.g. *nods*, *smiles*, *winks*) are actions
-    if len(words) == 1:
-        clean_word = re.sub(r"[^\w]", "", words[0].lower())
-        return clean_word in STAGE_ACTION_TERMS
-
-    # Multi-word tokens: narrative pronouns or 4+ words are stage directions
-    if re.match(r"^(?:I|my|she|her|he|his|we|our|they|their)\b", s, re.IGNORECASE):
-        return True
-    if len(words) >= 4:
-        return True
-
-    # 2-3 word tokens containing stage action verbs (e.g. *leans in*, *smiles warmly*)
-    lower_words = {re.sub(r"[^\w]", "", w.lower()) for w in words}
-    return bool(lower_words & STAGE_ACTION_TERMS)
-
 
 def sanitize_and_tag_speech(text: str) -> str:
     """Prepare text for Chatterbox Turbo TTS synthesis.
 
     1. Normalizes unicode quotes, apostrophes, dashes, and ellipses.
     2. Preserves bold text while translating asterisk vocal emotes to native paralinguistic audio tags.
-    3. Asterisk parsing: unwraps spoken emphasis (*you*, *purpose*) while inserting natural pauses (, ) for visual/bodily stage directions (*I lean in...*).
+    3. Asterisk parsing: unwraps single-word spoken emphasis (*you*, *purpose*) while omitting multi-word stage directions (*I lean in...*).
     4. Converts soft delivery markers ([softly], [whispering]) into natural pauses while preserving supported tags.
     5. Strips markdown links, images, and extra noise.
     """
@@ -361,10 +317,18 @@ def sanitize_and_tag_speech(text: str) -> str:
     for pattern, tag in vocal_patterns:
         clean = re.sub(pattern, tag, clean, flags=re.IGNORECASE)
 
-    # 5. Asterisk processing: unwrap spoken emphasis, insert natural pause for stage directions
+    # 5. Odd-asterisk guard: if unbalanced, strip opening/closing unpaired asterisks
+    if clean.count('*') % 2 != 0:
+        clean = re.sub(r'^\*[^*\r\n]*\r?\n*', '', clean)
+        clean = re.sub(r'\*[^*\r\n]*$', '', clean)
+
+    # 6. Asterisk processing: unwrap single-word spoken emphasis, omit multi-word actions
     def _asterisk_sub(m: re.Match) -> str:
-        content = m.group(1)
-        return ", " if _is_stage_direction(content) else content
+        inner = m.group(1).strip()
+        words = inner.split()
+        if len(words) == 1:
+            return inner
+        return ", "
 
     clean = re.sub(r'\*([^*]+?)\*', _asterisk_sub, clean)
     clean = clean.replace('*', '')

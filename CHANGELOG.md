@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-15 22:54:19
+date modified: 2026-10-15 23:08:50
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.044] - 2026-10-15 — *In-Flight Balanced Asterisk Boundary Slicing & TTS Action Simplification*
+
+### Fixed
+
+- **In-Flight Speech Streaming Asterisk Boundary Inversion (`evelyn_ui/index.html`)**:
+  - Resolved root cause of butchered TTS synthesis (e.g. message `#33028`) where conversational dialogue was stripped and narrative stage directions were voiced aloud.
+  - Slicing candidate sentences on `/([.!?])\s+|\n+/` previously matched sentence endings *inside* multi-sentence opening stage directions (e.g. `*I nod slowly, my expression full of understanding. I can see how much...*`), splitting Chunk 0 with an unclosed opening asterisk and Chunk 1 with an orphaned closing asterisk. This inverted all subsequent asterisk pairings across the entire message.
+  - Updated `processInFlightSpeech` in `evelyn_ui/index.html` to iterate through boundary candidates and strictly reject boundaries where asterisks are unbalanced (`asteriskCount % 2 !== 0`).
+  - Added pure stage direction detection: segments containing only actions (`candidateSeg.replace(...)`) advance `dispatchedChars` immediately without issuing superfluous network requests, preserving `chunkCount === 0` so the first spoken dialogue chunk still receives the fast-dispatch character floor (`minChars = 35`).
+- **Asterisk Parsing Simplification & Edge Case Elimination (`services/tts/tts_server.py`)**:
+  - Replaced complex heuristic verb dictionaries (`PURE_EMOTE_VERBS`, `STAGE_ACTION_TERMS`, `_is_stage_direction`, pronoun classifiers) with a clean, deterministic rule: single-word tokens (`len(words) == 1`) in asterisks (e.g. `*you*`, `*purpose*`, `*enough*`, `*I*`, `*why*`) are preserved as spoken emphasis; multi-word tokens are treated as bodily/visual actions and omitted (replaced with `, `).
+  - Added deterministic odd-asterisk guard (`clean.count('*') % 2 != 0`) using line-scoped matching (`^\*[^*\r\n]*\r?\n*` and `\*[^*\r\n]*$`) so network truncations or orphaned asterisks never flip dialogue/action polarity.
+- **Unit Test Parity (`Evelyn/tests/test_tts_server.py`)**:
+  - Updated `test_sanitize_and_tag_speech_strips_bodily_actions` for the simplified single-word vs multi-word rule.
+  - Added `test_sanitize_and_tag_speech_multi_sentence_stage_direction_message_33028` and `test_sanitize_and_tag_speech_odd_asterisk_guard`.
 
 ## [000.008.043] - 2026-10-15 — *Idle Consolidation & Extraction Lexical Unification and Vector Prefilter Parity*
 

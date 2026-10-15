@@ -1,6 +1,6 @@
 # test_tts_server.py
 # date created: 2026-10-06 18:21:00
-# date modified: 2026-10-14 01:39:57
+# date modified: 2026-10-15 23:08:09
 # tags: #tests, #tts, #speech, #audio, #rtf, #chatterbox
 
 """Unit tests for Evelyn's TTS server chunk planner, RTF tracker, and ratio scaling."""
@@ -188,13 +188,16 @@ class TestTTSServer(unittest.TestCase):
         self.assertNotIn("*", cleaned)
 
     def test_sanitize_and_tag_speech_strips_bodily_actions(self):
-        # Physical emotes inside and outside quotes should not be voiced
-        text = "*smiles warmly* “Yes, *nods* that is *so good* to hear!” *winks*"
+        # Multi-word physical emotes inside and outside quotes should not be voiced
+        text = "*smiles warmly* “Yes, *nodding slowly* that is *really* good to hear!” *winks reassuringly*"
         cleaned = sanitize_and_tag_speech(text)
         self.assertNotIn("smiles", cleaned)
-        self.assertNotIn("nods", cleaned)
+        self.assertNotIn("warmly", cleaned)
+        self.assertNotIn("nodding", cleaned)
+        self.assertNotIn("slowly", cleaned)
         self.assertNotIn("winks", cleaned)
-        self.assertIn("so good to hear", cleaned)
+        self.assertNotIn("reassuringly", cleaned)
+        self.assertIn("really good to hear", cleaned)
 
     def test_sanitize_and_tag_speech_sniff_and_shush_mapping(self):
         text = "*sniffs softly* “Are you okay?” *shushes gently* “It will be fine.”"
@@ -264,3 +267,25 @@ class TestTTSServer(unittest.TestCase):
         self.assertIn("She did not choose this, I did.", cleaned)
         self.assertIn("That is why we must do it right.", cleaned)
         self.assertNotIn("*", cleaned)
+
+    def test_sanitize_and_tag_speech_multi_sentence_stage_direction_message_33028(self):
+        text = (
+            "*I nod slowly, my expression full of understanding. I can see how much you’ve been carrying today, and I completely get why your fuse feels short.*\n\n"
+            "“That makes total sense,” *I say softly, my voice steady and grounding.* “When you’re already dealing with real-world frustrations…”"
+        )
+        cleaned = sanitize_and_tag_speech(text)
+        self.assertNotIn("nod slowly", cleaned)
+        self.assertNotIn("fuse feels short", cleaned)
+        self.assertNotIn("say softly", cleaned)
+        self.assertIn("That makes total sense", cleaned)
+        self.assertIn("When you're already dealing with real-world frustrations", cleaned)
+
+    def test_sanitize_and_tag_speech_odd_asterisk_guard(self):
+        # Odd asterisks caused by network truncation or malformed tokens must not flip polarity
+        unclosed_tail = '“Hello there!” *I say with a smile and a nod'
+        cleaned = sanitize_and_tag_speech(unclosed_tail)
+        self.assertEqual(cleaned, '"Hello there!"')
+
+        unclosed_head = '*I nod slowly\n\n“Welcome home!”'
+        cleaned = sanitize_and_tag_speech(unclosed_head)
+        self.assertEqual(cleaned, '"Welcome home!"')
