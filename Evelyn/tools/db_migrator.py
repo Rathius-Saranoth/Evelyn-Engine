@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-16 00:57:50
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6505,6 +6505,319 @@ def migrate_000_008_045_retire_memory_categories(
         cursor.execute("ALTER TABLE context_entries DROP COLUMN recategorized_at")
 
 
+def migrate_000_008_046_register_core_entities(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.008.046: Register core project, tool, and person entities in vault.db's tag_entities."""
+    now = time.time()
+    cursor = conn.cursor()
+
+    core_entities = [
+        ("evelyn-engine", "Evelyn Engine", "project", "Core AI companion and cognition engine"),
+        ("project-sanctum", "Project Sanctum", "project", "Shared homelab and environment project"),
+        ("the-artificium", "The Artificium", "work", "3D printing project and workshop"),
+        ("wench-in-the-gear", "Wench in the Gear", "organization", "Trinket and gear shop"),
+        ("open-webui", "Open WebUI", "product", "Open WebUI platform"),
+        ("astra", "Astra", "other", "Visual generation agent"),
+        ("alec-steele", "Alec Steele", "person", "Content creator and metalworker"),
+        ("jack-the-whipper", "Jack the Whipper", "person", "Performer"),
+        ("miss-twisted", "Miss Twisted", "person", "Crafting content creator"),
+        ("saros", "Saros", "person", "D&D Artificer character"),
+        ("saros-zafaden", "Saros Zafaden", "person", "D&D Artificer character"),
+        ("emma", "Emma", "person", "Family contact"),
+        ("krista", "Krista", "person", "Contact"),
+    ]
+
+    for p_name in getattr(cfg, "PRIVATE_IDENTITY_NAMES", []):
+        if p_name:
+            term = p_name.lower().replace(" ", "-")
+            core_entities.append((term, p_name, "person", "Configured identity entity"))
+
+    for term, label, kind, note in core_entities:
+        cursor.execute(
+            """
+            INSERT INTO tag_entities (term, label, kind, note, request_count, recorded_at)
+            VALUES (?, ?, ?, ?, 1, ?)
+            ON CONFLICT(term) DO UPDATE SET
+                label = CASE WHEN excluded.label <> '' THEN excluded.label ELSE tag_entities.label END,
+                kind = excluded.kind,
+                note = CASE WHEN excluded.note <> '' THEN excluded.note ELSE tag_entities.note END
+            """,
+            (term, label, kind, note, now),
+        )
+
+
+def migrate_000_008_046_unify_memory_subjects(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.008.046: Curate non-entity topics and compound subjects in context_entries."""
+    user_name = getattr(cfg, "USER_NAME", "User")
+    asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+    legacy_aliases = getattr(cfg, "USER_LEGACY_ALIASES", [])
+    private_names = getattr(cfg, "PRIVATE_IDENTITY_NAMES", [])
+    cursor = conn.cursor()
+
+    # 1. Clean test debris
+    cursor.execute("DELETE FROM context_entries WHERE subject IN ('T', 'Tester')")
+
+    # 2. Casing / alias direct fixes
+    cursor.execute(
+        "UPDATE context_entries SET subject = ? WHERE LOWER(subject) = ?",
+        (asst_name, asst_name.lower()),
+    )
+    cursor.execute("UPDATE context_entries SET subject = 'Saros' WHERE subject = 'Saros Zafaden'")
+    for alias in [user_name, *legacy_aliases]:
+        cursor.execute(
+            "UPDATE context_entries SET subject = ? WHERE subject = ?",
+            (user_name, f"{alias}s_Environment"),
+        )
+        cursor.execute(
+            "UPDATE context_entries SET subject = ? WHERE subject = ?",
+            (user_name, f"{alias}_Environment"),
+        )
+        cursor.execute(
+            "UPDATE context_entries SET subject = ? WHERE subject = ?",
+            (user_name, f"{alias}'s Brother"),
+        )
+
+    # Helper function to append tags if not already present
+    def add_tags(existing_tags: str | None, *new_tags: str) -> str:
+        current = [t.strip().lower() for t in (existing_tags or "").split(",") if t.strip()]
+        for nt in new_tags:
+            clean_nt = nt.strip().lower()
+            if clean_nt and clean_nt not in current:
+                current.append(clean_nt)
+        return ", ".join(current)
+
+    # 3. Build compound and topic subject targets
+    user_asst_pairs = [
+        f"{user_name} & {asst_name}",
+        f"{user_name} and {asst_name}",
+        f"{user_name}'s Brother",
+    ]
+    for alias in legacy_aliases:
+        user_asst_pairs.extend([
+            f"{alias}_and_{asst_name}",
+            f"{alias} & {asst_name}",
+            f"{alias} & Engine System",
+        ])
+
+    target_subjects = [
+        "Relationship",
+        "Relationship Dynamics",
+        "Relationship/Shared_Context",
+        "Shared Environment",
+        "System",
+        "Environment",
+        "Home/Environment",
+        "Game World",
+        "Shared World",
+        "World Setting (Fiction)",
+        "World/Tech",
+        "Shared Lore/Worldbuilding",
+        "Game_Lore",
+        "Game Project",
+        "Character System (Fiction)",
+        "Project_Status",
+        "Project_Work",
+        "Project_Shared",
+        "Project_Roadmap",
+        "Project_Research_Tool",
+        "Project_Management",
+        "Project_Local_AI",
+        "Project_Golden_Retriever",
+        "Project_Entity",
+        "Project_Artifact",
+        "Project_Agent (Claude)",
+        "Project/System",
+        "Project/Roadmap",
+        "Project Development",
+        "Project",
+        "Research_Engine",
+        "Research Project",
+        "System_Environment",
+        "System_Architecture",
+        "System/Environment",
+        "System_Testing",
+        "System_Context",
+        "System Infrastructure",
+        "Shared System",
+        "Shared Context",
+        "Shared Project",
+        "Server",
+        "Rituals",
+        "Ritual/Routine",
+        "Local Store",
+        "Software Vendor",
+        "Household Pet",
+        "Kitten",
+        "Open_WebUI",
+        "The Artificium",
+        "Wench in the Gear",
+        "Spirit Evelyn",
+        *user_asst_pairs,
+    ]
+    for p in private_names:
+        target_subjects.extend([f"Dustin and {p}", f"Dustin & {p}", f"{p} and Kuni"])
+
+    placeholders = ",".join("?" for _ in target_subjects)
+    cursor.execute(
+        f"SELECT id, subject, observation, tags FROM context_entries WHERE subject IN ({placeholders})",
+        target_subjects,
+    )
+    rows = cursor.fetchall()
+
+    for row_id, subj, obs, tags in rows:
+        subj_str = str(subj or "").strip()
+        obs_str = str(obs or "").strip()
+        new_subject = user_name
+        tag_list = tags
+
+        # Check third-party private name combinations first
+        matched_private = False
+        for p in private_names:
+            if p.lower() in subj_str.lower():
+                new_subject = p
+                tag_list = add_tags(
+                    tag_list, "pet" if any(k in obs_str.lower() for k in ("pet", "cat", "dog")) else "friendship"
+                )
+                matched_private = True
+                break
+        if matched_private:
+            cursor.execute(
+                "UPDATE context_entries SET subject = ?, tags = ? WHERE id = ?",
+                (new_subject, tag_list, row_id),
+            )
+            continue
+
+        # Entity-specific subjects
+        if subj_str == "Open_WebUI":
+            new_subject = "Open WebUI"
+            tag_list = add_tags(tag_list, "open-webui", "local-ai")
+        elif subj_str == "The Artificium":
+            new_subject = "The Artificium"
+            tag_list = add_tags(tag_list, "3d-printing")
+        elif subj_str == "Wench in the Gear":
+            new_subject = "Wench in the Gear"
+            tag_list = add_tags(tag_list, "shop")
+        elif subj_str == "Spirit Evelyn":
+            new_subject = asst_name
+            tag_list = add_tags(tag_list, "persona", "origin")
+        elif subj_str in ("Household Pet", "Kitten"):
+            new_subject = "Kuni"
+            tag_list = add_tags(tag_list, "cat", "pet")
+        elif subj_str in (
+            "System",
+            "System_Environment",
+            "System_Architecture",
+            "System/Environment",
+            "System_Testing",
+            "System_Context",
+            "System Infrastructure",
+            "Server",
+            "Research_Engine",
+            "Research Project",
+            "Shared System",
+            "Shared Context",
+            "Shared Project",
+            "Project_Status",
+            "Project_Work",
+            "Project_Shared",
+            "Project_Roadmap",
+            "Project_Research_Tool",
+            "Project_Management",
+            "Project_Local_AI",
+            "Project_Golden_Retriever",
+            "Project_Entity",
+            "Project_Artifact",
+            "Project_Agent (Claude)",
+            "Project/System",
+            "Project/Roadmap",
+            "Project Development",
+            "Project",
+            *(f"{alias} & Engine System" for alias in legacy_aliases),
+        ):
+            new_subject = "Evelyn Engine"
+            tag_list = add_tags(tag_list, "software-architecture")
+        elif subj_str in (
+            "Environment",
+            "Home/Environment",
+            "Local Store",
+            "Software Vendor",
+            "Rituals",
+            "Ritual/Routine",
+            f"{user_name}'s Brother",
+        ):
+            new_subject = user_name
+            obs_lower = obs_str.lower()
+            if "brother" in subj_str.lower() or "brother" in obs_lower:
+                tag_list = add_tags(tag_list, "family")
+            elif (
+                "weather" in obs_lower
+                or "storm" in obs_lower
+                or "rain" in obs_lower
+                or "snow" in obs_lower
+            ):
+                tag_list = add_tags(tag_list, "weather")
+            elif "routine" in subj_str.lower() or "ritual" in subj_str.lower():
+                tag_list = add_tags(tag_list, "routine")
+            else:
+                tag_list = add_tags(tag_list, "environment")
+        elif subj_str in (
+            "Relationship",
+            "Relationship Dynamics",
+            "Relationship/Shared_Context",
+            *user_asst_pairs,
+        ):
+            tag_list = add_tags(tag_list, "relationship", "partnership")
+            if re.match(rf"^{re.escape(asst_name.lower())}\b", obs_str, re.IGNORECASE) or re.search(
+                rf"\b{re.escape(asst_name.lower())}\b\s+(?:perceives\b|feels\b|observes\b|finds\b|maintains\b|ensures\b|responded\b|reflected\b)",
+                obs_str,
+                re.IGNORECASE,
+            ):
+                new_subject = asst_name
+            else:
+                new_subject = user_name
+        elif subj_str in (
+            "Shared Environment",
+            "Game World",
+            "Shared World",
+            "World Setting (Fiction)",
+            "World/Tech",
+            "Shared Lore/Worldbuilding",
+            "Game_Lore",
+            "Game Project",
+            "Character System (Fiction)",
+        ):
+            if re.search(
+                r"\b(?:library|vault|protocol|linking|obsidian|hermes|system|git|commit)\b",
+                obs_str,
+                re.IGNORECASE,
+            ):
+                new_subject = "Evelyn Engine"
+                tag_list = add_tags(tag_list, "knowledge-management")
+            elif re.search(
+                r"\b(?:storm|hail|weather|hvac|thunderstorm|heat\s*dome)\b", obs_str, re.IGNORECASE
+            ):
+                new_subject = user_name
+                tag_list = add_tags(tag_list, "weather")
+            elif re.search(r"\b(?:cat|pet|dog|kitten)\b", obs_str, re.IGNORECASE):
+                new_subject = user_name
+                tag_list = add_tags(tag_list, "pet")
+            else:
+                new_subject = user_name
+                tag_list = add_tags(tag_list, "worldbuilding", "ttrpg")
+
+        cursor.execute(
+            "UPDATE context_entries SET subject = ?, tags = ? WHERE id = ?",
+            (new_subject, tag_list, row_id),
+        )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -7107,6 +7420,20 @@ MIGRATIONS: list[Migration] = [
         version="000.008.045",
         name="retire_memory_categories",
         up_fn=migrate_000_008_045_retire_memory_categories,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.008.046",
+        name="register_core_entities",
+        up_fn=migrate_000_008_046_register_core_entities,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.008.046",
+        name="unify_memory_subjects",
+        up_fn=migrate_000_008_046_unify_memory_subjects,
         post_sync_chroma=False,
     ),
 ]

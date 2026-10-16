@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-15 23:08:50
+# date modified: 2026-10-16 00:57:50
 # tags: #versioning, #release
 
 """
@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import re
 
-# Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.045"
-__version_info__ = (0, 8, 45)
-__version_name__ = "Memory Category Retirement & Tag-Aware Temporal Decay"
+__version__ = "000.008.046"
+__version_info__ = (0, 8, 46)
+__version_name__ = "Memory Subject & Taxonomy Entity Unification"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

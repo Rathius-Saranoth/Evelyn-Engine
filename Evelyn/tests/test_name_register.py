@@ -1,6 +1,6 @@
 # test_name_register.py
 # date created: 2026-09-26
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-16 00:57:50
 # tags: #taxonomy, #names, #entities, #review, #testing
 
 """A name is not a subject, and the queue needs a third answer for one.
@@ -19,6 +19,7 @@ import asyncio
 
 import pytest
 
+import evelyn_config as cfg
 import evelyn_server
 from Evelyn.tools import memory_db, tag_entities, tag_librarian, taxonomy_db
 
@@ -32,6 +33,7 @@ def _name(pid: int, label: str = "", kind: str = "other"):
 def queue(monkeypatch: pytest.MonkeyPatch) -> None:
     memory_db.init_db()
     taxonomy_db.init_db()
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 1)
     monkeypatch.setattr(tag_librarian, "index_master_tag_in_chroma", lambda *a, **k: None)
 
 

@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-16 00:57:50
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -291,7 +291,7 @@ def normalize_subject_attribution(subj: str | None, observation: str = "") -> st
     raw_s = (subj or "").strip()
     obs_clean = observation.strip()
 
-    # 1. Alias & Casing Harmonization for explicitly provided subject
+    # 1. Alias & Casing Harmonization for user / assistant
     if raw_s:
         s_lower = raw_s.lower()
         if s_lower == user_name.lower() or s_lower in legacy_aliases:
@@ -300,34 +300,166 @@ def normalize_subject_attribution(subj: str | None, observation: str = "") -> st
             raw_s = asst_name
         else:
             # Check private/third-party entity roster
+            matched_private = False
             for p in private_names:
                 p_lower = p.lower()
                 if s_lower == p_lower or s_lower.startswith(p_lower) or p_lower in s_lower:
                     raw_s = p
+                    matched_private = True
                     break
 
-    # 2. If subject is missing or defaulted to user, reconcile against observation text
-    if (not raw_s or raw_s.lower() == user_name.lower()) and obs_clean:
-        # Check if observation clearly begins with or focuses on a known third-party entity
+            if not matched_private:
+                # Check registered taxonomy entities (tag_entities)
+                try:
+                    from Evelyn.tools import tag_entities
+
+                    resolved = tag_entities.resolve_entity_label(raw_s)
+                    if resolved:
+                        raw_s = resolved
+                except (sqlite3.Error, ImportError) as exc:
+                    logger.debug("[NORMALIZE SUBJECT] Entity lookup skipped: %s", exc)
+
+    # Set of known non-entity abstract topics and compound markers
+    topic_blacklist = {
+        "relationship",
+        "relationship dynamics",
+        "relationship/shared_context",
+        "shared environment",
+        "system",
+        "environment",
+        "game world",
+        "project_status",
+        "system_environment",
+        "system_architecture",
+        "system/environment",
+        "shared world",
+        "shared system",
+        "world/tech",
+        "world setting (fiction)",
+        "system_testing",
+        "system_context",
+        "system infrastructure",
+        "software vendor",
+        "shared project",
+        "shared lore/worldbuilding",
+        "shared context",
+        "server",
+        "rituals",
+        "ritual/routine",
+        "project_work",
+        "project_shared",
+        "project_roadmap",
+        "project_research_tool",
+        "project_management",
+        "project_local_ai",
+        "project_golden_retriever",
+        "project_entity",
+        "project_artifact",
+        "project/system",
+        "project/roadmap",
+        "project development",
+        "project",
+        "local store",
+        "household pet",
+        "home/environment",
+        "game_lore",
+        "game project",
+        "character system (fiction)",
+        f"{user_name.lower()}s_environment",
+        f"{user_name.lower()}_environment",
+    }
+    is_compound = any(sep in raw_s.lower() for sep in (" & ", " and ", "_and_", " + "))
+    is_non_entity = raw_s.lower() in topic_blacklist or is_compound or not raw_s
+
+    # 2. Reconcile non-entity topics, compounds, or missing subjects against observation text
+    if is_non_entity and obs_clean:
+        # 2a. Check for registered entities mentioned in observation text
+        try:
+            from Evelyn.tools import tag_entities
+
+            for ent in tag_entities.get_entities():
+                lbl = str(ent.get("label") or "").strip()
+                trm = str(ent.get("term") or "").strip()
+                candidate_name = lbl or trm.replace("-", " ").title()
+                if (
+                    candidate_name
+                    and re.search(rf"\b{re.escape(candidate_name)}\b", obs_clean, re.IGNORECASE)
+                    and re.search(
+                        rf"\b{re.escape(candidate_name)}\b\s+(?:is\b|was\b|has\b|features\b|suffered\b|crashed\b|utilizes\b|requires\b|includes\b)",
+                        obs_clean,
+                        re.IGNORECASE,
+                    )
+                ):
+                    return candidate_name
+        except (sqlite3.Error, ImportError) as exc:
+            logger.debug("[NORMALIZE SUBJECT] Entity scan skipped: %s", exc)
+
+        # 2b. Check if observation is primarily about the assistant
+        asst_predicate = (
+            rf"^{re.escape(asst_name.lower())}\b|"
+            rf"\b{re.escape(asst_name.lower())}\b\s+(?:perceives\b|feels\b|observes\b|finds\b|maintains\b|ensures\b|responded\b|reflected\b)"
+        )
+        if re.search(asst_predicate, obs_clean, re.IGNORECASE):
+            return asst_name
+
+        # 2c. Check private third-party entities
         for p in private_names:
             p_lower = p.lower()
-            # Check for explicit name start: "Entity is...", "Entity was...", "Entity's..."
             if re.match(rf"^{re.escape(p_lower)}\b", obs_clean, re.IGNORECASE):
                 return p
-            # Check for possessive or direct predicate: "Entity has...", "Entity prefers..."
             entity_predicate = (
                 rf"\b{re.escape(p_lower)}\b\s+(?:is\b|was\b|has\b|prefers\b|enjoys\b|experiences\b|"
                 rf"tends\b|attended\b|shuts\b|finishing\b|facing\b|acclimating\b|loves\b|sleeps\b|"
                 rf"sits\b|trills\b)"
             )
             if re.search(entity_predicate, obs_clean, re.IGNORECASE):
-                # Ensure user is not the primary actor (e.g. "User helped Entity")
                 user_actor = (
                     rf"^{re.escape(user_name.lower())}\b\s+(?:helped|assisted|drove|visited|"
                     rf"cares|delivering|participated|handled|prepared|performed)"
                 )
                 if not re.search(user_actor, obs_clean, re.IGNORECASE):
                     return p
+
+        # 2d. Check if observation is about system/engine architecture
+        engine_indicators = (
+            r"\b(?:evelyn_server\.py|chroma\s*db|chromadb|fact\s*extractor|tag\s*librarian|"
+            r"master_librarian|the\s+system\s+(?:migrated|utilizes|suffered|crashed|underwent)|"
+            r"engine\s+crash|rag\s+retrieval|context\s+window)\b"
+        )
+        if re.search(engine_indicators, obs_clean, re.IGNORECASE):
+            try:
+                from Evelyn.tools import tag_entities
+
+                resolved_engine = tag_entities.resolve_entity_label("evelyn-engine")
+                if resolved_engine:
+                    return resolved_engine
+            except (sqlite3.Error, ImportError) as exc:
+                logger.debug("[NORMALIZE SUBJECT] Engine label resolution skipped: %s", exc)
+            return "Evelyn Engine"
+
+        return user_name
+
+    # 3. If subject was explicitly defaulted to user, ensure third-party entity actions aren't misattributed
+    if raw_s.lower() == user_name.lower() and obs_clean:
+        for p in private_names:
+            p_lower = p.lower()
+            if re.match(rf"^{re.escape(p_lower)}\b", obs_clean, re.IGNORECASE):
+                return p
+            entity_predicate = (
+                rf"\b{re.escape(p_lower)}\b\s+(?:is\b|was\b|has\b|prefers\b|enjoys\b|experiences\b|"
+                rf"tends\b|attended\b|shuts\b|finishing\b|facing\b|acclimating\b|loves\b|sleeps\b|"
+                rf"sits\b|trills\b)"
+            )
+            if re.search(entity_predicate, obs_clean, re.IGNORECASE):
+                user_actor = (
+                    rf"^{re.escape(user_name.lower())}\b\s+(?:helped|assisted|drove|visited|"
+                    rf"cares|delivering|participated|handled|prepared|performed)"
+                )
+                if not re.search(user_actor, obs_clean, re.IGNORECASE):
+                    return p
+
+    if is_non_entity:
+        return user_name
 
     return raw_s if raw_s else user_name
 

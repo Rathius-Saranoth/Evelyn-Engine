@@ -1,6 +1,6 @@
 # tag_entities.py
 # date created: 2026-09-26 17:16:45
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-16 00:57:50
 # tags: #taxonomy, #authority, #names, #entities
 
 """The name register: the third answer to a tag admission proposal.
@@ -36,7 +36,16 @@ from Evelyn.tools.vault_db import get_db, init_db
 
 logger = logging.getLogger("evelyn.tag_entities")
 
-ENTITY_KINDS = ("organization", "product", "work", "person", "place", "other")
+ENTITY_KINDS = (
+    "organization",
+    "product",
+    "work",
+    "project",
+    "person",
+    "pet",
+    "place",
+    "other",
+)
 
 
 def record_entity(term: str, label: str = "", kind: str = "other", note: str = "") -> bool:
@@ -95,6 +104,67 @@ def is_entity(term: str) -> bool:
     finally:
         con.close()
     return row is not None
+
+
+def get_entity(term_or_label: str) -> dict[str, Any] | None:
+    """Find a registered entity by its canonical term or label."""
+    clean = (term_or_label or "").strip()
+    if not clean:
+        return None
+    clean_lower = clean.lower()
+    clean_term = clean_lower.replace(" ", "-").replace("_", "-")
+    init_db()
+    con = get_db()
+    try:
+        row = con.execute(
+            "SELECT * FROM tag_entities WHERE term = ? OR term = ? OR LOWER(label) = ? LIMIT 1",
+            (clean_lower, clean_term, clean_lower),
+        ).fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def resolve_entity_label(candidate: str) -> str | None:
+    """Resolve a candidate name or term to its canonical display label if registered.
+
+    Matches against term (e.g. 'evelyn-engine'), label (e.g. 'Evelyn Engine'), or slug.
+    Returns the entity's formatted label (e.g. 'Evelyn Engine'), or candidate if label is blank.
+    """
+    entity = get_entity(candidate)
+    if not entity:
+        return None
+    label = str(entity.get("label") or "").strip()
+    if label:
+        return label
+    term = str(entity.get("term") or "").strip()
+    return term.replace("-", " ").title()
+
+
+def all_entity_labels() -> list[str]:
+    """Return all unique canonical entity labels registered in the taxonomy."""
+    init_db()
+    con = get_db()
+    try:
+        rows = con.execute(
+            "SELECT term, label FROM tag_entities ORDER BY request_count DESC, term ASC"
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    labels: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        lbl = str(r["label"] or "").strip()
+        if not lbl:
+            lbl = str(r["term"] or "").strip().replace("-", " ").title()
+        if lbl and lbl.lower() not in seen:
+            seen.add(lbl.lower())
+            labels.append(lbl)
+    return labels
 
 
 def get_entities() -> list[dict[str, Any]]:

@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-16 00:57:50
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -95,6 +95,14 @@ def _known_entity_roster() -> str:
     """
     roster = [cfg.USER_NAME, cfg.ASSISTANT_NAME]
     roster.extend(n for n in getattr(cfg, "PRIVATE_IDENTITY_NAMES", []) if n)
+    try:
+        from Evelyn.tools import tag_entities
+
+        for ent_name in tag_entities.all_entity_labels()[:15]:
+            if ent_name and ent_name not in roster:
+                roster.append(ent_name)
+    except (sqlite3.Error, ImportError):
+        pass
     seen: set[str] = set()
     unique = [n for n in roster if not (n.lower() in seen or seen.add(n.lower()))]
     return ", ".join(unique)
@@ -738,6 +746,8 @@ def _build_extraction_prompt(
         f"   - Facts about {cfg.USER_NAME} have subject: '{cfg.USER_NAME}'.\n"
         f"   - Facts about {cfg.ASSISTANT_NAME} have subject: '{cfg.ASSISTANT_NAME}'.\n"
         f"   - CRITICAL THIRD-PARTY ENTITY SUBJECT ATTRIBUTION: Do NOT attribute third-party actions, habits, school events, pets, or family occurrences to {cfg.USER_NAME}. If an observation is primarily about a pet or third party (e.g. {cfg.EXAMPLE_THIRD_PARTY_NAME}, {cfg.EXAMPLE_PET_NAME}), 'subject' MUST be that specific entity name.\n"
+        "   - STRICT NAMED ENTITY REQUIREMENT (NO TOPIC SUBJECTS): 'subject' MUST be a discrete Named Entity (Person, Pet, Project/Work, Product/Tool, or Organization). NEVER use abstract concepts, topics, or composite descriptions as the subject (e.g. DO NOT use 'Relationship', 'Shared Environment', 'System', 'Environment', 'Game World', 'Project_Status'). Abstract domains belong exclusively in 'tags', while 'subject' is the entity that experienced, built, or holds the state.\n"
+        f"   - NO COMPOUND SUBJECTS: NEVER use compound strings like '{cfg.USER_NAME} & {cfg.ASSISTANT_NAME}' or 'A and B'. Attribute to the primary actor or speaker, and capture the partnership in tags.\n"
         "2. EXPLICIT NOUN SUBJECT & ACTOR GROUNDING:\n"
         "   - NEVER use ambiguous floating third-person pronouns ('he', 'she', 'they', 'him', 'her') to refer to the primary subject in the summary.\n"
         "   - NEVER begin a summary with a subject-less verb (e.g. Do NOT write 'Enjoys...', 'Prefers...', 'Acts as...', 'Has a...').\n"

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 00:13:19
+date modified: 2026-10-16 00:58:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.046] - 2026-10-16 — *Unification of Memory Subjects & Taxonomy Entities / Non-Entity Topic Curation*
+
+### Added
+
+- **Taxonomy Entity Resolution & Project / Pet Facet Expansion (`Evelyn/tools/tag_entities.py`)**:
+  - Expanded `ENTITY_KINDS` to include `"project"` and `"pet"`, recognizing creative/engineering works and household companions as first-class entity kinds alongside person, organization, place, product, and work.
+  - Implemented `get_entity(term_or_label)`, `resolve_entity_label(candidate)`, and `all_entity_labels()` to enable fast, deterministic entity lookup and canonical label resolution across memory and taxonomy systems.
+- **Unit Test Coverage (`Evelyn/tests/test_subject_entity_unification.py`)**:
+  - Created test suite validating canonical entity label resolution, project recognition (`Evelyn Engine`), abstract topic re-attribution (`Relationship`, `System`, `Environment`), and dynamic known entity roster synthesis.
+
+### Changed
+
+- **Memory Subject Normalization & Attribution Guard (`Evelyn/tools/memory_db.py`)**:
+  - Standardized `normalize_subject_attribution()` to resolve incoming subjects against `tag_entities`. Discrete named entities resolve directly to their canonical entity label.
+  - Re-attributed legacy non-entity topics (`Relationship`, `System`, `Environment`, `Shared Environment`, compound keys like `User & Assistant`, etc.) to the configured user or assistant while ensuring relevant tags (`#relationship`, `#system`, etc.) are preserved.
+  - Separated `is_non_entity` re-attribution from user third-party entity matching, preventing facts explicitly attributed to the user from being inverted to the assistant.
+- **Extraction Roster & Negative Prompt Constraints (`Evelyn/tools/fact_extractor.py`)**:
+  - Updated `_known_entity_roster()` to dynamically query registered entity labels from `tag_entities.all_entity_labels()`.
+  - Strengthened extraction prompt section 1 with strict negative instructions explicitly prohibiting abstract topics, concepts, domains, or compound phrases from being attributed as subjects.
+- **Database Migrations (`Evelyn/tools/db_migrator.py`)**:
+  - Added migration `000.008.046` registering core project and tool entities (`Evelyn Engine`, `Project Sanctum`, `The Artificium`, `Wench in the Gear`, `Open WebUI`, etc.) into `vault.db`'s `tag_entities`.
+  - Curated all legacy non-entity rows across `memory.db` (`context_entries`), mapping project/system entries to `Evelyn Engine`, environment/personal entries to user, and relationship entries to user/assistant with `#relationship` tags. All queries fully parameterized using `cfg.PRIVATE_IDENTITY_NAMES` and identity variables to maintain strict privacy boundary standards.
 
 ## [000.008.045] - 2026-10-16 — *Retirement of Legacy Memory Categories & Unified Tag Taxonomy / Vector Transition*
 
