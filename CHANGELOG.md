@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 02:24:50
+date modified: 2026-10-16 11:37:13
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,16 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.051] - 2026-10-16 — *Fact Consolidator Temporal Anchor Type Guard*
+
+### Fixed
+
+- **Fact Consolidator Temporal Anchor Type Guard (`Evelyn/tools/string_utils.py`, `Evelyn/tools/fact_splitter.py`, `Evelyn/tools/fact_consolidator.py`)**:
+  - Resolved `TypeError: decoding to str: need a bytes-like object, datetime.datetime found` in the autonomous idle Fact Consolidator.
+  - Enhanced `strip_redundant_date_anchors` in `string_utils.py` to accept `datetime.date`, `datetime.datetime`, and full ISO timestamp strings in addition to `str | None`. Robustly converts datetimes and timestamps to canonical `YYYY-MM-DD` strings before pattern compilation, guards against sentinel years (`year <= 1` or `DATETIME_MIN`), and cleanly catches non-string coercion failures.
+  - Hardened `scan_context_entries()` in `fact_consolidator.py` to preserve full SQLite row dictionaries (`split_from_id`, `created_at`, `updated_at`), guard against `"0001-"` sentinel timestamps, and retain both parsed and raw date representations.
+  - Added regression test suite in `Evelyn/tests/test_context_split.py` validating date stripping across `datetime.datetime`, `datetime.date`, `DATETIME_MIN`, ISO timestamps, and split proposal generation with `datetime` record attributes.
 
 ## [000.008.050] - 2026-10-16 — *Entity Emoji Sanitization & Duplicate Cleanup*
 

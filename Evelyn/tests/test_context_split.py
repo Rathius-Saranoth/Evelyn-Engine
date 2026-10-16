@@ -1,8 +1,9 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-16 11:37:13
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
+import datetime
 import sys
 import unittest
 from pathlib import Path
@@ -305,6 +306,25 @@ entries:
         cleaned11 = string_utils.strip_redundant_date_anchors(obs11, target_date="2026-10-09")
         self.assertEqual(cleaned11, "Alex planned a trip to the Renaissance Festival on 2026-10-10.")
 
+        # DATETIME / DATE OBJECT HANDLING (Regression test for v000.008.051)
+        dt_val = datetime.datetime(2026, 5, 9, 0, 0, tzinfo=datetime.UTC)
+        obs12 = "Alex was working on the consolidator on 2026-05-09."
+        cleaned12 = string_utils.strip_redundant_date_anchors(obs12, target_date=dt_val)
+        self.assertEqual(cleaned12, "Alex was working on the consolidator.")
+
+        d_val = datetime.date(2026, 5, 9)
+        cleaned13 = string_utils.strip_redundant_date_anchors(obs12, target_date=d_val)
+        self.assertEqual(cleaned13, "Alex was working on the consolidator.")
+
+        # Full ISO timestamp string
+        cleaned14 = string_utils.strip_redundant_date_anchors(obs12, target_date="2026-05-09 00:00:00+00:00")
+        self.assertEqual(cleaned14, "Alex was working on the consolidator.")
+
+        # Sentinel DATETIME_MIN (should not strip specific dates unless matching general pattern)
+        dt_min = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+        cleaned15 = string_utils.strip_redundant_date_anchors(obs12, target_date=dt_min)
+        self.assertEqual(cleaned15, "Alex was working on the consolidator.")
+
     def test_split_proposal_rejects_dangling_anaphora(self):
         """Verify fact_splitter rejects proposals where a child observation fails the vacuum test."""
         from Evelyn.tools import fact_splitter
@@ -344,6 +364,98 @@ entries:
             pid_str = asyncio_run(fact_splitter.generate_split_proposal(record, "Cat00 Index"))
             # Proposal should be rejected because child 2 has dangling anaphora 'these facial traits'
             self.assertIsNone(pid_str)
+
+    def test_split_proposal_with_datetime_record_succeeds(self):
+        """Verify fact_splitter succeeds when record['date'] is a datetime.datetime object (v000.008.051)."""
+        from Evelyn.tools import fact_splitter
+
+        test_source_id = memory_db.insert_entry(
+            category="Cat05-U",
+            subject="Alex",
+            observation="Alex drinks oat milk espresso every morning and works on python backend systems.",
+            tags="routine, python",
+            status="live",
+        )
+        self.created_entry_ids.append(test_source_id)
+
+        record = {
+            "id": test_source_id,
+            "category": "Cat05-U",
+            "subject": "Alex",
+            "date": datetime.datetime(2026, 5, 9, 0, 0, tzinfo=datetime.UTC),
+            "summary": "Alex drinks oat milk espresso every morning and works on python backend systems.",
+        }
+
+        mock_llm_response = """
+```yaml
+verdict: split
+reasoning: "Separating beverage routine from software development."
+entries:
+  - category: Cat05-U
+    subject: Alex
+    tags: "coffee, routine"
+    observation: "Alex drinks oat milk espresso every morning."
+  - category: Cat14-U
+    subject: Alex
+    tags: "python, backend"
+    observation: "Alex develops backend systems using Python."
+```
+"""
+        with patch("Evelyn.tools.fact_consolidator._call_ollama", return_value=mock_llm_response):
+            pid_str = asyncio_run(fact_splitter.generate_split_proposal(record, "Cat00 Index"))
+            self.assertIsNotNone(pid_str)
+            self.created_proposal_ids.append(int(pid_str))
+
+    def test_find_and_split_bloated_facts_with_datetime_records(self):
+        """Verify find_and_split_bloated_facts processes records containing datetime.datetime dates."""
+        from Evelyn.tools import fact_splitter
+
+        bloated_text = (
+            "Alex maintains a home lab with multiple servers running Linux and also manages smart devices "
+            "using HomeAssistant and Zigbee protocols, while also having several cats who need feeding and care."
+        )
+        test_source_id = memory_db.insert_entry(
+            category="Cat05-U",
+            subject="Alex",
+            observation=bloated_text,
+            tags="homelab, smart-home",
+            status="live",
+        )
+        self.created_entry_ids.append(test_source_id)
+
+        records = [
+            {
+                "id": test_source_id,
+                "category": "Cat05-U",
+                "subject": "Alex",
+                "date": datetime.datetime(2026, 5, 9, 0, 0, tzinfo=datetime.UTC),
+                "observation": bloated_text,
+                "summary": bloated_text,
+            }
+        ]
+
+        mock_llm_response = """
+```yaml
+verdict: split
+reasoning: "Decomposing homelab setup and cat care."
+entries:
+  - category: Cat14-U
+    subject: Alex
+    tags: "homelab, linux"
+    observation: "Alex maintains a home lab with multiple servers running Linux."
+  - category: Cat05-U
+    subject: Alex
+    tags: "pets, routine"
+    observation: "Alex cares for several cats on a daily feeding schedule."
+```
+"""
+        with patch("Evelyn.tools.fact_consolidator._call_ollama", return_value=mock_llm_response):
+            splits_count = asyncio_run(
+                fact_splitter.find_and_split_bloated_facts(
+                    records, "Cat00 Index", fact_consolidator._call_ollama, word_threshold=15, limit=1
+                )
+            )
+            self.assertEqual(splits_count, 1)
 
 
 

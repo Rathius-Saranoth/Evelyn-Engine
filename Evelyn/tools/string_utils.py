@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-10-16 02:24:50
+# date modified: 2026-10-16 11:37:13
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -43,6 +43,7 @@ See also: reference/xml_injection_conventions.md · reference/engine_architectur
 
 from __future__ import annotations
 
+import datetime
 import difflib
 import re
 import unicodedata
@@ -1311,7 +1312,10 @@ _INTRINSIC_DATE_KEYWORDS = frozenset({
 })
 
 
-def strip_redundant_date_anchors(text: str, target_date: str | None = None) -> str:
+def strip_redundant_date_anchors(
+    text: str,
+    target_date: str | datetime.date | datetime.datetime | None = None,
+) -> str:
     """Strip redundant mechanical date markers from an observation while preserving intrinsic event dates.
 
     Dates are tracked canonically in entry metadata ('date' column) and RAG XML envelopes
@@ -1326,8 +1330,8 @@ def strip_redundant_date_anchors(text: str, target_date: str | None = None) -> s
 
     Args:
         text: Raw observation text.
-        target_date: Optional ISO date string (YYYY-MM-DD) of the entry. If provided,
-            only matching dates are eligible for removal.
+        target_date: Optional ISO date string (YYYY-MM-DD), datetime.date, or datetime.datetime
+            of the entry. If provided, only matching dates are eligible for removal.
 
     Returns:
         Cleaned observation text with redundant timestamps stripped and grammar normalized.
@@ -1336,7 +1340,30 @@ def strip_redundant_date_anchors(text: str, target_date: str | None = None) -> s
         return ""
     s = text.strip()
 
-    d_pat = re.escape(target_date) if target_date else r"\d{4}-\d{2}-\d{2}"
+    target_date_str: str | None = None
+    if isinstance(target_date, (datetime.date, datetime.datetime)):
+        if target_date.year > 1:
+            target_date_str = target_date.strftime("%Y-%m-%d")
+    elif isinstance(target_date, str):
+        target_date_clean = target_date.strip()
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})", target_date_clean)
+        if m:
+            extracted_date = m.group(1)
+            if not extracted_date.startswith("0001-"):
+                target_date_str = extracted_date
+        elif target_date_clean and not target_date_clean.startswith("0001-"):
+            target_date_str = target_date_clean
+    elif target_date is not None:
+        try:
+            m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(target_date).strip())
+            if m:
+                extracted_date = m.group(1)
+                if not extracted_date.startswith("0001-"):
+                    target_date_str = extracted_date
+        except (ValueError, TypeError, AttributeError):
+            target_date_str = None
+
+    d_pat = re.escape(target_date_str) if target_date_str else r"\d{4}-\d{2}-\d{2}"
     is_intrinsic = any(re.search(r"\b" + re.escape(k) + r"\b", s, re.IGNORECASE) for k in _INTRINSIC_DATE_KEYWORDS)
 
     # 1. Parentheticals: (as of YYYY-MM-DD), (on YYYY-MM-DD), (noted YYYY-MM-DD)

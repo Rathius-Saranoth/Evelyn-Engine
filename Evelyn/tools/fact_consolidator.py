@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-16 11:37:13
 # tags: #facts, #consolidation, #deduplication, #orchestrator, #governance
 
 """
@@ -214,17 +214,18 @@ def scan_context_entries() -> list[dict]:
 
     for row in rows:
         subj = row.get("subject") or "General"
+        raw_date = row.get("date")
         try:
             entry_date = (
-                datetime.datetime.strptime(row["date"], "%Y-%m-%d").replace(tzinfo=datetime.UTC)
-                if row.get("date")
+                datetime.datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").replace(tzinfo=datetime.UTC)
+                if raw_date and not str(raw_date).startswith("0001-")
                 else DATETIME_MIN
             )
         except ValueError:
             entry_date = DATETIME_MIN
 
-        records.append({
-            "id": row["id"],
+        rec = dict(row)
+        rec.update({
             "path": str(row["id"]),
             "rel_path": str(row["id"]),
             "category": subj,
@@ -232,10 +233,12 @@ def scan_context_entries() -> list[dict]:
             "subject": subj,
             "tags": row.get("tags"),
             "date": entry_date,
+            "raw_date": raw_date,
             "summary": row["observation"],
             "observation": row["observation"],
             "filename": f"Entry_{row['id']}",
         })
+        records.append(rec)
 
     return records
 
