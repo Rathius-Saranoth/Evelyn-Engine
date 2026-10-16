@@ -214,6 +214,29 @@
       border-radius: 6px;
     }
 
+    .btn-xs {
+      padding: 2px 6px;
+      font-size: 10.5px;
+      border-radius: 4px;
+    }
+
+    .sort-btn-group {
+      display: inline-flex;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.5);
+    }
+
+    .sort-btn-group .btn {
+      border: none;
+      border-radius: 0;
+    }
+
+    .sort-btn-group .btn:not(:first-child) {
+      border-left: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
     /* Main Grid Layout - 3 Independent Scroll Frames */
     .workspace {
       display: grid;
@@ -1542,6 +1565,8 @@
     let allEntities = [];
     let entityKindFilter = 'all';
     let entitySearchQuery = '';
+    let entitySortBy = localStorage.getItem('taxonomy_entity_sort_by') || 'display'; // 'display' | 'slug' | 'requests'
+    let entitySortDir = localStorage.getItem('taxonomy_entity_sort_dir') || 'asc';    // 'asc' | 'desc'
     let editingEntity = null;
 
     // Initialize
@@ -2211,6 +2236,59 @@
       renderEntitiesDashboard();
     }
 
+    function sortEntities(list) {
+      return [...list].sort((a, b) => {
+        let cmp = 0;
+        if (entitySortBy === 'slug') {
+          const aTerm = (a.term || '').toLowerCase();
+          const bTerm = (b.term || '').toLowerCase();
+          cmp = aTerm.localeCompare(bTerm);
+          if (cmp === 0) {
+            const aLabel = (a.label || a.term || '').toLowerCase();
+            const bLabel = (b.label || b.term || '').toLowerCase();
+            cmp = aLabel.localeCompare(bLabel);
+          }
+        } else if (entitySortBy === 'requests') {
+          cmp = (b.request_count || 1) - (a.request_count || 1);
+          if (cmp !== 0) {
+            return entitySortDir === 'asc' ? -cmp : cmp;
+          }
+          const aLabel = (a.label || a.term || '').toLowerCase();
+          const bLabel = (b.label || b.term || '').toLowerCase();
+          return aLabel.localeCompare(bLabel);
+        } else {
+          // 'display'
+          const aLabel = (a.label || a.term || '').toLowerCase();
+          const bLabel = (b.label || b.term || '').toLowerCase();
+          cmp = aLabel.localeCompare(bLabel);
+          if (cmp === 0) {
+            cmp = (a.term || '').toLowerCase().localeCompare((b.term || '').toLowerCase());
+          }
+        }
+        return entitySortDir === 'desc' ? -cmp : cmp;
+      });
+    }
+
+    function setEntitySort(field) {
+      if (entitySortBy === field) {
+        entitySortDir = entitySortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        entitySortBy = field;
+        entitySortDir = field === 'requests' ? 'desc' : 'asc';
+      }
+      localStorage.setItem('taxonomy_entity_sort_by', entitySortBy);
+      localStorage.setItem('taxonomy_entity_sort_dir', entitySortDir);
+      renderEntitiesDashboard();
+      if (navMode === 'entities') renderNavList();
+    }
+
+    function toggleEntitySortDir() {
+      entitySortDir = entitySortDir === 'asc' ? 'desc' : 'asc';
+      localStorage.setItem('taxonomy_entity_sort_dir', entitySortDir);
+      renderEntitiesDashboard();
+      if (navMode === 'entities') renderNavList();
+    }
+
     function renderEntitiesDashboard() {
       const container = document.getElementById('entities-dashboard');
       if (!container) return;
@@ -2230,16 +2308,19 @@
       });
 
       const q = entitySearchQuery.toLowerCase();
-      const filtered = allEntities.filter(e => {
+      let filtered = allEntities.filter(e => {
         if (entityKindFilter !== 'all' && (e.kind || 'other') !== entityKindFilter) return false;
         if (q) {
           const matchTerm = (e.term || '').toLowerCase().includes(q);
           const matchLabel = (e.label || '').toLowerCase().includes(q);
           const matchNote = (e.note || '').toLowerCase().includes(q);
-          if (!matchTerm && !matchLabel && !matchNote) return false;
+          const matchAlias = (e.aliases || []).some(a => a.toLowerCase().includes(q));
+          if (!matchTerm && !matchLabel && !matchNote && !matchAlias) return false;
         }
         return true;
       });
+
+      filtered = sortEntities(filtered);
 
       container.innerHTML = `
         <div class="entities-dashboard">
@@ -2262,7 +2343,7 @@
             </div>
           </div>
 
-          <!-- Controls: Kind Filter Pills & Search -->
+          <!-- Controls: Kind Filter Pills, Sort & Search -->
           <div class="card" style="padding: 12px 16px; margin-bottom: 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
               <div class="kind-pill-group">
@@ -2276,8 +2357,30 @@
                 `).join('')}
               </div>
 
-              <div style="min-width: 220px; flex-shrink: 0;">
-                <input type="text" id="entity-filter-input" class="search-input" value="${escapeAttr(entitySearchQuery)}" placeholder="Search entities... (/)" oninput="handleEntitySearch(this.value)" style="padding: 6px 12px; font-size: 12.5px;" title="Filter entities by name, slug term, or note">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <!-- Sort Selector -->
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 600;">Sort:</span>
+                  <div class="sort-btn-group">
+                    <button class="btn btn-sm ${entitySortBy === 'display' ? 'btn-primary' : ''}" onclick="setEntitySort('display')" title="Sort entities alphabetically by Display Name (A-Z)">
+                      Display ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+                    </button>
+                    <button class="btn btn-sm ${entitySortBy === 'slug' ? 'btn-primary' : ''}" onclick="setEntitySort('slug')" title="Sort entities alphabetically by Slug Term (A-Z)">
+                      Slug ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+                    </button>
+                    <button class="btn btn-sm ${entitySortBy === 'requests' ? 'btn-primary' : ''}" onclick="setEntitySort('requests')" title="Sort entities by Corpus Request Count">
+                      Requests ${entitySortBy === 'requests' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+                    </button>
+                    <button class="btn btn-sm" style="color: var(--text-muted); padding: 4px 8px;" onclick="toggleEntitySortDir()" title="Toggle Ascending / Descending (${entitySortDir === 'asc' ? 'Ascending' : 'Descending'})">
+                      ${entitySortDir === 'asc' ? '↑' : '↓'}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Search Input -->
+                <div style="min-width: 200px; flex-shrink: 0;">
+                  <input type="text" id="entity-filter-input" class="search-input" value="${escapeAttr(entitySearchQuery)}" placeholder="Search entities... (/)" oninput="handleEntitySearch(this.value)" style="padding: 6px 12px; font-size: 12.5px;" title="Filter entities by name, slug term, or note">
+                </div>
               </div>
             </div>
           </div>
@@ -2288,11 +2391,17 @@
               <table class="leaderboard-table" style="table-layout: auto;">
                 <thead>
                   <tr style="position: sticky; top: 0; background: #0e131f; z-index: 10;">
-                    <th style="padding: 10px 14px; width: 220px;">Display Label</th>
-                    <th style="padding: 10px 14px; width: 170px;">Slug Term</th>
+                    <th style="padding: 10px 14px; width: 220px; cursor: pointer; user-select: none;" onclick="setEntitySort('display')" title="Sort by Display Label (${entitySortBy === 'display' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
+                      Display Label ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+                    </th>
+                    <th style="padding: 10px 14px; width: 220px; cursor: pointer; user-select: none;" onclick="setEntitySort('slug')" title="Sort by Slug Term (${entitySortBy === 'slug' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
+                      Slug Term ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+                    </th>
                     <th style="padding: 10px 14px; width: 130px;">Kind</th>
                     <th style="padding: 10px 14px;">Context / Note</th>
-                    <th style="padding: 10px 14px; width: 90px; text-align: center;">Requests</th>
+                    <th style="padding: 10px 14px; width: 100px; text-align: center; cursor: pointer; user-select: none;" onclick="setEntitySort('requests')" title="Sort by Corpus Request Count (${entitySortBy === 'requests' && entitySortDir === 'desc' ? 'Click for ascending' : 'Click for descending'})">
+                      Requests ${entitySortBy === 'requests' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+                    </th>
                     <th style="padding: 10px 14px; width: 110px; text-align: right;">Actions</th>
                   </tr>
                 </thead>
@@ -2363,36 +2472,63 @@
 
     function renderEntitiesNavMode(container) {
       const q = searchQuery.toLowerCase();
-      const filtered = allEntities.filter(e => {
+      let filtered = allEntities.filter(e => {
         if (!q) return true;
-        return (e.term || '').toLowerCase().includes(q) || (e.label || '').toLowerCase().includes(q);
+        const matchTerm = (e.term || '').toLowerCase().includes(q);
+        const matchLabel = (e.label || '').toLowerCase().includes(q);
+        const matchAlias = (e.aliases || []).some(a => a.toLowerCase().includes(q));
+        return matchTerm || matchLabel || matchAlias;
       });
 
-      if (filtered.length === 0) {
-        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No entities found.</div>`;
-        return;
-      }
+      filtered = sortEntities(filtered);
 
       let html = `
-        <div style="padding: 8px 10px; margin-bottom: 6px;">
+        <div style="padding: 6px 10px 4px 10px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px;">
           <button class="btn btn-sm btn-primary" style="width: 100%; justify-content: center; font-size: 12px;" onclick="openCreateEntityModal()" title="Register a new proper entity">
             ➕ Register Entity
           </button>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 4px 2px; border-top: 1px solid rgba(255,255,255,0.06);">
+            <span style="font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Sort:</span>
+            <div class="sort-btn-group">
+              <button class="btn btn-xs ${entitySortBy === 'display' ? 'btn-primary' : ''}" style="padding: 2px 7px; font-size: 10.5px;" onclick="setEntitySort('display')" title="Sort entity list by Display Label (A-Z)">
+                Display ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+              </button>
+              <button class="btn btn-xs ${entitySortBy === 'slug' ? 'btn-primary' : ''}" style="padding: 2px 7px; font-size: 10.5px;" onclick="setEntitySort('slug')" title="Sort entity list by Slug Term (A-Z)">
+                Slug ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+              </button>
+              <button class="btn btn-xs" style="padding: 2px 5px; font-size: 10.5px; color: var(--text-muted);" onclick="toggleEntitySortDir()" title="Toggle direction (${entitySortDir === 'asc' ? 'Ascending' : 'Descending'})">
+                ${entitySortDir === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
+          </div>
         </div>
       `;
+
+      if (filtered.length === 0) {
+        html += `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No entities found.</div>`;
+        container.innerHTML = html;
+        return;
+      }
 
       for (const e of filtered) {
         const k = e.kind || 'other';
         const icon = KIND_ICONS[k] || '🏷️';
-        const label = e.label || e.term.replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
+        const label = e.label || e.term.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const isSlugSort = entitySortBy === 'slug';
+        const primaryText = isSlugSort ? e.term : label;
+        const secondaryText = isSlugSort ? label : e.term;
+
         html += `
-          <div class="tree-node-parent" title="${escapeAttr(label)} (${escapeAttr(e.term)})" onclick="focusEntity('${escapeAttr(e.term)}')">
-            <div class="node-label">
+          <div class="tree-node-parent" title="${escapeAttr(label)} (${escapeAttr(e.term)}) · ${e.request_count || 1} occurrences" onclick="focusEntity('${escapeAttr(e.term)}')">
+            <div class="node-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
               <span style="font-size: 12px; flex-shrink: 0;">${icon}</span>
-              <span class="term-text" style="font-weight: 500;">${highlightText(label, searchQuery)}</span>
+              <span class="term-text" style="font-weight: 500; font-family: ${isSlugSort ? 'var(--font-mono, monospace)' : 'inherit'}; color: ${isSlugSort ? 'var(--cyan)' : 'inherit'};">
+                ${highlightText(primaryText, searchQuery)}
+              </span>
+              <span style="font-size: 10.5px; color: var(--text-dim); margin-left: 4px; overflow: hidden; text-overflow: ellipsis;">(${escapeHtml(secondaryText)})</span>
             </div>
             <div class="node-badges">
-              <span class="badge-count" style="font-size: 10.5px;">${e.request_count || 1}</span>
+              <span class="badge-count" style="font-size: 10.5px;" title="${e.request_count || 1} occurrences">${e.request_count || 1}</span>
             </div>
           </div>
         `;
@@ -2404,8 +2540,13 @@
       setNavMode('entities');
       entitySearchQuery = term;
       entityKindFilter = 'all';
+      const searchInput = document.getElementById('entity-filter-input');
+      if (searchInput) {
+        searchInput.value = term;
+      }
       renderEntitiesDashboard();
     }
+
 
     function openCreateEntityModal() {
       editingEntity = null;

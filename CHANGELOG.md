@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 01:55:18
+date modified: 2026-10-16 02:10:14
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.049] - 2026-10-16 — *Name Register Slug & Display Sorting*
+
+### Added
+
+- **Dual-Surface Entity Sorting (Display vs Slug) (`evelyn_ui/taxonomy.html`)**:
+  - Implemented persistent bidirectional sorting across both the Left Navigation Sidebar (`renderEntitiesNavMode`) and Central Authority Register Dashboard (`renderEntitiesDashboard`).
+  - Added primary sort toggle controls (`Display`, `Slug`, `Requests`, and Direction `↑`/`↓`) in both the sidebar sub-header and central filter toolbar.
+  - Added interactive table header column sorting (`Display Label`, `Slug Term`, `Requests`) with dynamic visual indicators (`▲`/`▼`/`⇅`).
+  - When sorted by **Slug**, the sidebar navigation list elevates the slug term in cyan monospace to visually cluster near-duplicate slugs and prefix variations.
+  - When sorted by **Display**, the sidebar navigation list highlights the human-readable display label to cluster identical or similarly phrased proper names.
+  - Added `localStorage` persistence (`taxonomy_entity_sort_by`, `taxonomy_entity_sort_dir`) across sessions.
 
 ## [000.008.048] - 2026-10-16 — *Entity Aliases, Deduplication & Hybrid Merge*
 
