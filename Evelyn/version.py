@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-16 01:24:52
+# date modified: 2026-10-16 01:55:18
 # tags: #versioning, #release
 
 """
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.008.047"
-__version_info__ = (0, 8, 47)
-__version_name__ = "Taxonomy Entity Authority Register & Default Category View"
+__version__ = "000.008.048"
+__version_info__ = (0, 8, 48)
+__version_name__ = "Entity Aliases, Deduplication & Hybrid Merge"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

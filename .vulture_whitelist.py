@@ -22,6 +22,8 @@ _.MODEL_TOOL_DEFINITIONS
 # FastAPI / Server models and background tasks
 _.FinalizeGuidanceRequest
 _.SaveEntityRequest
+_.MergeEntityRequest
+_.AddEntityAliasRequest
 
 # Database functions called dynamically or conditionally
 _.list_unindexed_media

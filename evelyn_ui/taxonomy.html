@@ -606,6 +606,38 @@
       gap: 6px;
     }
 
+    .entity-alias-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .alias-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--amber);
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .alias-chip-del {
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 11px;
+      font-weight: 700;
+      transition: color 0.15s;
+    }
+
+    .alias-chip-del:hover {
+      color: var(--rose);
+    }
+
     .tree-scroll {
       flex: 1;
       overflow-y: auto;
@@ -1208,14 +1240,14 @@
 
     <!-- Center Column: Inspector & Graph Neighborhood -->
     <div class="inspector" id="inspector-panel">
-      <div class="inspector-empty" id="inspector-empty">
+      <div class="inspector-empty" id="inspector-empty" style="display: none;">
         <div style="font-size: 36px; opacity: 0.4;">🏷️</div>
         <h2 style="font-family: var(--font-display); font-size: 18px; color: var(--text-muted);">Select a Tag or Concept</h2>
         <p style="font-size: 13px; max-width: 320px;">Browse the hierarchy trees on the left or search for any concept to inspect its parent, children, and aliases.</p>
       </div>
 
       <!-- Center: Dynamic Category Intelligence Dashboard -->
-      <div id="category-dashboard" style="display: none; min-width: 0;">
+      <div id="category-dashboard" style="display: block; min-width: 0;">
         <!-- Rendered dynamically -->
       </div>
 
@@ -1412,9 +1444,66 @@
         <label>Context Note / Source:</label>
         <input type="text" id="modal-entity-note" class="form-control" placeholder="e.g. AI Persona or Contacts/JT.md" title="Optional descriptive note or vault file reference">
       </div>
+      <div id="modal-entity-aliases-section" class="form-group" style="display: none; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px; margin-top: 12px;">
+        <label>Aliases & Alternative Spellings:</label>
+        <div id="modal-entity-aliases-list" class="entity-alias-list" style="margin-bottom: 8px;"></div>
+        <div style="display: flex; gap: 6px;">
+          <input type="text" id="modal-new-alias" class="form-control" placeholder="Add alias (e.g. tensor)" style="font-family: var(--font-mono); font-size: 12px;" title="Alternate spelling, slug, or nickname that redirects to this entity">
+          <button class="btn btn-sm" onclick="addEntityAliasFromModal()" title="Attach alias to this entity">+ Add Alias</button>
+        </div>
+      </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
         <button class="btn" onclick="closeEntityModal()" title="Cancel and close dialog">Cancel</button>
         <button class="btn btn-primary" id="btn-save-entity" onclick="saveEntityFromModal()" title="Save entity to name authority register">💾 Save Entity</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Merge Entity Modal -->
+  <div class="modal-overlay" id="merge-entity-modal" onclick="if(event.target === this) closeMergeEntityModal()">
+    <div class="modal" style="width: 520px;">
+      <h3 style="display: flex; align-items: center; gap: 8px;">
+        <span>🔀</span> Merge Named Entity
+      </h3>
+      <p style="font-size: 12.5px; color: var(--text-dim); margin: -4px 0 16px 0;">
+        Absorb a duplicate or variant entity into a canonical target entity.
+      </p>
+
+      <div class="card" style="padding: 12px 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 16px;">
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--amber); font-weight: 600; margin-bottom: 4px;">
+          Source Entity (To Absorb & Remove)
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-weight: 600; font-size: 14px; color: #fff;" id="merge-source-label">—</div>
+          <span id="merge-source-term" style="font-family: var(--font-mono); font-size: 11.5px; color: var(--amber); background: rgba(245, 158, 11, 0.1); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.25);">—</span>
+        </div>
+        <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;" id="merge-source-details">—</div>
+      </div>
+
+      <div class="form-group">
+        <label>Canonical Target Entity (To Merge Into):</label>
+        <select id="merge-target-select" class="form-control" title="Choose the primary canonical entity that absorbs this duplicate" onchange="updateMergePreview()">
+          <!-- Populated dynamically -->
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-top: 14px;">
+        <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; text-transform: none; font-size: 12.5px; color: var(--text-muted);">
+          <input type="checkbox" id="merge-retain-alias" checked style="margin-top: 2px;">
+          <span>
+            <strong style="color: #fff;">Retain source slug as an alias redirect</strong><br>
+            <span style="font-size: 11.5px; color: var(--text-dim);">Ensures any existing or future references to the source slug automatically resolve to the canonical entity without raising new review proposals.</span>
+          </span>
+        </label>
+      </div>
+
+      <div id="merge-preview-card" class="card" style="padding: 10px 14px; background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.2); margin-top: 14px; font-size: 12px; color: var(--cyan);">
+        <!-- Live merge preview -->
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn" onclick="closeMergeEntityModal()" title="Cancel and close dialog">Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-merge" onclick="submitEntityMerge()" title="Execute merge and absorb duplicate entity">🔀 Confirm Merge</button>
       </div>
     </div>
   </div>
@@ -1490,6 +1579,7 @@
         document.getElementById('btn-toggle-toolbox')?.classList.add('active');
       }
 
+      setNavMode(navMode);
       loadGraphData();
       loadEntities();
     });
@@ -1813,6 +1903,13 @@
     function renderCategoryDashboard() {
       const container = document.getElementById('category-dashboard');
       if (!container) return;
+      container.style.display = 'block';
+      const empty = document.getElementById('inspector-empty');
+      if (empty) empty.style.display = 'none';
+      const entDash = document.getElementById('entities-dashboard');
+      if (entDash) entDash.style.display = 'none';
+      const content = document.getElementById('inspector-content');
+      if (content) content.style.display = 'none';
 
       const stats = computeTreeStats();
       const byBranches = [...stats].sort((a, b) => b.branchesCount - a.branchesCount || b.totalUsage - a.totalUsage);
@@ -2117,6 +2214,13 @@
     function renderEntitiesDashboard() {
       const container = document.getElementById('entities-dashboard');
       if (!container) return;
+      container.style.display = 'block';
+      const empty = document.getElementById('inspector-empty');
+      if (empty) empty.style.display = 'none';
+      const catDash = document.getElementById('category-dashboard');
+      if (catDash) catDash.style.display = 'none';
+      const content = document.getElementById('inspector-content');
+      if (content) content.style.display = 'none';
 
       const counts = { all: allEntities.length };
       ENTITY_KINDS.forEach(k => counts[k] = 0);
@@ -2212,9 +2316,21 @@
                           </div>
                         </td>
                         <td style="padding: 10px 14px;">
-                          <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--cyan); background: rgba(6, 182, 212, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(6, 182, 212, 0.2);">
-                            ${highlightText(e.term, entitySearchQuery)}
-                          </span>
+                          <div>
+                            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--cyan); background: rgba(6, 182, 212, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(6, 182, 212, 0.2);">
+                              ${highlightText(e.term, entitySearchQuery)}
+                            </span>
+                          </div>
+                          ${e.aliases && e.aliases.length > 0 ? `
+                            <div class="entity-alias-list">
+                              ${e.aliases.map(a => `
+                                <span class="alias-chip" title="Alternative alias pointing to #${escapeAttr(e.term)}">
+                                  <span>↳ ${escapeHtml(a)}</span>
+                                  <span class="alias-chip-del" onclick="removeEntityAlias('${escapeAttr(a)}', event)" title="Remove alias '${escapeAttr(a)}'">×</span>
+                                </span>
+                              `).join('')}
+                            </div>
+                          ` : ''}
                         </td>
                         <td style="padding: 10px 14px;">
                           <span class="kind-badge kind-${escapeAttr(k)}">
@@ -2229,7 +2345,8 @@
                         </td>
                         <td style="padding: 10px 14px; text-align: right;">
                           <div class="entity-actions" style="justify-content: flex-end;">
-                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px;" onclick="openEditEntityModal('${escapeAttr(e.term)}')" title="Edit entity label, kind, or note">✏️</button>
+                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px;" onclick="openMergeEntityModal('${escapeAttr(e.term)}')" title="Merge this duplicate entity into another canonical entity">🔀</button>
+                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px;" onclick="openEditEntityModal('${escapeAttr(e.term)}')" title="Edit entity label, kind, note, and aliases">✏️</button>
                             <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px; color: var(--rose);" onclick="forgetEntity('${escapeAttr(e.term)}', '${escapeAttr(label)}')" title="Unregister entity and return term to vocabulary pool">🗑️</button>
                           </div>
                         </td>
@@ -2298,6 +2415,8 @@
       document.getElementById('modal-entity-label').value = '';
       document.getElementById('modal-entity-kind').value = 'person';
       document.getElementById('modal-entity-note').value = '';
+      document.getElementById('modal-entity-aliases-section').style.display = 'none';
+      document.getElementById('modal-new-alias').value = '';
       document.getElementById('entity-modal').style.display = 'flex';
       setTimeout(() => document.getElementById('modal-entity-label').focus(), 50);
     }
@@ -2312,8 +2431,207 @@
       document.getElementById('modal-entity-label').value = e.label || '';
       document.getElementById('modal-entity-kind').value = e.kind || 'other';
       document.getElementById('modal-entity-note').value = e.note || '';
+
+      // Populate aliases
+      const sec = document.getElementById('modal-entity-aliases-section');
+      sec.style.display = 'block';
+      renderModalAliases(e.aliases || []);
+      document.getElementById('modal-new-alias').value = '';
+
       document.getElementById('entity-modal').style.display = 'flex';
       setTimeout(() => document.getElementById('modal-entity-label').focus(), 50);
+    }
+
+    function renderModalAliases(aliasesList) {
+      const box = document.getElementById('modal-entity-aliases-list');
+      if (!aliasesList || aliasesList.length === 0) {
+        box.innerHTML = '<span style="font-size: 11.5px; color: var(--text-dim); font-style: italic;">No alternative aliases registered.</span>';
+        return;
+      }
+      box.innerHTML = aliasesList.map(a => `
+        <span class="alias-chip" title="Alias pointing to this entity">
+          <span>↳ ${escapeHtml(a)}</span>
+          <span class="alias-chip-del" onclick="removeEntityAlias('${escapeAttr(a)}', event)" title="Remove alias '${escapeAttr(a)}'">×</span>
+        </span>
+      `).join('');
+    }
+
+    async function addEntityAliasFromModal() {
+      if (!editingEntity) return;
+      const input = document.getElementById('modal-new-alias');
+      const alias = (input.value || '').trim().toLowerCase();
+      if (!alias) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/names/aliases`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ term: editingEntity.term, alias })
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          alert(`Could not add alias: ${detail}`);
+          return;
+        }
+        showToast(`Added alias '${alias}' -> '${editingEntity.term}'`);
+        input.value = '';
+        await loadEntities();
+        const updated = allEntities.find(x => x.term === editingEntity.term);
+        if (updated) {
+          editingEntity = updated;
+          renderModalAliases(updated.aliases || []);
+        }
+      } catch (err) {
+        alert(`Error adding alias: ${err.message}`);
+      }
+    }
+
+    async function removeEntityAlias(alias, event) {
+      if (event) event.stopPropagation();
+      if (!confirm(`Remove alias '${alias}'?`)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/names/aliases/${encodeURIComponent(alias)}`, {
+          method: 'DELETE',
+          headers: headers()
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast(`Removed alias '${alias}'.`);
+        await loadEntities();
+        if (editingEntity) {
+          const updated = allEntities.find(x => x.term === editingEntity.term);
+          if (updated) {
+            editingEntity = updated;
+            renderModalAliases(updated.aliases || []);
+          }
+        }
+      } catch (err) {
+        alert(`Error removing alias: ${err.message}`);
+      }
+    }
+
+    // ==========================================
+    // Entity Merge Workstation Modal Logic
+    // ==========================================
+    let mergingSourceEntity = null;
+
+    function openMergeEntityModal(sourceTerm) {
+      const src = allEntities.find(x => x.term === sourceTerm);
+      if (!src) return;
+      mergingSourceEntity = src;
+
+      document.getElementById('merge-source-label').textContent = src.label || src.term;
+      document.getElementById('merge-source-term').textContent = src.term;
+      const k = src.kind || 'other';
+      document.getElementById('merge-source-details').innerHTML = `
+        Kind: <strong style="color: #fff;">${escapeHtml(k.toUpperCase())}</strong> · 
+        Activity: <strong style="color: #fff;">${src.request_count || 1} requests</strong>
+        ${src.note ? ` · Note: <em>"${escapeHtml(src.note)}"</em>` : ''}
+      `;
+
+      // Populate target select with all entities except source
+      const select = document.getElementById('merge-target-select');
+      select.innerHTML = '';
+
+      const candidates = allEntities.filter(x => x.term !== sourceTerm);
+      // Sort candidates by potential similarity
+      candidates.sort((a, b) => {
+        const aSim = (a.label || '').toLowerCase() === (src.label || '').toLowerCase() ? -1 : 0;
+        const bSim = (b.label || '').toLowerCase() === (src.label || '').toLowerCase() ? -1 : 0;
+        if (aSim !== bSim) return aSim - bSim;
+        return (a.label || a.term).localeCompare(b.label || b.term);
+      });
+
+      candidates.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.term;
+        const cLabel = c.label || c.term;
+        opt.textContent = `${cLabel} (${c.term}) [${(c.kind || 'other').toUpperCase()}] - ${c.request_count || 1} reqs`;
+        select.appendChild(opt);
+      });
+
+      updateMergePreview();
+      document.getElementById('merge-entity-modal').style.display = 'flex';
+    }
+
+    function closeMergeEntityModal() {
+      document.getElementById('merge-entity-modal').style.display = 'none';
+      mergingSourceEntity = null;
+    }
+
+    function updateMergePreview() {
+      if (!mergingSourceEntity) return;
+      const targetTerm = document.getElementById('merge-target-select').value;
+      const tgt = allEntities.find(x => x.term === targetTerm);
+      const card = document.getElementById('merge-preview-card');
+      if (!tgt) {
+        card.innerHTML = 'Select a canonical target entity.';
+        return;
+      }
+
+      const combinedReqs = (mergingSourceEntity.request_count || 1) + (tgt.request_count || 1);
+      const resultingKind = (tgt.kind && tgt.kind !== 'other') ? tgt.kind : (mergingSourceEntity.kind || 'other');
+      const resultingLabel = tgt.label || mergingSourceEntity.label || tgt.term;
+
+      card.innerHTML = `
+        <strong>Resulting Canonical Entity:</strong>
+        <div style="margin-top: 4px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;">
+          <span style="color: var(--text-dim);">Target Canonical:</span>
+          <span><strong style="color: #fff;">${escapeHtml(resultingLabel)}</strong> (${escapeHtml(tgt.term)})</span>
+          <span style="color: var(--text-dim);">Combined Requests:</span>
+          <span><strong style="color: #fff;">${combinedReqs}</strong> total corpus occurrences</span>
+          <span style="color: var(--text-dim);">Classification:</span>
+          <span><strong style="color: #fff;">${escapeHtml(resultingKind.toUpperCase())}</strong></span>
+          <span style="color: var(--text-dim);">Alias Route:</span>
+          <span><strong>#${escapeHtml(mergingSourceEntity.term)}</strong> ➔ #${escapeHtml(tgt.term)}</span>
+        </div>
+      `;
+    }
+
+    async function submitEntityMerge() {
+      if (!mergingSourceEntity) return;
+      const targetTerm = document.getElementById('merge-target-select').value;
+      const retainAlias = document.getElementById('merge-retain-alias').checked;
+
+      if (!targetTerm) {
+        alert('Please choose a canonical target entity.');
+        return;
+      }
+
+      const btn = document.getElementById('btn-confirm-merge');
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = 'Merging...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/names/merge`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            source_term: mergingSourceEntity.term,
+            target_term: targetTerm,
+            retain_alias: retainAlias
+          })
+        });
+
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          alert(`Merge failed: ${detail}`);
+          return;
+        }
+
+        const data = await res.json();
+        showToast(`Successfully merged '${mergingSourceEntity.term}' into '${targetTerm}'!`);
+        closeMergeEntityModal();
+        await loadEntities();
+      } catch (err) {
+        alert(`Error executing entity merge: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
     }
 
     function closeEntityModal() {
@@ -2483,6 +2801,10 @@
 
       const empty = document.getElementById('inspector-empty');
       const content = document.getElementById('inspector-content');
+      const catDash = document.getElementById('category-dashboard');
+      const entDash = document.getElementById('entities-dashboard');
+      if (catDash) catDash.style.display = 'none';
+      if (entDash) entDash.style.display = 'none';
       empty.style.display = 'none';
       content.style.display = 'block';
 

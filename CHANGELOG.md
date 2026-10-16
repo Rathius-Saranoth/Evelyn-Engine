@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 01:24:52
+date modified: 2026-10-16 01:55:18
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,35 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.048] - 2026-10-16 — *Entity Aliases, Deduplication & Hybrid Merge*
+
+### Added
+
+- **Entity Aliases & Deduplication Framework (`Evelyn/tools/tag_entities.py`)**:
+  - Implemented `add_entity_alias(term, alias)`, `remove_entity_alias(alias)`, and `merge_entities(source_term, target_term, retain_alias=True)`.
+  - Updated `is_entity()`, `get_entity()`, and `entity_terms()` to transparently resolve aliases against `tag_entity_aliases` to their canonical entities, preventing re-admission proposals for known alternate spellings, old slugs, or typos.
+  - Updated `record_entity_request()` to automatically forward request increments from an alias to the canonical entity term.
+  - Updated `get_entities()` to attach registered aliases to each entity dictionary.
+- **REST Endpoints for Entity Aliasing & Merging (`evelyn_server.py`)**:
+  - Added `POST /api/taxonomy/names/merge` with `MergeEntityRequest` (`source_term`, `target_term`, `retain_alias`) combining observation counts, metadata, and registering alias redirects.
+  - Added `POST /api/taxonomy/names/aliases` with `AddEntityAliasRequest` and `DELETE /api/taxonomy/names/aliases/{alias}` for granular alias management.
+  - Added `DELETE /api/taxonomy/names/{term}` endpoint mirroring the forget action.
+- **Database Schema Migration (`Evelyn/tools/db_migrator.py`, `Evelyn/tools/vault_db.py`)**:
+  - Created migration `000.008.048` (`entity_aliases_and_merge`) on `evelyn_vault.db`:
+    - Created `tag_entity_aliases` table and `idx_entity_aliases_canonical` index.
+    - Merged known duplicate entity pairs: `tenser-persona` $\rightarrow$ `tenser` (retaining aliases `tenser-persona` and `tensor`), and `artificium` $\rightarrow$ `the-artificium` (retaining alias `artificium`).
+- **Entity Merge & Alias Management Workstation (`evelyn_ui/taxonomy.html`)**:
+  - Added `🔀` Merge Entity modal enabling single-click absorption of duplicate entities into canonical targets with live preview and optional alias redirect retention.
+  - Added interactive alias chips (`↳ <alias> ×`) with instant removal controls in the entities table.
+  - Added an Aliases section in the Edit Entity modal for attaching alternative spellings, nicknames, and slugs.
+- **Unit Test Coverage (`Evelyn/tests/test_name_register.py`)**:
+  - Added test cases covering alias registration, canonical display label resolution, request count forwarding, hybrid merging, and alias deletion.
+
+### Fixed
+
+- **Category Intelligence Auto-Population on Initial Page Load (`evelyn_ui/taxonomy.html`)**:
+  - Corrected initial view state by setting `#category-dashboard` to `display: block` and `#inspector-empty` to `display: none` by default in static HTML, and invoking `setNavMode(navMode)` on `DOMContentLoaded`. Statistics and Dynamic Concept Trunk metrics now populate immediately upon page load without requiring manual navigation clicks.
 
 ## [000.008.047] - 2026-10-16 — *Taxonomy Entity Authority Register & Default Category View*
 

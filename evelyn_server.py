@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-16 01:24:52
+# date modified: 2026-10-16 01:55:18
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8066,6 +8066,21 @@ class SaveEntityRequest(BaseModel):
     note: str = ""
 
 
+class MergeEntityRequest(BaseModel):
+    """Payload to merge a duplicate entity into a canonical entity."""
+
+    source_term: str
+    target_term: str
+    retain_alias: bool = True
+
+
+class AddEntityAliasRequest(BaseModel):
+    """Payload to add an alias to an existing entity."""
+
+    term: str
+    alias: str
+
+
 @app.post("/api/taxonomy/names")
 async def save_tag_name(req: SaveEntityRequest, _: None = Depends(check_auth)):
     """Register or update an entity in the name register."""
@@ -8087,6 +8102,51 @@ async def save_tag_name(req: SaveEntityRequest, _: None = Depends(check_auth)):
     return {"status": "ok", "term": term}
 
 
+@app.post("/api/taxonomy/names/merge")
+async def merge_tag_name(req: MergeEntityRequest, _: None = Depends(check_auth)):
+    """Merge a duplicate entity into a canonical entity, combining stats and retaining alias."""
+    from Evelyn.tools import tag_entities
+
+    src = (req.source_term or "").strip().lower()
+    tgt = (req.target_term or "").strip().lower()
+    if not src or not tgt or src == tgt:
+        raise HTTPException(status_code=400, detail="Valid distinct source and target terms are required")
+
+    ok = await asyncio.to_thread(tag_entities.merge_entities, src, tgt, retain_alias=req.retain_alias)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Failed to merge '{src}' into '{tgt}'")
+    return {"status": "ok", "source_term": src, "target_term": tgt, "retained_alias": req.retain_alias}
+
+
+@app.post("/api/taxonomy/names/aliases")
+async def add_tag_name_alias(req: AddEntityAliasRequest, _: None = Depends(check_auth)):
+    """Add an alternative spelling, abbreviation, or legacy slug as an alias for an entity."""
+    from Evelyn.tools import tag_entities
+
+    term = (req.term or "").strip().lower()
+    alias = (req.alias or "").strip().lower()
+    if not term or not alias or term == alias:
+        raise HTTPException(status_code=400, detail="Valid distinct term and alias are required")
+
+    ok = await asyncio.to_thread(tag_entities.add_entity_alias, term, alias)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Failed to add alias '{alias}' for '{term}'")
+    return {"status": "ok", "term": term, "alias": alias}
+
+
+@app.delete("/api/taxonomy/names/aliases/{alias}")
+async def remove_tag_name_alias(alias: str, _: None = Depends(check_auth)):
+    """Remove an alias mapping from an entity."""
+    from Evelyn.tools import tag_entities
+
+    clean = (alias or "").strip().lower()
+    ok = await asyncio.to_thread(tag_entities.remove_entity_alias, clean)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Alias '{clean}' not found")
+    return {"status": "ok", "alias": clean}
+
+
+@app.delete("/api/taxonomy/names/{term}")
 @app.post("/api/taxonomy/names/{term}/forget")
 async def forget_tag_name(term: str, _: None = Depends(check_auth)):
     """Un-register a name, so the word can be proposed as a subject again.

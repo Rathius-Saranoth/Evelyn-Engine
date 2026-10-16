@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-10-16 00:57:50
+# date modified: 2026-10-16 01:55:18
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6818,6 +6818,68 @@ def migrate_000_008_046_unify_memory_subjects(
         )
 
 
+def migrate_000_008_048_entity_aliases_and_merge(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.008.048: Create tag_entity_aliases table and merge known entity duplicates."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tag_entity_aliases (
+            alias       TEXT PRIMARY KEY,
+            canonical   TEXT NOT NULL,
+            created_at  REAL
+        );
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_entity_aliases_canonical ON tag_entity_aliases(canonical);
+    """)
+
+    now = time.time()
+    # 1. Merge tenser-persona -> tenser
+    tenser = cursor.execute("SELECT request_count, note FROM tag_entities WHERE term = 'tenser'").fetchone()
+    tenser_persona = cursor.execute("SELECT request_count, note FROM tag_entities WHERE term = 'tenser-persona'").fetchone()
+    if tenser_persona:
+        combined_count = (tenser[0] if tenser else 1) + tenser_persona[0]
+        note = tenser[1] if (tenser and tenser[1]) else (tenser_persona[1] or "Persona")
+        cursor.execute(
+            "INSERT INTO tag_entities (term, label, kind, note, request_count, recorded_at) "
+            "VALUES ('tenser', 'Tenser', 'persona', ?, ?, ?) "
+            "ON CONFLICT(term) DO UPDATE SET "
+            "  request_count = ?, note = ?, kind = 'persona', label = 'Tenser'",
+            (note, combined_count, now, combined_count, note),
+        )
+        cursor.execute("DELETE FROM tag_entities WHERE term = 'tenser-persona'")
+        cursor.execute(
+            "INSERT OR REPLACE INTO tag_entity_aliases (alias, canonical, created_at) VALUES ('tenser-persona', 'tenser', ?)",
+            (now,),
+        )
+        cursor.execute(
+            "INSERT OR REPLACE INTO tag_entity_aliases (alias, canonical, created_at) VALUES ('tensor', 'tenser', ?)",
+            (now,),
+        )
+
+    # 2. Merge artificium -> the-artificium
+    artificium = cursor.execute("SELECT request_count, note FROM tag_entities WHERE term = 'artificium'").fetchone()
+    the_artificium = cursor.execute("SELECT request_count, note FROM tag_entities WHERE term = 'the-artificium'").fetchone()
+    if artificium:
+        combined_count = (the_artificium[0] if the_artificium else 1) + artificium[0]
+        note = the_artificium[1] if (the_artificium and the_artificium[1]) else (artificium[1] or "3D printing project and workshop")
+        cursor.execute(
+            "INSERT INTO tag_entities (term, label, kind, note, request_count, recorded_at) "
+            "VALUES ('the-artificium', 'The Artificium', 'work', ?, ?, ?) "
+            "ON CONFLICT(term) DO UPDATE SET "
+            "  request_count = ?, note = ?, kind = 'work', label = 'The Artificium'",
+            (note, combined_count, now, combined_count, note),
+        )
+        cursor.execute("DELETE FROM tag_entities WHERE term = 'artificium'")
+        cursor.execute(
+            "INSERT OR REPLACE INTO tag_entity_aliases (alias, canonical, created_at) VALUES ('artificium', 'the-artificium', ?)",
+            (now,),
+        )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -7434,6 +7496,13 @@ MIGRATIONS: list[Migration] = [
         version="000.008.046",
         name="unify_memory_subjects",
         up_fn=migrate_000_008_046_unify_memory_subjects,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.008.048",
+        name="entity_aliases_and_merge",
+        up_fn=migrate_000_008_048_entity_aliases_and_merge,
         post_sync_chroma=False,
     ),
 ]

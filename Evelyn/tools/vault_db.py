@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-16 01:55:18
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -94,6 +94,15 @@ def init_db() -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_tag_entities_kind ON tag_entities(kind);
+
+        -- The entity aliases register (v000.008.048). Maps alternative spellings,
+        -- legacy slugs, and merged names to their canonical entity term.
+        CREATE TABLE IF NOT EXISTS tag_entity_aliases (
+            alias       TEXT PRIMARY KEY,
+            canonical   TEXT NOT NULL,
+            created_at  REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_entity_aliases_canonical ON tag_entity_aliases(canonical);
 
         CREATE TABLE IF NOT EXISTS base_taxonomy_meta (
             key    TEXT PRIMARY KEY,

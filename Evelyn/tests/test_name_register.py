@@ -143,3 +143,57 @@ def test_it_works_through_the_bulk_route(queue: None) -> None:
     assert result["applied"] == 2
     assert tag_entities.is_entity("airthread")
     assert tag_entities.is_entity("crunchyroll")
+
+
+def test_entity_aliasing_and_resolution(queue: None) -> None:
+    """Verify alias registration, term lookup, and canonical display label resolution."""
+    tag_entities.record_entity("evelyn-engine", label="Evelyn Engine", kind="project")
+    assert tag_entities.add_entity_alias("evelyn-engine", "evelyn-core")
+
+    assert tag_entities.is_entity("evelyn-core")
+    ent = tag_entities.get_entity("evelyn-core")
+    assert ent is not None
+    assert ent["term"] == "evelyn-engine"
+    assert "evelyn-core" in ent.get("aliases", [])
+    assert tag_entities.resolve_entity_label("evelyn-core") == "Evelyn Engine"
+    assert "evelyn-core" in tag_entities.entity_terms()
+
+    # Record request against alias forwards to canonical entity
+    old_count = ent["request_count"]
+    new_count = tag_entities.record_entity_request("evelyn-core")
+    assert new_count == old_count + 1
+    assert tag_entities.get_entity("evelyn-engine")["request_count"] == old_count + 1
+
+    # Remove alias
+    assert tag_entities.remove_entity_alias("evelyn-core")
+    assert not tag_entities.is_entity("evelyn-core")
+
+
+def test_entity_merge_hybrid(queue: None) -> None:
+    """Verify merging absorbs stats, combines context, and retains alias."""
+    tag_entities.update_entity("tenser-persona", label="Tenser", kind="other", note="Persona stub")
+    tag_entities.update_entity("tenser", label="Tenser", kind="persona", note="Primary persona")
+
+    # Increment request count
+    tag_entities.record_entity_request("tenser-persona")
+    tag_entities.record_entity_request("tenser")
+
+    assert tag_entities.merge_entities("tenser-persona", "tenser", retain_alias=True)
+
+    # Former source is gone from direct tag_entities table, but resolves via alias
+    direct_entities = {e["term"] for e in tag_entities.get_entities()}
+    assert "tenser-persona" not in direct_entities
+    assert "tenser" in direct_entities
+
+    merged = tag_entities.get_entity("tenser")
+    assert merged is not None
+    assert merged["kind"] == "persona"
+    assert "tenser-persona" in merged.get("aliases", [])
+    assert merged["request_count"] >= 3
+
+    # Alias resolves directly to canonical
+    resolved = tag_entities.get_entity("tenser-persona")
+    assert resolved is not None
+    assert resolved["term"] == "tenser"
+    assert tag_entities.resolve_entity_label("tenser-persona") == "Tenser"
+
