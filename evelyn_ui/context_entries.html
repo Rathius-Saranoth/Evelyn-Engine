@@ -379,16 +379,7 @@
       background: rgba(255, 255, 255, 0.15);
       color: #fff;
     }
-    .badge-cat-user {
-      background: rgba(6, 182, 212, 0.15);
-      border: 1px solid rgba(6, 182, 212, 0.35);
-      color: #38bdf8;
-    }
-    .badge-cat-asst {
-      background: rgba(168, 85, 247, 0.15);
-      border: 1px solid rgba(168, 85, 247, 0.35);
-      color: #d8b4fe;
-    }
+
     .badge-subj {
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--border);
@@ -754,15 +745,11 @@
             type="text" 
             id="search-input" 
             class="search-input" 
-            placeholder="🔍 Search facts, tags, subject, category, or #ID (Press '/' to focus)..." 
-            title="Search observation text, domain tags, subject name, category code, or exact record ID"
+            placeholder="🔍 Search facts, tags, subject, or #ID (Press '/' to focus)..." 
+            title="Search observation text, domain tags, subject name, or exact record ID"
             oninput="handleSearchInput()"
           >
         </div>
-
-        <select id="filter-category" class="filter-select" onchange="triggerFilterChange()" title="Filter facts by fast memory taxonomy category code (Cat01-U to Cat16-A)">
-          <option value="all">All Categories</option>
-        </select>
 
         <select id="filter-status" class="filter-select" onchange="triggerFilterChange()" title="Filter by lifecycle status (live, extracted, pending_review, archived, deleted)">
           <option value="all">All Statuses</option>
@@ -884,13 +871,6 @@
 
         <div class="form-row">
           <div class="form-group" style="flex: 1;">
-            <label class="form-label" for="edit-category">Category Code</label>
-            <select id="edit-category" class="form-select" title="Category code in the Cat##-U / Cat##-A taxonomy format">
-              <!-- Dynamically populated or filled with Cat01 to Cat16 -->
-            </select>
-          </div>
-
-          <div class="form-group" style="flex: 1;">
             <label class="form-label" for="edit-subject">Subject Entity</label>
             <input type="text" id="edit-subject" class="form-input" placeholder="e.g. User or Assistant" title="Entity or persona to whom this observation is attributed">
           </div>
@@ -981,14 +961,7 @@
 
       <div class="modal-body">
         <div class="form-row">
-          <div class="form-group" style="flex: 1;">
-            <label class="form-label" for="create-category">Category Code</label>
-            <select id="create-category" class="form-select" title="Fast memory taxonomy category code (Cat01-U to Cat16-A)">
-              <!-- Populated dynamically -->
-            </select>
-          </div>
-
-          <div class="form-group" style="flex: 1;">
+          <div class="form-group" style="flex: 2;">
             <label class="form-label" for="create-subject">Subject Entity</label>
             <input type="text" id="create-subject" class="form-input" placeholder="e.g. User or Assistant" title="Subject entity name">
           </div>
@@ -1086,25 +1059,7 @@
     let cachedMetadata = null;
     let activeEditEntry = null;
 
-    // Fast Memory Taxonomy Labels
-    const CATEGORY_NAMES = {
-      'Cat01': 'Identity & Personality',
-      'Cat02': 'Communication & Tone',
-      'Cat03': 'Directives & Protocols',
-      'Cat04': 'Tools & Execution',
-      'Cat05': 'Biography & Background',
-      'Cat06': 'Relationships & Social',
-      'Cat07': 'Philosophy & Values',
-      'Cat08': 'Routines & Daily Habits',
-      'Cat09': 'Preferences & Likes',
-      'Cat10': 'Aesthetics & Style',
-      'Cat11': 'Work & Projects',
-      'Cat12': 'Learning & Knowledge',
-      'Cat13': 'Emotional Dynamics',
-      'Cat14': 'Health & Wellbeing',
-      'Cat15': 'Spatial & Environment',
-      'Cat16': 'Long-term Aspirations'
-    };
+
 
     function escapeHtml(s) {
       if (!s) return '';
@@ -1148,39 +1103,6 @@
           document.getElementById('stat-latest-date').textContent = 'N/A';
         }
 
-        // Populate Category Filter
-        const catSelect = document.getElementById('filter-category');
-        const editCatSelect = document.getElementById('edit-category');
-        const createCatSelect = document.getElementById('create-category');
-
-        const currentFilterVal = catSelect.value;
-        catSelect.innerHTML = '<option value="all">All Categories</option>';
-        editCatSelect.innerHTML = '';
-        createCatSelect.innerHTML = '';
-
-        (cachedMetadata.categories || []).forEach(c => {
-          const catNum = c.category.substring(0, 5);
-          const friendlyName = CATEGORY_NAMES[catNum] || 'General';
-          const optText = `${c.category} — ${friendlyName} (${c.count.toLocaleString()})`;
-          
-          const opt = document.createElement('option');
-          opt.value = c.category;
-          opt.textContent = optText;
-          catSelect.appendChild(opt);
-
-          const editOpt = document.createElement('option');
-          editOpt.value = c.category;
-          editOpt.textContent = `${c.category} — ${friendlyName}`;
-          editCatSelect.appendChild(editOpt);
-
-          const createOpt = document.createElement('option');
-          createOpt.value = c.category;
-          createOpt.textContent = `${c.category} — ${friendlyName}`;
-          createCatSelect.appendChild(createOpt);
-        });
-
-        if (currentFilterVal) catSelect.value = currentFilterVal;
-
         // Populate Subject Filter
         const subjSelect = document.getElementById('filter-subject');
         const currentSubjVal = subjSelect.value;
@@ -1201,7 +1123,6 @@
     // Fetch and Render Entries
     async function loadEntries() {
       const q = document.getElementById('search-input').value.trim();
-      const category = document.getElementById('filter-category').value;
       const status = document.getElementById('filter-status').value;
       const subject = document.getElementById('filter-subject').value;
       const confidence = document.getElementById('filter-confidence').value;
@@ -1216,7 +1137,6 @@
       });
 
       if (q) params.set('q', q);
-      if (category && category !== 'all') params.set('category', category);
       if (status && status !== 'all') params.set('status', status);
       if (subject && subject !== 'all') params.set('subject', subject);
       if (confidence && confidence !== 'all') params.set('confidence', confidence);
@@ -1259,7 +1179,7 @@
         container.innerHTML = `
           <div style="text-align: center; padding: 60px 20px; color: var(--text-dim);">
             <div style="font-size: 16px; font-weight: 600; color: #fff;">No matching context entries found.</div>
-            <div style="font-size: 13px; margin-top: 6px;">Try adjusting your query, category, or status filters.</div>
+            <div style="font-size: 13px; margin-top: 6px;">Try adjusting your query, subject, or status filters.</div>
           </div>
         `;
         return;
@@ -1267,8 +1187,6 @@
 
       const html = currentEntries.map(entry => {
         const isSelected = selectedEntryIds.has(entry.id);
-        const isUserCat = (entry.category || '').endsWith('-U');
-        const catBadgeClass = isUserCat ? 'badge-cat-user' : 'badge-cat-asst';
         
         let statusBadgeClass = 'badge-live';
         if (entry.status === 'deleted') statusBadgeClass = 'badge-deleted';
@@ -1293,10 +1211,6 @@
                   #${entry.id}
                 </span>
 
-                <span class="badge ${catBadgeClass}" title="Fast memory category ${escapeAttr(entry.category)}">
-                  ${escapeHtml(entry.category)}
-                </span>
-
                 <span class="badge badge-subj" title="Subject entity">
                   👤 ${escapeHtml(entry.subject)}
                 </span>
@@ -1319,7 +1233,7 @@
               </div>
 
               <div class="fact-header-right">
-                <button class="btn btn-secondary btn-sm" onclick="openEditModal(${entry.id})" title="Edit observation, category, tags, or stage as proposal">
+                <button class="btn btn-secondary btn-sm" onclick="openEditModal(${entry.id})" title="Edit observation, tags, or stage as proposal">
                   ✏️ Edit
                 </button>
                 <button class="btn btn-amber btn-sm" onclick="queueEntrySplit(${entry.id})" title="Enqueue this fact for decomposition into atomic components by idle consolidator">
@@ -1489,7 +1403,6 @@
 
       document.getElementById('edit-id').value = entry.id;
       document.getElementById('modal-fact-id').textContent = `#${entry.id}`;
-      document.getElementById('edit-category').value = entry.category || 'Cat05-U';
       document.getElementById('edit-subject').value = entry.subject || '';
       document.getElementById('edit-status').value = entry.status || 'live';
       document.getElementById('edit-observation').value = entry.observation || '';
@@ -1522,7 +1435,6 @@
     async function submitDirectSave() {
       const id = parseInt(document.getElementById('edit-id').value, 10);
       const observation = document.getElementById('edit-observation').value.trim();
-      const category = document.getElementById('edit-category').value;
       const subject = document.getElementById('edit-subject').value.trim();
       const status = document.getElementById('edit-status').value;
       const tags = document.getElementById('edit-tags').value.trim();
@@ -1541,7 +1453,6 @@
           headers: headers(),
           body: JSON.stringify({
             observation,
-            category,
             subject,
             status,
             tags,
@@ -1569,7 +1480,6 @@
     async function submitEditAsProposal() {
       const id = parseInt(document.getElementById('edit-id').value, 10);
       const observation = document.getElementById('edit-observation').value.trim();
-      const category = document.getElementById('edit-category').value;
       const subject = document.getElementById('edit-subject').value.trim();
       const tags = document.getElementById('edit-tags').value.trim();
       const reason = document.getElementById('edit-reason').value.trim();
@@ -1586,7 +1496,6 @@
           headers: headers(),
           body: JSON.stringify({
             observation,
-            category,
             subject,
             tags,
             reason: reason || 'Refinement via Context Ledger UI'
@@ -1728,7 +1637,6 @@
     }
 
     async function submitCreateFact() {
-      const category = document.getElementById('create-category').value;
       const subject = document.getElementById('create-subject').value.trim();
       const confidence = document.getElementById('create-confidence').value;
       const observation = document.getElementById('create-observation').value.trim();
@@ -1746,7 +1654,6 @@
           method: 'POST',
           headers: headers(),
           body: JSON.stringify({
-            category,
             subject,
             confidence,
             observation,

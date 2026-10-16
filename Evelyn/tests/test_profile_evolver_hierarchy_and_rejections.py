@@ -1,6 +1,6 @@
 # test_profile_evolver_hierarchy_and_rejections.py
 # date created: 2026-09-18
-# date modified: 2026-10-03 07:46:08
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #profile_evolver, #hierarchy, #deduplication, #rejection, #audit
 
 """Unit tests for profile evolver hierarchy, adaptive deduplication, domain guards, and rejection telemetry."""

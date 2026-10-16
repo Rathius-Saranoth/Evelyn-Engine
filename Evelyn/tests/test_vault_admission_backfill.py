@@ -1,6 +1,6 @@
 # test_vault_admission_backfill.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 19:46:32
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #admission, #vault, #backfill, #testing
 
 """An admitted term must reach whatever asked for it — including a vault note (G5).

@@ -1,6 +1,6 @@
 # test_benchmark_rag_isolation.py
 # date created: 2026-10-02 16:50:00
-# date modified: 2026-10-02 16:50:29
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #rag, #benchmark, #chroma, #isolation
 
 """Unit tests verifying that benchmark_rag candidate ingestion and execution

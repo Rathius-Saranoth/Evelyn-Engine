@@ -1,6 +1,6 @@
 # test_chroma_writer_lease.py
 # date created: 2026-09-23 22:30:00
-# date modified: 2026-09-23 21:46:27
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #chroma, #concurrency, #regression, #vector
 
 """Regression cover for the ChromaDB single-writer lease (v000.006.218).

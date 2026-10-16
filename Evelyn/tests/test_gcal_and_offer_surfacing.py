@@ -1,6 +1,6 @@
 # test_gcal_and_offer_surfacing.py
 # date created: 2026-09-17
-# date modified: 2026-09-17 17:31:05
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #gcal, #gtasks, #tool-surfacing, #temporal
 
 """Unit tests for GCal timezone safety, upcoming days grounding, and loop-safe assistant offer tool surfacing."""

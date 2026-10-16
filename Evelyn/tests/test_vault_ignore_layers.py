@@ -1,6 +1,6 @@
 # test_vault_ignore_layers.py
 # date created: 2026-09-26
-# date modified: 2026-09-26 17:37:34
+# date modified: 2026-10-16 00:13:20
 # tags: #config, #vault, #privacy, #layering, #testing
 
 """One operator's folder names must not ship to everyone who clones this.

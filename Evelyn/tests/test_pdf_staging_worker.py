@@ -1,5 +1,6 @@
 # test_pdf_staging_worker.py
 # date created: 2026-08-22
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #pdf, #staging, #task_manager, #sidecar
 
 """

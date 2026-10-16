@@ -1,6 +1,6 @@
 # test_parent_tag_inheritance.py
 # date created: 2026-09-23 18:40:00
-# date modified: 2026-09-23 18:27:00
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #taxonomy, #librarian, #inheritance
 
 """Parent-tag inheritance is opt-in and never carries a facet (v000.006.214).

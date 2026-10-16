@@ -1,6 +1,6 @@
 # test_chroma_targeted_repair.py
 # date created: 2026-09-22 19:05:00
-# date modified: 2026-09-22 19:24:25
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #chroma, #repair, #regression, #vector
 
 """Regression cover for targeted Chroma repair.

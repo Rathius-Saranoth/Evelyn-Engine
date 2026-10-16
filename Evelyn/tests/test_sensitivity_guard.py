@@ -1,6 +1,6 @@
 # test_sensitivity_guard.py
 # date created: 2026-09-23 18:00:00
-# date modified: 2026-09-23 17:40:39
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #privacy, #rag, #sensitivity
 
 """The `sensitivity:` property governs retrieval and tool access (v000.006.211).

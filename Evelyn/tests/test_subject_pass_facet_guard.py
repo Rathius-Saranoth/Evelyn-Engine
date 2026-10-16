@@ -1,6 +1,6 @@
 # test_subject_pass_facet_guard.py
 # date created: 2026-09-24 17:10:00
-# date modified: 2026-09-24 17:05:19
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #taxonomy, #librarian, #facets
 
 """Subject indexing may not emit a facet, and one form axis survives (v000.006.219).

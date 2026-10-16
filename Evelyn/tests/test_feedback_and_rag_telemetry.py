@@ -1,3 +1,8 @@
+# test_feedback_and_rag_telemetry.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 """
 Test suite for Conversational Feedback and RAG Context Telemetry Logging.
 Verifies database operations, telemetry recording, retrieval logging,

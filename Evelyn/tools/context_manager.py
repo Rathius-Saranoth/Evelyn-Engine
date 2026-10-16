@@ -1,6 +1,6 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-10-13 00:43:41
+# date modified: 2026-10-16 00:13:19
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
@@ -17,27 +17,28 @@ Provides two sets of functionality:
 import contextlib
 import datetime
 import sqlite3
+from typing import Any
 
 import evelyn_config as cfg
 from Evelyn.tools import memory_db, tag_librarian
-from Evelyn.tools.fact_consolidator import validate_and_normalize_category
 from Evelyn.tools.tag_librarian import normalize_tag_format
 
 
 def append_context_log(
-    category_code: str,
-    summary: str,
+    category_code: str | None = None,
+    summary: str = "",
     secondary_cats: list[str] | str | None = None,
     subject: str | None = None,
     tags: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Creates a new Context Entry in the SQLite memory DB, pending review.
 
     Args:
-        category_code: Primary category identifier, e.g. "Cat08-U" or "Cat01-A".
+        category_code: Deprecated legacy parameter (used only for backward-compatible subject inference if subject is None).
         summary: The fact or event to log. Should be a concise, self-contained statement.
         secondary_cats: Optional secondary category codes or cross-refs.
-        subject: Optional entity name (defaults to inferred entity from category code).
+        subject: Optional entity name (defaults to inferred entity or configured USER_NAME).
         tags: Optional comma-separated tags.
 
     Returns:
@@ -45,26 +46,21 @@ def append_context_log(
     """
     today = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d")
 
-    # Normalize category
-    norm_cat = validate_and_normalize_category(category_code, subject) or category_code
+    if not summary and category_code:
+        summary = category_code
+        category_code = None
 
     # Determine and normalize subject
     if not subject or not subject.strip():
-        subject_code = norm_cat[-1].upper() if norm_cat else ""
-        inferred = (
-            cfg.ASSISTANT_NAME
-            if subject_code == cfg.SUBJECT_CODE_ASSISTANT
-            else cfg.USER_NAME
-        )
+        if category_code and str(category_code).strip().upper().endswith("-A"):
+            inferred = cfg.ASSISTANT_NAME
+        else:
+            inferred = cfg.USER_NAME
         subject = memory_db.normalize_subject_attribution(inferred, summary)
     else:
         subject = memory_db.normalize_subject_attribution(subject, summary)
 
     # Clean and combine tags / secondary categories.
-    # Everything is put through the canonical normaliser (taxonomy §5) before storage.
-    # This path previously stored whatever string it was handed, so the memory store could
-    # accumulate 'Tech/AI' beside 'tech/ai' as two unrelated terms. Date anchors and the
-    # administrative namespaces are exempted inside normalize_tag_format itself.
     raw_tag_parts: list[str] = []
     if tags:
         raw_tag_parts.extend(tags.split(","))
@@ -80,7 +76,6 @@ def append_context_log(
 
     try:
         row_id = memory_db.insert_entry(
-            category=norm_cat,
             subject=subject,
             observation=summary,
             confidence="medium",
@@ -92,16 +87,12 @@ def append_context_log(
     except (sqlite3.Error, OSError, ValueError) as e:
         return f"Error writing context entry: {e}"
 
-    # Terms the controlled vocabulary does not hold go to the review queue rather than entering
-    # it silently. The tag is still stored: withholding only becomes safe once approval can put
-    # an admitted term back on the facts that wanted it, which is why the entry id is recorded.
-    # This runs after the insert for that reason — proposing first left `source_ids` empty.
     if combined_tags_list:
         with contextlib.suppress(sqlite3.Error, OSError):
             kept = tag_librarian.withhold_unregistered_tags(
                 row_id,
                 combined_tags_list,
-                origin=f"memory fact ({norm_cat})",
+                origin=f"memory fact ({subject})",
                 reason="Tag attached to a memory fact but absent from the controlled vocabulary.",
             )
             if kept != combined_tags_list:
@@ -121,8 +112,6 @@ def update_context_log(target_filepaths: list, new_summary: str) -> str:
     Returns:
         str: Confirmation message.
     """
-    import memory_db
-
     source_ids = []
     for p in target_filepaths:
         # Extract ID if RAG source format is passed

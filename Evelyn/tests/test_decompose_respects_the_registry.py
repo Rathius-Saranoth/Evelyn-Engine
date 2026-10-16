@@ -1,6 +1,6 @@
 # test_decompose_respects_the_registry.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 20:15:28
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #decomposition, #facets, #testing
 
 """Decomposition may not invent a term the vocabulary does not hold.

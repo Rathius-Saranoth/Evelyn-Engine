@@ -1,6 +1,6 @@
 # test_feature_flag_env_wiring.py
 # date created: 2026-09-26 19:11:47
-# date modified: 2026-09-26 19:12:38
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Tests that the autonomous-pass feature flags are actually read from the environment.

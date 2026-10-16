@@ -1,6 +1,6 @@
 # test_name_register.py
 # date created: 2026-09-26
-# date modified: 2026-09-26 17:20:01
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #names, #entities, #review, #testing
 
 """A name is not a subject, and the queue needs a third answer for one.

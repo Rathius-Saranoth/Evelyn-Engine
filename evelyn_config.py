@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-15 22:51:35
+# date modified: 2026-10-16 00:13:20
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -610,8 +610,37 @@ RAG_FUSE_CONTIGUOUS_CHUNKS = True
 RAG_TEMPORAL_DECAY_ENABLED = _env_flag("RAG_TEMPORAL_DECAY_ENABLED", True)
 RAG_RECENCY_WEIGHT = 0.35  # Recency weighting factor (0.0 = pure vector distance, 1.0 = strong decay)
 
-# Category-specific half-life in days. Ephemeral states/routines decay quickly;
+# Tag-aware and domain-specific half-life in days. Ephemeral states/routines decay quickly;
 # identity principles decay slowly; life events and system protocols do not decay (0 = infinite).
+RAG_TAG_HALF_LIFE_DAYS: dict[str, int] = {
+    # Ephemeral / Adaptive states (30–75 days)
+    "health": 30,
+    "mood": 30,
+    "sleep": 30,
+    "routine": 75,
+    "habit": 75,
+    "preference": 120,
+    "interaction": 120,
+    # Stable principles & identity (365 days)
+    "identity": 365,
+    "values": 365,
+    "ethics": 365,
+    "background": 365,
+    # Environment & infrastructure (180 days)
+    "homelab": 180,
+    "hardware": 180,
+    "workspace": 180,
+    "software-architecture": 180,
+    # Historical milestones & fundamental protocols (0 = infinite / no decay)
+    "milestone": 0,
+    "history": 0,
+    "anniversary": 0,
+    "birthday": 0,
+    "protocol": 0,
+    "architecture": 0,
+}
+
+# Legacy category fallback map (deprecated, retained for backward compatibility)
 RAG_CATEGORY_HALF_LIFE_DAYS: dict[str, int] = {
     "Cat01": 30,   # Physical State / Health (ephemeral)
     "Cat02": 30,   # Mood / Energy (ephemeral)

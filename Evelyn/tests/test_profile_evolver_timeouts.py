@@ -1,6 +1,6 @@
 # test_profile_evolver_timeouts.py
 # date created: 2026-08-28
-# date modified: 2026-08-30 11:55:19
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #profile_evolver, #timeouts, #task_manager
 
 import os
@@ -31,7 +31,7 @@ class TestProfileEvolverTimeouts(unittest.IsolatedAsyncioTestCase):
 
     @patch("profile_evolver._evolve_document")
     @patch("profile_evolver.memory_db.get_pending_proposals")
-    @patch("profile_evolver.memory_db.get_entries_by_category_for_document")
+    @patch("profile_evolver.memory_db.get_unevolved_entries_for_document")
     @patch("profile_evolver._load_evolution_state")
     @patch("profile_evolver._save_evolution_state")
     async def test_per_document_timeout_continues_to_next_doc(
@@ -66,7 +66,8 @@ class TestProfileEvolverTimeouts(unittest.IsolatedAsyncioTestCase):
 
         mock_evolve_doc.side_effect = side_effect
 
-        with patch.object(cfg, "PROFILE_EVOLUTION_ENABLED", True), \
+        with patch("profile_evolver.importlib.reload", return_value=cfg), \
+             patch.object(cfg, "PROFILE_EVOLUTION_ENABLED", True), \
              patch.object(cfg, "PROFILE_EVOLUTION_COOLDOWN", 0), \
              patch.object(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 1), \
              patch.object(cfg, "PROFILE_EVOLUTION_DOC_TIMEOUT", 0.05), \

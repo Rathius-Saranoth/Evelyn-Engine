@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-10-15 22:51:35
+# date modified: 2026-10-16 00:13:19
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -29,7 +29,6 @@ import yaml
 
 import evelyn_config as cfg
 from Evelyn.tools import chroma_rag, memory_db, taxonomy_db
-from Evelyn.tools.fact_extractor import load_cat00_index
 from Evelyn.tools.tag_librarian import normalize_tag_format, withhold_unregistered_tags
 
 logger = logging.getLogger("evelyn.fact_deduplicator")
@@ -48,7 +47,6 @@ _PROPOSAL_SYSTEM_PROMPT = (
 
 _PROPOSAL_PROMPT = """\
 You are evaluating a cluster of memory entries.
-{category} ENTRIES:
 
 {entries_text}
 
@@ -66,7 +64,6 @@ TASK:
 6. ATOMICITY & LENGTH CEILING RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST remain an atomic, single-predicate observation of at most 30 words. If combining the entries requires multiple distinct clauses, predicates, or exceeds 35 words, or if combining them loses specific detail, you MUST choose 'keep_both'. Never construct a compound paragraph or chronological essay.
 7. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Format `merged_tags` as flat subject terms combined at retrieval time, not a tree — `coffee, routine`, never `home/coffee/espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). Lowercase always, hyphens joining words; never TitleCase or underscores. Singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). Named individuals are not tags at all. Prefer terms that already appear on the source entries over inventing new ones. Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.
 8. EXPLICIT NOUN SUBJECT MANDATE: The `merged_summary` MUST explicitly state the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn observes...', 'Biscuit the cat acts as...', 'Jordan is acclimating...'). NEVER begin the summary with a subject-less verb (e.g. 'Enjoys...', 'Prefers...', 'Acts as...') and NEVER use ambiguous floating pronouns ('He', 'She', 'They') as the primary subject referent. If one entity is observing or commenting on another, explicitly name BOTH entities in the text (e.g. 'Evelyn observes that Alex values clarity...').
-{cat_ref}
 
 Output ONLY a YAML block:
 ```yaml
@@ -110,19 +107,19 @@ def fast_deduplicate_exact_matches(con: sqlite3.Connection | None = None) -> int
     try:
         cur = con.cursor()
         rows = cur.execute(
-            """SELECT id, category, subject, observation, date, tags, observed_count, created_at, last_observed
+            """SELECT id, subject, observation, date, tags, observed_count, created_at, last_observed
                FROM context_entries
                WHERE status = 'live'
                ORDER BY id ASC"""
         ).fetchall()
 
-        seen: dict[tuple[str, str, str], dict] = {}
+        seen: dict[tuple[str, str], dict] = {}
         now = time.time()
 
         for row in rows:
             r = dict(row)
             clean_obs = re.sub(r"\s+", " ", r["observation"].strip().lower()).rstrip(".").strip()
-            key = (r["category"], r["subject"], clean_obs)
+            key = (r["subject"], clean_obs)
 
             if key not in seen:
                 seen[key] = r
@@ -270,6 +267,7 @@ def is_split_relative(
 def find_deduplication_candidates(
     batch_limit: int = 5,
     distance_threshold: float = 0.40,
+    subject: str | None = None,
     category: str | None = None,
 ) -> list[dict[str, Any]]:
     """Scan memory database context entries using vector-first nearest-neighbor search.
@@ -280,10 +278,11 @@ def find_deduplication_candidates(
     Args:
         batch_limit: Maximum number of anchor entries to evaluate per pass.
         distance_threshold: Maximum cosine distance in ChromaDB.
-        category: Optional category filter.
+        subject: Optional subject filter.
+        category: Optional legacy category filter.
 
     Returns:
-        list[dict]: List of Cluster dicts with 'category', 'topic', 'records', 'reason'.
+        list[dict]: List of Cluster dicts with 'subject', 'category', 'topic', 'records', 'reason'.
     """
     limit = batch_limit if batch_limit is not None else cfg.CONSOLIDATION_GROUP_SCAN_LIMIT
     thresh = (
@@ -293,7 +292,7 @@ def find_deduplication_candidates(
     )
     max_neighbors = cfg.CONSOLIDATION_MAX_RECORDS_PER_GROUP
 
-    anchors = memory_db.get_oldest_unaudited_entries(limit=limit, category=category)
+    anchors = memory_db.get_oldest_unaudited_entries(limit=limit, subject=subject, category=category)
     if not anchors:
         return []
 
@@ -371,9 +370,11 @@ def find_deduplication_candidates(
                 audited_ids.add(nid)
 
         if len(cluster_records) >= 2:
+            anchor_subj = anchor.get("subject") or "General"
             clusters.append({
-                "category": anchor["category"],
-                "topic": f"Duplicate facts on #{anchor_id} ({anchor['category']})",
+                "subject": anchor_subj,
+                "category": anchor_subj,
+                "topic": f"Duplicate facts on #{anchor_id} ({anchor_subj})",
                 "reason": f"Chroma nearest neighbors within distance {distance_threshold}",
                 "records": cluster_records,
             })
@@ -389,7 +390,12 @@ def find_deduplication_candidates(
 # Section 3: Proposal Generation & Merge Application
 # ============================================================================
 
-def parse_proposal_yaml(raw: str, category: str, records: list[dict] | None = None) -> dict | None:
+def parse_proposal_yaml(
+    raw: str,
+    subject: str = "",
+    records: list[dict] | None = None,
+    category: str | None = None,
+) -> dict | None:
     """Parse the consolidation verdict YAML from the model response."""
     match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
     block = match.group(1) if match else raw
@@ -407,7 +413,6 @@ def parse_proposal_yaml(raw: str, category: str, records: list[dict] | None = No
     if verdict not in ("supersede", "merge", "keep_both"):
         verdict = "keep_both"
 
-    target_cat = str(data.get("target_category", category)).strip()
     raw_tags = str(data.get("merged_tags", "")).strip()
     norm_tags = ", ".join(taxonomy_db.canonicalize_tags(
         [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()]
@@ -418,7 +423,6 @@ def parse_proposal_yaml(raw: str, category: str, records: list[dict] | None = No
         "merged_summary": str(data.get("merged_summary", "")).strip(),
         "merged_tags": norm_tags,
         "confidence": str(data.get("confidence", "medium")).strip().lower(),
-        "target_category": target_cat,
         "reasoning": str(data.get("reasoning", "")).strip(),
     }
 
@@ -430,25 +434,23 @@ async def generate_consolidation_proposal(
     """Generate and record a consolidation proposal for a cluster using Ollama (think=True).
 
     Args:
-        cluster: Cluster dict with 'records', 'category', 'topic'.
+        cluster: Cluster dict with 'records', 'subject', 'topic'.
         call_ollama_fn: Async callable that takes messages, timeout, think, num_predict.
 
     Returns:
         str | None: Proposal row ID if created or applied, None if keep_both or failed.
     """
-    cat00 = load_cat00_index()
     keep_history = getattr(cfg, "CONSOLIDATION_KEEP_HISTORY", True)
 
     records = cluster["records"]
-    category = cluster["category"]
+    cluster_subject = cluster.get("subject") or cluster.get("category") or "General"
 
     entries_text = ""
     for r in records:
         d_str = r.get("date") or "unknown"
-        s_str = r.get("subject") or "Unknown"
-        c_str = r.get("category") or category
+        s_str = r.get("subject") or cluster_subject
         entries_text += (
-            f"\n- Entry #{r['id']} (Subject: {s_str}, Category: {c_str}, Date: {d_str})\n"
+            f"\n- Entry #{r['id']} (Subject: {s_str}, Date: {d_str})\n"
             f"  Observation: {r.get('observation') or r.get('summary')}\n"
         )
 
@@ -458,13 +460,9 @@ async def generate_consolidation_proposal(
         else "Use only the most recent fact in the merged summary; discard older versions without embedding mechanical 'as of [date]' markers."
     )
 
-    cat_ref = f"\n\nCATEGORY REFERENCE:\n{cat00}" if cat00 else ""
-
     prompt = _PROPOSAL_PROMPT.format(
-        category=category,
         entries_text=entries_text,
         history_instruction=history_instruction,
-        cat_ref=cat_ref,
     )
 
     messages = [
@@ -482,7 +480,7 @@ async def generate_consolidation_proposal(
     if not raw:
         return None
 
-    proposal_data = parse_proposal_yaml(raw, category, records)
+    proposal_data = parse_proposal_yaml(raw, subject=cluster_subject, records=records)
     if not proposal_data:
         return None
 
@@ -499,7 +497,6 @@ async def generate_consolidation_proposal(
         return None
 
     merged_tags = proposal_data.get("merged_tags")
-    target_cat = proposal_data.get("target_category", category)
     confidence = proposal_data.get("confidence", "medium")
     reasoning = proposal_data.get("reasoning", "")
     topic = cluster.get("topic", f"Fact Consolidation ({verdict})")
@@ -509,17 +506,6 @@ async def generate_consolidation_proposal(
     status = "auto_applied" if (confidence == "high" and auto_apply) else "pending"
 
     # Route the model's chosen tags through admission before they are stored or applied.
-    #
-    # `parse_proposal_yaml` normalizes format and resolves aliases, and `canonicalize_tags` is
-    # explicitly not a gate — so every merge wrote whatever the model picked straight onto the
-    # master fact. One night of merges after the memory corpus was hand-curated to zero
-    # unregistered terms put 102 of them back (`videogame`, `dnd`, `muffin`, `work`), none of
-    # which reached review. The extraction writers have gated since .227; this closes the
-    # merge path, the last one that could mint vocabulary.
-    #
-    # Gate here rather than in `apply_fact_merge` so the queued proposal and the applied merge
-    # carry the same tags: a reviewer approving a `pending` proposal tomorrow should see what
-    # an `auto_applied` one would have written today.
     if merged_tags:
         master = memory_db.select_merge_master(records)
         master_id = int(master["id"])
@@ -529,10 +515,6 @@ async def generate_consolidation_proposal(
             origin=f"fact merge into #{master_id}",
             reason="Subject chosen by a fact merge but not in the controlled vocabulary.",
         )
-        # Every term the model chose is awaiting review. Leaving `merged_tags` empty would send
-        # `apply_fact_merge` to its union fallback — the bloat .225 removed — and that union
-        # would put back the very terms just withheld. The master's own tags are registered and
-        # already curated, so they are the answer when the model's are not available yet.
         merged_tags = ", ".join(kept) if kept else (str(master.get("tags") or "").strip() or None)
 
     try:
@@ -541,7 +523,6 @@ async def generate_consolidation_proposal(
             source_ids=source_ids,
             merged_observation=merged_summary,
             merged_tags=merged_tags,
-            suggested_category=target_cat,
             reason=reasoning,
             topic=topic,
             confidence=confidence,
@@ -552,7 +533,6 @@ async def generate_consolidation_proposal(
             master_id = memory_db.apply_fact_merge(
                 source_entries=records,
                 merged_text=merged_summary,
-                target_category=target_cat,
                 merged_tags=merged_tags,
             )
             logger.info(f"[DEDUPLICATOR] Auto-applied merge into master #{master_id} (Proposal #{pid})")
@@ -579,8 +559,10 @@ async def drain_fact_merge_queue(call_ollama_fn: Callable[..., Any]) -> int:
         live_records = [r for r in records if r and r.get("status") == "live"]
 
         if len(live_records) >= 2:
+            cluster_subj = live_records[0].get("subject") or "General"
             cluster = {
-                "category": live_records[0]["category"],
+                "subject": cluster_subj,
+                "category": cluster_subj,
                 "topic": f"Queued Fact Merge {entry_ids}",
                 "records": live_records,
             }

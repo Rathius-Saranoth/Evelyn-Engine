@@ -1,5 +1,6 @@
 # test_gtasks_sync.py
 # date created: 2026-08-23
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #gtasks, #tasks, #sync, #tools
 
 """Unit tests for gtasks_sync.py and Google Tasks integration."""

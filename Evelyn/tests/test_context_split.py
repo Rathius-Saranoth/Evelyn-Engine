@@ -1,6 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-10-13 21:56:05
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import sys
@@ -80,13 +80,11 @@ class TestContextSplit(unittest.TestCase):
 
         # Children should be live
         child1 = memory_db.get_entry(new_ids[0])
-        self.assertEqual(child1["category"], "Cat05-U")
         self.assertEqual(child1["observation"], child_entries[0]["observation"])
         self.assertEqual(child1["tags"], "Home/Coffee/Espresso")
         self.assertEqual(child1["source"], "split")
 
         child2 = memory_db.get_entry(new_ids[1])
-        self.assertEqual(child2["category"], "Cat14-U")
         self.assertEqual(child2["observation"], child_entries[1]["observation"])
         self.assertEqual(child2["tags"], "Tech/HomeLab/HomeAssistant, Tech/IoT/Zigbee")
 

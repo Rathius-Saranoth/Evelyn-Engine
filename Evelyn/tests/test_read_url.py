@@ -1,6 +1,6 @@
 # test_read_url.py
 # date created: 2026-09-06
-# date modified: 2026-09-06 15:49:49
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #read_url, #web_search, #trafilatura, #waf, #caching
 
 """

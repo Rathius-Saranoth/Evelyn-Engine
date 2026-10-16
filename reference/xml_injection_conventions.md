@@ -1,7 +1,7 @@
 ---
 title: xml_injection_conventions.md
 date created: 2026-08-29 12:55:00
-date modified: 2026-10-02 17:02:06
+date modified: 2026-10-16 00:13:20
 tags: [markdown, reference, xml, injection, prompt-engineering, telemetry, evelyn]
 ---
 
@@ -72,7 +72,7 @@ Engine components and background workers must use standardized tag names to prev
 | `<autonomous_trigger>` | Proactive scheduler events, task notifications, or alarms. | `type`, `entity_id`, `severity` | `<summary>`, `<directive>` child tags |
 | `<system_event>` | Runtime telemetry, tool execution outcomes, or daemon status. | `event`, `timestamp`, `status` | Human-readable event description |
 | `<journal_status>` | Runtime status of today's personal reflection journal entry. | `status`, `date`, `path` | Omitted (self-closing container) |
-| `<memory_context>` | Fast memory facts injected from `evelyn_memory.db`. | `category`, `subject` | Extracted fact / observation statement |
+| `<memory_context>` | Fast memory facts injected from `evelyn_memory.db`. | `subject`, `tags` (optional legacy `category`) | Extracted fact / observation statement |
 | `<visual_context>` | Structured OCR text and semantic captions from decoupled vision model. | `count` | `<image index="..." domain="...">` child tags with `<caption>` and `<ocr_text>` |
 
 ---
@@ -110,7 +110,7 @@ Engine components and background workers must use standardized tag names to prev
 ### D. Extracted Memory Facts
 
 ```xml
-<memory_context category="Cat01-U" subject="Alex">
+<memory_context subject="Alex" tags="terminal, formatting">
   Operator prefers concise terminal commands with JSON output formatting.
 </memory_context>
 ```

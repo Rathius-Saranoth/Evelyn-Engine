@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-10-09 12:09:40
+# date modified: 2026-10-16 00:13:19
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -56,9 +56,15 @@ def _sync_write_file(path: str, content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Category-to-document mapping
+# Subject and Category-to-document mapping
 # ---------------------------------------------------------------------------
-DOCUMENT_CATEGORIES = {
+DOCUMENT_SUBJECTS: dict[str, list[str]] = {
+    cfg.PERSONA_FILE_ASSISTANT: [cfg.ASSISTANT_NAME],
+    cfg.PERSONA_FILE_USER: [cfg.USER_NAME],
+    cfg.PERSONA_FILE_DIRECTIVES: [cfg.USER_NAME, cfg.ASSISTANT_NAME],
+}
+
+DOCUMENT_CATEGORIES: dict[str, list[str]] = {
     cfg.PERSONA_FILE_ASSISTANT: [
         f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -225,6 +231,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Narrative Persona, Archetypes & Identity",
             "section_header": "## Identity & Presence / ## Persona & Appearance",
+            "tags": ["identity", "persona", "appearance", "archetype", "presence", "embodiment", "aesthetic"],
             "categories": [
                 f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -234,6 +241,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Values, Voice & Intellectual Exploration",
             "section_header": "## Intellectual & Creative Style / ## Voice & Communication",
+            "tags": ["values", "voice", "intellect", "creativity", "communication", "curiosity", "exploration", "lexicon", "humor"],
             "categories": [
                 f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -245,6 +253,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Relational Anchor, Synergy & Boundaries",
             "section_header": "## Relationship & Support",
+            "tags": ["relationship", "social", "collaboration", "boundaries", "connection", "synergy", "support"],
             "categories": [
                 f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat06-{cfg.SUBJECT_CODE_USER}",
@@ -256,6 +265,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Identity & Core Values",
             "section_header": "## Identity & Core Values",
+            "tags": ["identity", "values", "ethics", "traits", "morals", "belief", "character"],
             "categories": [
                 f"Cat01-{cfg.SUBJECT_CODE_USER}",
                 f"Cat02-{cfg.SUBJECT_CODE_USER}",
@@ -266,6 +276,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Relationship Dynamics & Social Connections",
             "section_header": "## Relationship Dynamics",
+            "tags": ["relationship", "social", "friend", "family", "colleague", "partner", "connection", "jordan"],
             "categories": [
                 f"Cat06-{cfg.SUBJECT_CODE_USER}",
                 f"Cat10-{cfg.SUBJECT_CODE_USER}",
@@ -274,6 +285,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Interaction Preferences & Constraints",
             "section_header": "## Interaction Preferences & Constraints",
+            "tags": ["preferences", "interaction", "communication", "routines", "morning", "evening", "workflow", "constraints"],
             "categories": [
                 f"Cat09-{cfg.SUBJECT_CODE_USER}",
                 f"Cat12-{cfg.SUBJECT_CODE_USER}",
@@ -282,6 +294,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Personal Context & State",
             "section_header": "## Personal Context",
+            "tags": ["context", "state", "health", "wellness", "lifestyle", "routine", "home", "homelab", "project", "hobbies", "finance"],
             "categories": [
                 f"Cat03-{cfg.SUBJECT_CODE_USER}",
                 f"Cat05-{cfg.SUBJECT_CODE_USER}",
@@ -294,6 +307,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Conversation Cadence & Operational Transparency",
             "section_header": "## Conversation & Formatting / ## Authenticity & Operational Transparency",
+            "tags": ["conversation", "formatting", "transparency", "brevity", "tone", "cadence"],
             "categories": [
                 f"Cat04-{cfg.SUBJECT_CODE_USER}",
                 f"Cat09-{cfg.SUBJECT_CODE_USER}",
@@ -303,6 +317,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Tool Execution, Data Integrity & Engineering Guidelines",
             "section_header": "## Operational Guidelines / ## Tool & Action Directives / ## Engineering & Code Quality",
+            "tags": ["tool", "engineering", "code", "architecture", "data", "quality", "execution"],
             "categories": [
                 f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -311,6 +326,7 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Routines, Rituals & Behavioral Boundaries",
             "section_header": "## Behavioral Defaults",
+            "tags": ["routine", "ritual", "boundary", "behavior", "default", "protocol"],
             "categories": [
                 f"Cat12-{cfg.SUBJECT_CODE_USER}",
                 f"Cat16-{cfg.SUBJECT_CODE_USER}",
@@ -1222,11 +1238,21 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
 
     for theme in themes_def:
         theme_name = theme["theme_name"]
-        target_cats = set(theme["categories"])
+        target_cats = set(theme.get("categories", []))
+        target_tags = {t.lower() for t in theme.get("tags", [])}
         section_header = theme.get("section_header", "")
 
-        # Collect entries matching this theme's categories
-        theme_entries = [e for e in entries if e.get("category") in target_cats]
+        # Collect entries matching this theme's tags or legacy categories
+        theme_entries = []
+        for e in entries:
+            e_cat = e.get("category")
+            if e_cat and e_cat in target_cats:
+                theme_entries.append(e)
+                continue
+            e_tags = {t.strip().lower() for t in (e.get("tags") or "").split(",") if t.strip()}
+            if any(t in target_tags for t in e_tags):
+                theme_entries.append(e)
+
         if not theme_entries:
             continue
 
@@ -1266,12 +1292,9 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
 
             def _format_entry_line(entry_dict: dict) -> str:
                 d_str = entry_dict.get("date") or "Unknown Date"
-                c_code = entry_dict.get("category") or ""
                 subj = entry_dict.get("subject") or ""
                 o_text = (entry_dict.get("observation") or "").strip()
                 meta = []
-                if c_code:
-                    meta.append(c_code)
                 if subj:
                     meta.append(f"Subject: {subj}")
                 pfx = f"[{' | '.join(meta)}] " if meta else ""
@@ -1310,12 +1333,9 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
             lines = []
             for e in sub_batch:
                 d_str = e.get("date") or "Unknown Date"
-                c_code = e.get("category") or ""
                 subj = e.get("subject") or ""
                 o_text = (e.get("observation") or "").strip()
                 meta = []
-                if c_code:
-                    meta.append(c_code)
                 if subj:
                     meta.append(f"Subject: {subj}")
                 pfx = f"[{' | '.join(meta)}] " if meta else ""
@@ -1782,7 +1802,6 @@ async def run_profile_evolution():
         pending_files = {p["suggested_category"] for p in pending_props}
 
         for filename in DOCUMENT_EVOLUTION_ORDER:
-            categories = DOCUMENT_CATEGORIES.get(filename, [])
             if filename in pending_files:
                 print(
                     f"[PROFILE EVOLVER] {filename} has a pending profile update. Skipping.",
@@ -1809,9 +1828,14 @@ async def run_profile_evolution():
             # so entries up to draft_cursor are silently skipped inside
             # _evolve_document() — they're already in the working document.
             changed_entries = []
-            for cat in categories:
-                entries = memory_db.get_entries_by_category_for_document(cat, document_name=filename, status="live")
-                changed_entries.extend(entries)
+            subjects = DOCUMENT_SUBJECTS.get(filename, [None])
+            seen_entry_ids = set()
+            for s in subjects:
+                entries = memory_db.get_unevolved_entries_for_document(filename, subject=s, status="live")
+                for e in entries:
+                    if e["id"] not in seen_entry_ids:
+                        seen_entry_ids.add(e["id"])
+                        changed_entries.append(e)
 
             # Sort chronologically (oldest-first) so historical backlogs drain sequentially
             changed_entries.sort(key=lambda e: (e.get("date") or "", e.get("id") or 0))

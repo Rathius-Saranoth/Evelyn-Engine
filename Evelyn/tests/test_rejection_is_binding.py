@@ -1,6 +1,6 @@
 # test_rejection_is_binding.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 07:08:56
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #admission, #proposals, #testing
 
 """Rejecting a term has to decide something (G1).

@@ -1,6 +1,6 @@
 # test_merge_tag_selection.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 19:05:36
+# date modified: 2026-10-16 00:13:20
 # tags: #memory, #merge, #taxonomy, #testing
 
 """Merging must let the model leave a tag out.

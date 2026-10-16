@@ -1,3 +1,8 @@
+# test_multimodal_vision.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 """Unit tests for multimodal vision ingestion, visual indexing, and vector sync."""
 
 import base64

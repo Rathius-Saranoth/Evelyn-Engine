@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-10-13 21:56:05
+# date modified: 2026-10-16 00:13:19
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -688,28 +688,43 @@ def build_system_event_envelope(
 
 
 def build_memory_context_envelope(
-    category: str,
-    subject: str,
-    observation: str,
+    subject: str = "",
+    observation: str = "",
+    category: str | None = None,
+    tags: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Build a standardized <memory_context> envelope for fast memory / profile facts.
 
     Args:
-        category: Fast memory category code (e.g. 'Cat01-U', 'Cat08-A').
         subject: Entity name (e.g. cfg.USER_NAME, cfg.ASSISTANT_NAME).
         observation: Extracted fact statement.
+        category: Deprecated legacy parameter (optional).
+        tags: Optional comma-separated controlled vocabulary tags.
 
     Returns:
         Structured <memory_context> XML block or empty string if observation is empty.
     """
+    if not observation:
+        observation = kwargs.get("observation", "")
     if not observation or not observation.strip():
         return ""
+
+    if not subject:
+        subject = kwargs.get("subject", "")
+
+    attrs: dict[str, str] = {}
+    if subject:
+        attrs["subject"] = subject
+    if tags:
+        attrs["tags"] = tags
+    if category:
+        attrs["category"] = category
 
     return wrap_xml_envelope(
         "memory_context",
         body=escape_xml_content(observation.strip()),
-        category=category,
-        subject=subject,
+        **attrs,
     )
 
 

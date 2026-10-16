@@ -1,6 +1,6 @@
 # web_reader.py
 # date created: 2026-05-26
-# date modified: 2026-09-06 15:51:26
+# date modified: 2026-10-16 00:13:20
 # tags: #web, #scraping, #extraction, #trafilatura, #chunking
 
 """web_reader.py — High-performance web scraping and text extraction for Evelyn's Deep Research.

@@ -1,6 +1,6 @@
 # test_semantic_procedure_router.py
 # date created: 2026-10-02 17:25:00
-# date modified: 2026-10-02 17:26:33
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #semantic-router, #procedures, #intent, #routing
 
 """Unit tests for Vector-Based Semantic Intent Routing (bge-large-en-v1.5).

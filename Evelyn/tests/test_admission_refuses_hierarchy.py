@@ -1,6 +1,6 @@
 # test_admission_refuses_hierarchy.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 20:15:28
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #admission, #hierarchy, #testing
 
 """A pre-coordinate compound may not become a proposal.

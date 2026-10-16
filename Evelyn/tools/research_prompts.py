@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-09-13 08:57:37
+# date modified: 2026-10-16 00:13:19
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.

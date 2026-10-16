@@ -1,6 +1,6 @@
 # vault_indexer.py
 # date created: 2026-05-24 17:50:08
-# date modified: 2026-09-05 19:48:00
+# date modified: 2026-10-16 00:13:20
 # tags: #vault, #indexer, #mapping, #scans, #metadata
 
 """

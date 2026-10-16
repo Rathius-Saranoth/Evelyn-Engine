@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-15 22:54:19
+date modified: 2026-10-16 00:24:33
 ---
 # Evelyn Project Roadmap
 
@@ -44,6 +44,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Vocabulary Bootstrap & Term-Aggregated Review**: Seeded a canonical subject vocabulary from the corpus with term-aggregated review in the triage queue and FAST authority promotion, establishing 970+ curated terms.
 - [x] **Vault Classification Backfill**: Classified the full note corpus against the seeded vocabulary, accumulating unmatched subjects into batched admission proposals and completing audit passes across 4,300+ vault documents.
 - [x] **Context Ledger Workstation & Observation Longevity Engine**: Deployed dedicated Context Ledger workstation (`ui/context_entries.html`) with safe dual-mode persistence (direct save with single-writer Chroma queueing, proposal staging, and autonomous batch merge queueing), and established real-time observation longevity reinforcement with calibrated lexical overlap and stemming across fact extraction and idle consolidation.
+- [x] **Memory Category Retirement & Tag-Aware Temporal Decay**: Retired legacy `[Cat##-U/A]` classification in favor of pure entity attribution (`subject`), faceted controlled tag taxonomy (`tags`), and dense semantic embeddings, updating Chroma RAG recency scoring with tag-aware half-life decay.
 - [ ] **Dedicated Health Observation Module**: Route physiological and symptom observations out of the general context entry pool into a purpose-built health store queried on demand, so historical health patterns remain available for reference and trend recognition without occupying general retrieval space or biasing conversational framing.
 
 ---

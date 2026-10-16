@@ -1,6 +1,6 @@
 # test_benchmark_conditions.py
 # date created: 2026-10-04 09:52:00
-# date modified: 2026-10-04 09:56:37
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #benchmark, #conditions, #evaluation
 
 """Targeted unit tests for Evelyn/tools/benchmark_conditions.py condition evaluation engine."""

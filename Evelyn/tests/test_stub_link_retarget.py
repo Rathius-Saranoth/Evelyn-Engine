@@ -1,6 +1,6 @@
 # test_stub_link_retarget.py
 # date created: 2026-09-26 19:02:40
-# date modified: 2026-10-01 17:37:00
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Tests for filename-safety detection and inbound wikilink retargeting.

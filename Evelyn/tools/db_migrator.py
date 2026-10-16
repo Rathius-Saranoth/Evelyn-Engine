@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-10-05 18:17:20
+# date modified: 2026-10-16 00:13:19
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6484,6 +6484,27 @@ def migrate_000_008_013_procedure_657_dream_entry_template(
         )
 
 
+def migrate_000_008_045_retire_memory_categories(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.008.045: Retire Cat##-U/A category taxonomy from context_entries in evelyn_memory.db."""
+    cursor = conn.cursor()
+
+    # 1. Drop category index if exists
+    cursor.execute("DROP INDEX IF EXISTS idx_ce_category")
+
+    # 2. Inspect table columns and drop category and recategorized_at
+    cursor.execute("PRAGMA table_info(context_entries)")
+    cols = {row[1] for row in cursor.fetchall()}
+
+    if "category" in cols:
+        cursor.execute("ALTER TABLE context_entries DROP COLUMN category")
+    if "recategorized_at" in cols:
+        cursor.execute("ALTER TABLE context_entries DROP COLUMN recategorized_at")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -7079,6 +7100,13 @@ MIGRATIONS: list[Migration] = [
         version="000.008.013",
         name="procedure_657_dream_entry_template",
         up_fn=migrate_000_008_013_procedure_657_dream_entry_template,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.008.045",
+        name="retire_memory_categories",
+        up_fn=migrate_000_008_045_retire_memory_categories,
         post_sync_chroma=False,
     ),
 ]

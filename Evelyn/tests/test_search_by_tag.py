@@ -1,6 +1,6 @@
 # test_search_by_tag.py
 # date created: 2026-09-30
-# date modified: 2026-09-30 18:29:09
+# date modified: 2026-10-16 00:13:20
 # tags: #[test, #search, #taxonomy, #tools, #evelyn]
 
 """Unit tests for the model-facing search_by_tag tool and intent heuristics."""

@@ -1,6 +1,6 @@
 # test_temporal_rag_scoring.py
 # date created: 2026-10-12
-# date modified: 2026-10-13 00:43:42
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #rag, #temporal, #recency, #half_life
 
 """Unit tests for RAG Temporal Recency Scoring and Invalidation in chroma_rag.py."""
@@ -21,10 +21,11 @@ class TestTemporalRAGScoring(unittest.TestCase):
         self.con.execute(
             """CREATE TABLE context_entries (
                 id INTEGER PRIMARY KEY,
-                category TEXT NOT NULL,
+                category TEXT,
                 subject TEXT NOT NULL,
                 observation TEXT NOT NULL,
                 date TEXT,
+                tags TEXT,
                 created_at REAL,
                 last_observed REAL,
                 status TEXT NOT NULL DEFAULT 'live'
@@ -35,19 +36,19 @@ class TestTemporalRAGScoring(unittest.TestCase):
         self.con.close()
 
     def test_temporal_recency_boost_recent_vs_old(self):
-        """Verify that recent observations in adaptive categories (Cat05) outrank older ones."""
+        """Verify that recent observations in adaptive domains (routine) outrank older ones."""
         # Reference epoch: 2026-10-12 12:00:00 UTC
         ref_ts = 1791806400.0
 
-        # Entry 1: 1 day old (Cat05, half-life 75 days)
-        # Entry 2: 250 days old (Cat05, half-life 75 days)
+        # Entry 1: 1 day old (routine, half-life 75 days)
+        # Entry 2: 250 days old (routine, half-life 75 days)
         self.con.execute(
-            "INSERT INTO context_entries (id, category, subject, observation, date, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (101, "Cat05-U", "Alex", "Recent preference", "2026-10-11", "live"),
+            "INSERT INTO context_entries (id, category, subject, observation, date, tags, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (101, None, "Alex", "Recent preference", "2026-10-11", "routine", "live"),
         )
         self.con.execute(
-            "INSERT INTO context_entries (id, category, subject, observation, date, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (102, "Cat05-U", "Alex", "Outdated preference", "2026-02-04", "live"),
+            "INSERT INTO context_entries (id, category, subject, observation, date, tags, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (102, None, "Alex", "Outdated preference", "2026-02-04", "routine", "live"),
         )
         self.con.commit()
 
@@ -67,13 +68,13 @@ class TestTemporalRAGScoring(unittest.TestCase):
         self.assertGreater(re_ranked[1]["distance"], 0.30)
 
     def test_temporal_recency_infinite_half_life_neutral(self):
-        """Verify that historical episodic categories (Cat10) do not suffer recency decay penalties."""
+        """Verify that historical episodic entries (milestone/history) do not suffer recency decay penalties."""
         ref_ts = 1791806400.0
 
-        # Entry in Cat10 (Major Life Events) from 20 years ago
+        # Entry in milestone/history from 20 years ago
         self.con.execute(
-            "INSERT INTO context_entries (id, category, subject, observation, date, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (201, "Cat10-U", "Alex", "Historical life event", "2006-08-15", "live"),
+            "INSERT INTO context_entries (id, category, subject, observation, date, tags, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (201, None, "Alex", "Historical life event", "2006-08-15", "milestone, history", "live"),
         )
         self.con.commit()
 
@@ -140,6 +141,36 @@ class TestTemporalRAGScoring(unittest.TestCase):
         # Both should parse and receive recency boosts (distances closer than 0.30)
         self.assertLess(re_ranked[0]["distance"], 0.30)
         self.assertLess(re_ranked[1]["distance"], 0.30)
+
+    def test_temporal_recency_tag_aware_half_life(self):
+        """Verify that tag-aware half-life applies correctly without category."""
+        ref_ts = 1791806400.0  # ~2026-10-12
+        # Entry 501: Health (half-life 30 days), 10 days old -> promoted
+        # Entry 502: Milestone (half-life 0 / infinite), 500 days old -> neutral
+        self.con.execute(
+            "INSERT INTO context_entries (id, category, subject, observation, date, tags, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (501, None, "Alex", "Recent health routine", "2026-10-02", "health, sleep", "live"),
+        )
+        self.con.execute(
+            "INSERT INTO context_entries (id, category, subject, observation, date, tags, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (502, None, "Alex", "Major historical milestone", "2025-05-20", "milestone, history", "live"),
+        )
+        self.con.commit()
+
+        chunks = [
+            {"source": "sqlite::context_entry::501", "distance": 0.30, "content": "Recent health routine"},
+            {"source": "sqlite::context_entry::502", "distance": 0.30, "content": "Major historical milestone"},
+        ]
+
+        with patch("Evelyn.tools.memory_db.get_db", return_value=self.con):
+            re_ranked = _apply_temporal_recency_boost(chunks, now_ts=ref_ts)
+
+        # Health should get boosted
+        self.assertEqual(re_ranked[0]["source"], "sqlite::context_entry::501")
+        self.assertLess(re_ranked[0]["distance"], 0.30)
+        # Milestone should remain exactly 0.30 (neutral)
+        self.assertEqual(re_ranked[1]["source"], "sqlite::context_entry::502")
+        self.assertAlmostEqual(re_ranked[1]["distance"], 0.30, places=4)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-10-15 22:38:50
+# date modified: 2026-10-16 00:13:19
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1490,7 +1490,7 @@ def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = Non
             con = _mem_db.get_db()
             placeholders = ",".join("?" * len(sqlite_ids))
             rows = con.execute(
-                f"SELECT id, category, date, created_at, last_observed, status FROM context_entries WHERE id IN ({placeholders})",
+                f"SELECT id, date, tags, created_at, last_observed, status FROM context_entries WHERE id IN ({placeholders})",
                 sqlite_ids,
             ).fetchall()
             entry_id_map = {r["id"]: dict(r) for r in rows}
@@ -1560,14 +1560,24 @@ def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = Non
 
         age_days = max(0.0, (current_time - entry_ts) / 86400.0)
 
-        # Look up category-specific half-life
-        cat = str(entry.get("category") or "")
-        cat_prefix_match = re.search(r"Cat(\d{2})", cat)
-        cat_key = f"Cat{cat_prefix_match.group(1)}" if cat_prefix_match else cat
-        half_life_days = half_life_map.get(cat_key, 90)
+        # Look up tag-aware or category-specific half-life
+        half_life_days: int | None = None
+        tag_half_life_map = getattr(cfg, "RAG_TAG_HALF_LIFE_DAYS", {})
+        raw_tags = str(entry.get("tags") or "").strip()
+        if raw_tags:
+            for t in [x.strip().lower() for x in raw_tags.split(",") if x.strip()]:
+                if t in tag_half_life_map:
+                    half_life_days = tag_half_life_map[t]
+                    break
+
+        if half_life_days is None:
+            cat = str(entry.get("category") or "")
+            cat_prefix_match = re.search(r"Cat(\d{2})", cat)
+            cat_key = f"Cat{cat_prefix_match.group(1)}" if cat_prefix_match else cat
+            half_life_days = half_life_map.get(cat_key, 90)
 
         if half_life_days <= 0:
-            # Infinite half-life (e.g. Cat10 life events, Cat13 protocols): neutral
+            # Infinite half-life (e.g. milestones, life events, fundamental protocols): neutral
             continue
 
         # Half-life exponential decay: R in (0.0, 1.0]
@@ -2235,7 +2245,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
                 con = _memory_db.get_db()
                 placeholders = ",".join("?" * len(entry_ids))
                 rows = con.execute(
-                    f"SELECT id, category, subject, date, tags, observation, status FROM context_entries WHERE id IN ({placeholders})",
+                    f"SELECT id, subject, date, tags, observation, status FROM context_entries WHERE id IN ({placeholders})",
                     entry_ids,
                 ).fetchall()
                 sqlite_entries_map = {r["id"]: dict(r) for r in rows}
@@ -2257,8 +2267,6 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
 
         envelope_kwargs: dict[str, str] = {"id": entry_id_str}
         if db_entry:
-            if db_entry.get("category"):
-                envelope_kwargs["category"] = db_entry["category"]
             if db_entry.get("subject"):
                 envelope_kwargs["subject"] = db_entry["subject"]
             if db_entry.get("date"):

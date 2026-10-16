@@ -1,6 +1,6 @@
 # test_stub_evidence_independence.py
 # date created: 2026-09-26 20:06:04
-# date modified: 2026-09-27 21:28:55
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Tests that a stub is not counted as evidence for another stub.

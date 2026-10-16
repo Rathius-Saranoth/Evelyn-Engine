@@ -1,6 +1,6 @@
 # test_notation_detection.py
 # date created: 2026-09-08 18:10:00
-# date modified: 2026-09-08 18:39:14
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #notation, #music, #math, #chemistry, #sanitization
 
 """Unit tests for multi-discipline notation leak detection in string_utils.py."""

@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-26 20:52:30
+# date modified: 2026-10-16 00:13:19
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """

@@ -1,6 +1,6 @@
 # path_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-27 07:21:45
+# date modified: 2026-10-16 00:13:19
 # tags: #utils, #paths, #vault, #posix, #security
 
 """

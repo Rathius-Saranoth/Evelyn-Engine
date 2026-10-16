@@ -1,6 +1,6 @@
 # test_graceful_shutdown.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 07:20:52
+# date modified: 2026-10-16 00:13:20
 # tags: #services, #shutdown, #chroma, #testing
 
 """The shutdown path must stay bounded, and must stay reachable.

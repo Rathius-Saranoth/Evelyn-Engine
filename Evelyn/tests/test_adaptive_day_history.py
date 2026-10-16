@@ -1,6 +1,6 @@
 # test_adaptive_day_history.py
 # date created: 2026-09-06 18:47:39
-# date modified: 2026-09-06 18:47:39
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Unit test to verify adaptive day-bound history loading, token budgeting, and pruning."""

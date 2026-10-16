@@ -1,6 +1,6 @@
 # test_context_extractor_taxonomy_rag.py
 # date created: 2026-08-19
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #taxonomy, #rag, #extractor, #novelty
 
 import sys
@@ -119,7 +119,6 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
 ```facts
 facts:
   - subject: {cfg.USER_NAME}
-    category: Cat05-{cfg.SUBJECT_CODE_USER}
     tags: "tech/python/fastapi, Test_Operator, 3d-printing/slicing"
     summary: "Configured multi-tier domain taxonomies for memory extraction."
     confidence: high
@@ -130,7 +129,6 @@ facts:
         self.assertEqual(len(parsed), 1)
         fact = parsed[0]
         self.assertEqual(fact["subject"], cfg.USER_NAME)
-        self.assertEqual(fact["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
         # Verify normalization. `Test_Operator` becomes `test-operator`: §5 gives proper
         # nouns the same rule as concepts — no underscores, no TitleCase — which is what
         # removes any way for one term to fork into two. This assertion previously expected
@@ -143,7 +141,6 @@ facts:
         raw_yaml = f"""```facts
 facts:
   - subject: {cfg.USER_NAME}
-    category: Cat05-{cfg.SUBJECT_CODE_USER}
     tags: "Tech/Python/FastAPI"
     summary: "Built an API service."
     confidence: high
@@ -152,7 +149,6 @@ facts:
         parsed = fact_extractor._parse_facts_yaml(raw_yaml, fallback_date="2026-08-29")
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]["summary"], "Built an API service.")
-        self.assertEqual(parsed[0]["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
 
 
 

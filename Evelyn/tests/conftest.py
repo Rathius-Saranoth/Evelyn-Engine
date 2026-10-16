@@ -1,6 +1,6 @@
 # conftest.py
 # date created: 2026-08-31 17:47:00
-# date modified: 2026-10-02 16:50:29
+# date modified: 2026-10-16 00:13:20
 # tags: #pytest, #fixtures, #testing, #sandbox
 
 """Pytest configuration and global test harness isolation.

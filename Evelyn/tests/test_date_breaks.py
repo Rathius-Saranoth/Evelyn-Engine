@@ -1,3 +1,8 @@
+# test_date_breaks.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 """Unit test to verify dynamic date break injection in load_history."""
 
 import pathlib

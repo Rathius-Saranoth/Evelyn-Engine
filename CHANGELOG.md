@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-15 23:08:50
+date modified: 2026-10-16 00:13:19
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,38 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.045] - 2026-10-16 — *Retirement of Legacy Memory Categories & Unified Tag Taxonomy / Vector Transition*
+
+### Removed
+
+- **Legacy `[Cat##-U/A]` Category System (`Evelyn/tools/memory_db.py`, `fact_categorizer.py`, `fact_extractor.py`, `context_entries.html`)**:
+  - Retired the legacy category classification system (`[Cat01-U]` through `[Cat16-A]`) across database schemas, extraction prompts, deduplication, profile evolution, and UI views.
+  - Memory facts are now strictly organized by **Entity Attribution (`subject`)**, **Faceted Controlled Tag Taxonomy (`tags`)**, and **Dense Semantic Vector Embeddings (ChromaDB)**.
+  - Dropped columns `category`, `recategorized_at`, and index `idx_ce_category` from `context_entries` via database migration `000.008.045`.
+  - Removed category filtering, category badges, and edit/create modal category inputs from the Context Ledger UI workstation (`evelyn_ui/context_entries.html`).
+
+### Changed
+
+- **Chroma RAG Tag-Aware Exponential Recency Decay (`evelyn_config.py`, `Evelyn/tools/chroma_rag.py`)**:
+  - Replaced legacy category-based half-life decay with `RAG_TAG_HALF_LIFE_DAYS` in `evelyn_config.py` (e.g. `health: 30`, `routine: 75`, `preference: 120`, `identity: 365`, `milestone/history: 0`).
+  - Updated `_apply_temporal_recency_boost` to inspect controlled vocabulary tags and apply the most volatile (shortest) matching half-life.
+  - Fixed SQL query in `chroma_rag.py` to retrieve `id, subject, date, tags, observation, status` from `context_entries`, eliminating unmigrated `category` column reference.
+- **Thematic Profile Evolution Ingestion (`Evelyn/tools/profile_evolver.py`, `scripts/trigger_profile_evolution.py`)**:
+  - Added `DOCUMENT_SUBJECTS` mapping target persona documents to configured subjects (`cfg.ASSISTANT_NAME`, `cfg.USER_NAME`).
+  - Added tag vocabularies to `DOCUMENT_THEMES` for semantic thematic clustering.
+  - Rewired unevolved entry ingestion to `memory_db.get_unevolved_entries_for_document()`.
+  - Formatted narrative evidence lines as `[Subject: <subject>]` without legacy category tags.
+- **Fact Extraction & Consolidation Simplification (`Evelyn/tools/fact_extractor.py`, `fact_deduplicator.py`, `fact_splitter.py`, `fact_consolidator.py`)**:
+  - Pruned Cat00 reference loading and Pass 3 category validation pass from `fact_extractor.py`.
+  - Streamlined extraction prompt to focus strictly on entity attribution and controlled vocabulary tags.
+  - Updated exact-match deduplication grouping key in `fact_deduplicator.py` from `(category, subject, clean_obs)` to `(subject, clean_obs)`.
+  - Deprecated legacy routines `remediate_database_categories()`, `audit_category_classifications()`, and `is_recategorization_suppressed()` as non-destructive backward-compatible facades.
+- **XML Context Envelopes (`Evelyn/tools/string_utils.py`, `reference/xml_injection_conventions.md`)**:
+  - Updated `build_memory_context_envelope()` to output `<memory_context subject="..." tags="...">` attributes while accepting optional legacy arguments.
+- **Database Access & Compatibility Facades (`Evelyn/tools/memory_db.py`, `.vulture_whitelist.py`)**:
+  - Updated `insert_entry()`, `update_entry()`, `split_context_entry()`, and `apply_fact_merge()` to remove `category` from table schemas while maintaining compatibility with legacy positional arguments.
+  - Maintained `get_entries_by_category()` (returning `[]`) and whitelisted backward-compatibility primitives.
 
 ## [000.008.044] - 2026-10-15 — *In-Flight Balanced Asterisk Boundary Slicing & TTS Action Simplification*
 

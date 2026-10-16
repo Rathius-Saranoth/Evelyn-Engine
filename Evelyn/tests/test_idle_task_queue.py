@@ -1,6 +1,6 @@
 # test_idle_task_queue.py
 # date created: 2026-08-27
-# date modified: 2026-08-29 20:16:09
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #tasks, #idle_queue, #fifo, #concurrency
 
 """Unit tests for the Persistent FIFO Idle Task Queue and cooperative batch catch-up."""

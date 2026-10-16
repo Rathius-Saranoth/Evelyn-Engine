@@ -1,6 +1,6 @@
 # semantic_router.py
 # date created: 2026-10-02 17:20:00
-# date modified: 2026-10-02 17:26:33
+# date modified: 2026-10-16 00:13:19
 # tags: #semantic-router, #procedures, #intent, #embeddings, #rag
 
 """Vector-based Semantic Intent Router for operational procedures.

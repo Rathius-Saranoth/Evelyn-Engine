@@ -1,6 +1,6 @@
 # test_vision_decoupling.py
 # date created: 2026-10-02 17:01:00
-# date modified: 2026-10-11 00:45:04
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #vision, #multimodal, #decoupling, #ollama, #xml
 
 """Unit tests for Decoupled Multimodal Vision Architecture (Phase 2).

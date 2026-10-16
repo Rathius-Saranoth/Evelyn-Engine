@@ -1,3 +1,8 @@
+# test_profile_evolver_thematic.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 """Unit tests for Profile Evolver thematic clustering, entity pre-aggregation, and proofreading pass."""
 
 import os

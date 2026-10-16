@@ -1,4 +1,7 @@
 # test_idle_guard_and_cooperative_yield.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
 # Unit tests for Stale Idle Clock Guard, Subprocess isolation, and Cooperative Yielding.
 
 import asyncio

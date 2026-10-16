@@ -1,6 +1,6 @@
 # test_research_intent.py
 # date created: 2026-08-28
-# date modified: 2026-08-28 08:46:31
+# date modified: 2026-10-16 00:13:20
 # tags: #research, #intent, #prompts, #classification, #testing
 
 from Evelyn.tools.research_engine import _truncate_query_fallback

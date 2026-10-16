@@ -1,6 +1,6 @@
 # test_relation_candidates_are_ranked.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 19:20:57
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #relations, #curation, #testing
 
 """Candidates carry the curated category co-membership that sorts them for review (F6).

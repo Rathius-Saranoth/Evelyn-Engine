@@ -1,6 +1,6 @@
 # vault_list_manager.py
 # date created: 2026-08-23
-# date modified: 2026-09-22 19:09:21
+# date modified: 2026-10-16 00:13:20
 # tags: #obsidian, #vault, #lists, #groceries, #checklists, #tools
 
 """vault_list_manager.py — Local Obsidian Vault List and Checklist Manager.

@@ -45,6 +45,7 @@ import task_manager
 from profile_evolver import (
     DOCUMENT_CATEGORIES,
     DOCUMENT_EVOLUTION_ORDER,
+    DOCUMENT_SUBJECTS,
     _draft_path,
     _evolve_document,
     _load_evolution_state,
@@ -98,7 +99,6 @@ async def main() -> None:
 
     try:
         for filename in ordered_docs:
-            categories = DOCUMENT_CATEGORIES.get(filename, [])
             if filename in pending_files and not args.force:
                 print(f"[TRIGGER] {filename}: Has a pending profile update. Skipping (use --force to bypass).\n")
                 continue
@@ -110,9 +110,14 @@ async def main() -> None:
             # Collect entries qualifying for this specific document.
             # Mirrors the selection logic in profile_evolver.run_profile_evolution().
             changed_entries: list[dict] = []
-            for cat in categories:
-                entries = memory_db.get_entries_by_category_for_document(cat, document_name=filename, status="live")
-                changed_entries.extend(entries)
+            subjects = DOCUMENT_SUBJECTS.get(filename, [None])
+            seen_entry_ids = set()
+            for s in subjects:
+                entries = memory_db.get_unevolved_entries_for_document(filename, subject=s, status="live")
+                for e in entries:
+                    if e["id"] not in seen_entry_ids:
+                        seen_entry_ids.add(e["id"])
+                        changed_entries.append(e)
 
             # Sort chronologically (oldest-first)
             changed_entries.sort(key=lambda e: (e.get("date") or "", e.get("id") or 0))

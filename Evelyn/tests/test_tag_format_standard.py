@@ -1,6 +1,6 @@
 # test_tag_format_standard.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-22 20:15:53
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #taxonomy, #tagging, #normalization, #edtf
 
 """Hermetic tests for the §5 tag format standard and §3.8 EDTF date anchors.

@@ -27,6 +27,10 @@ _.list_unindexed_media
 _.increment_entry_observed
 _.count_entries
 _.count_entries_by_category
+_.get_entries_by_category
+_.get_entries_by_category_for_document
+_.is_recategorization_suppressed
+_.audit_category_classifications
 _.promote_deferred_proposals
 
 # Google API client helpers & Oura client

@@ -1,6 +1,6 @@
 # format_librarian.py
 # date created: 2026-09-05 17:40:00
-# date modified: 2026-09-27 12:46:42
+# date modified: 2026-10-16 00:13:19
 # tags: #librarian, #format, #frontmatter, #schema, #visual-pkm, #vault
 
 """

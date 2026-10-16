@@ -1,6 +1,6 @@
 # test_tts_server.py
 # date created: 2026-10-06 18:21:00
-# date modified: 2026-10-15 23:08:09
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #tts, #speech, #audio, #rtf, #chatterbox
 
 """Unit tests for Evelyn's TTS server chunk planner, RTF tracker, and ratio scaling."""

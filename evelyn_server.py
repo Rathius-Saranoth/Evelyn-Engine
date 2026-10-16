@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-14 01:21:59
+# date modified: 2026-10-16 00:13:20
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8386,8 +8386,8 @@ class ContextEntryProposeRequest(BaseModel):
 
 
 class ContextEntryCreateRequest(BaseModel):
-    category: str
     observation: str
+    category: str | None = None
     subject: str | None = None
     tags: str | None = None
     confidence: str = "medium"
@@ -8485,7 +8485,6 @@ async def update_context_entry(
     import contextlib
 
     from Evelyn.tools import chroma_rag, memory_db, tag_librarian
-    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
 
     def _apply_save():
         existing = memory_db.get_entry(id)
@@ -8493,17 +8492,9 @@ async def update_context_entry(
             return None, "Context entry not found"
 
         fields: dict[str, Any] = {}
-        target_subject = body.subject if body.subject is not None else existing.get("subject", "")
         target_obs = body.observation if body.observation is not None else existing.get("observation", "")
 
-        # 1. Category validation
-        if body.category is not None:
-            norm_cat = validate_and_normalize_category(body.category, target_subject)
-            if not norm_cat:
-                return None, f"Invalid category code '{body.category}'"
-            fields["category"] = norm_cat
-
-        # 2. Subject normalization
+        # 1. Subject normalization
         if body.subject is not None:
             fields["subject"] = memory_db.normalize_subject_attribution(body.subject, target_obs)
 
@@ -8666,7 +8657,6 @@ async def create_context_entry(
     from datetime import UTC, datetime
 
     from Evelyn.tools import chroma_rag, memory_db, tag_librarian
-    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
 
     def _create():
         clean_obs = req.observation.strip()
@@ -8674,9 +8664,8 @@ async def create_context_entry(
             return None, "Observation cannot be empty"
 
         target_subject = (req.subject or "").strip()
-        norm_cat = validate_and_normalize_category(req.category.strip(), target_subject)
-        if not norm_cat:
-            return None, f"Invalid category code '{req.category}'"
+        if not target_subject:
+            target_subject = cfg.USER_NAME
 
         target_subject = memory_db.normalize_subject_attribution(target_subject, clean_obs)
 
@@ -8692,7 +8681,6 @@ async def create_context_entry(
         status = "pending_review" if req.stage_as_pending else "live"
 
         row_id = memory_db.insert_entry(
-            category=norm_cat,
             subject=target_subject,
             observation=clean_obs,
             confidence=req.confidence or "medium",
@@ -8714,7 +8702,7 @@ async def create_context_entry(
                 kept = tag_librarian.withhold_unregistered_tags(
                     row_id,
                     normalized_tags,
-                    origin=f"context entry create ({norm_cat})",
+                    origin=f"context entry create ({target_subject})",
                     reason="Tag attached to new entry but absent from controlled vocabulary.",
                 )
                 if kept != normalized_tags:

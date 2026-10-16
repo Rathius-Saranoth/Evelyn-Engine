@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-10-13 21:56:05
+# date modified: 2026-10-16 00:13:19
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -33,7 +33,7 @@ logger = logging.getLogger("evelyn.fact_splitter")
 
 async def generate_split_proposal(
     record: dict[str, Any],
-    cat00: str,
+    cat00: str = "",
     call_ollama_fn: Callable[..., Any] | None = None,
 ) -> str | None:
     """Evaluate a single long or compound context entry and generate a split proposal if it contains multiple facts."""
@@ -41,7 +41,6 @@ async def generate_split_proposal(
         from Evelyn.tools.fact_consolidator import _call_ollama
         call_ollama_fn = _call_ollama
     obs = record.get("summary") or record.get("observation", "")
-    cat = record.get("category", f"Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}")
     subj = record.get("subject", getattr(cfg, "USER_NAME", "Alex"))
     record_id = record.get("id")
     if record_id is None:
@@ -53,9 +52,7 @@ async def generate_split_proposal(
         "Evaluate the following context entry. Determine if it expresses 2 or more distinct, separate facts, "
         "or if it is already a single atomic observation.\n\n"
         f"ENTRY OBSERVATION:\n{obs}\n\n"
-        f"CATEGORY: {cat}\n"
         f"SUBJECT: {subj}\n\n"
-        f"CATEGORY REFERENCE:\n{cat00}\n\n"
         "RULES:\n"
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
@@ -63,7 +60,7 @@ async def generate_split_proposal(
         f"4. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{getattr(cfg, 'USER_NAME', 'Alex')} loved the pointed ears and small nose in {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}\\'s imagery', NEVER '{getattr(cfg, 'USER_NAME', 'Alex')} loved these traits').\n"
         f"5. STRIP CONVERSATION DATE CLUTTER BUT PRESERVE INTRINSIC EVENT DATES: The entry conversation date is tracked in metadata and RAG envelopes. DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities (e.g. do NOT write 'On YYYY-MM-DD, {getattr(cfg, 'USER_NAME', 'Alex')} mowed the lawn' or '...mowed the lawn on YYYY-MM-DD' or 'As of YYYY-MM-DD...'). If an entry documents an evolution across dates (e.g. 'Previously X as of [date1], now Y as of [date2]'), split them into distinct atomic facts. HOWEVER, DO PRESERVE specific calendar dates that are the actual substance of the memory itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, or historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')} on 2025-05-05').\n"
         "6. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "7. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name. For third parties in the user's life, category suffix remains -U (User Canon), while 'subject' specifies the entity.\n"
+        "7. ACCURATE ENTITY SUBJECT ATTRIBUTION: Do not blindly assign every split entry to the parent subject. If a split fact is primarily about a third-party entity (e.g. family member, pet, colleague), assign 'subject' to that specific entity name.\n"
         "8. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n"
         "9. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
         "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). "
@@ -75,16 +72,13 @@ async def generate_split_proposal(
         "verdict: split   # split / atomic\n"
         "reasoning: \"Brief explanation why this entry needs splitting or is atomic.\"\n"
         "entries:\n"
-        f"  - category: Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
-        f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
+        f"  - subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
         "    tags: \"python, automation\"\n"
         f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} prefers developing Python backend services using FastAPI.\"\n"
-        f"  - category: Cat14-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
-        f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
+        f"  - subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
         "    tags: \"homelab, automation\"\n"
         f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} manages home automation devices using ZWave on a local server.\"\n"
-        f"  - category: Cat06-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
-        f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
+        f"  - subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
         "    tags: \"collaboration, software-architecture\"\n"
         f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} and {getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')} made a joint decision to adopt FastAPI for local services.\"\n"
         "```"
@@ -124,9 +118,6 @@ async def generate_split_proposal(
 
     valid_entries = []
     max_words = getattr(cfg, "CONSOLIDATION_MERGE_MAX_WORDS", 35)
-    asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower()
-    asst_code = getattr(cfg, "SUBJECT_CODE_ASSISTANT", "A")
-    user_code = getattr(cfg, "SUBJECT_CODE_USER", "U")
 
     for item in entries_list:
         if not isinstance(item, dict):
@@ -153,22 +144,13 @@ async def generate_split_proposal(
         c_subj = memory_db.normalize_subject_attribution(
             str(item.get("subject", subj)).strip(), c_obs
         )
-        c_cat = str(item.get("category", cat)).strip()
-        cat_base = c_cat.split("-")[0] if "-" in c_cat else c_cat
-        expected_suffix = f"-{asst_code}" if c_subj.lower() == asst_name else f"-{user_code}"
-        if not c_cat.endswith(f"-{asst_code}") and not c_cat.endswith(f"-{user_code}"):
-            c_cat = f"{cat_base}{expected_suffix}"
 
         raw_t = str(item.get("tags", "")).strip()
         split_tags = taxonomy_db.canonicalize_tags(
             [normalize_tag_format(t) for t in raw_t.split(",") if t.strip()]
         )
-        # Admission is proposed when the split is applied, not here. These children are not
-        # rows yet and may never be — the split can be rejected — so proposing now records a
-        # term wanted by nothing, with no entry to backfill onto when it is approved.
         norm_t = ", ".join(split_tags)
         valid_entries.append({
-            "category": c_cat,
             "subject": c_subj,
             "observation": c_obs,
             "tags": norm_t,
@@ -185,7 +167,6 @@ async def generate_split_proposal(
             source_ids=[record_id_int],
             merged_observation=constructed_yaml,
             merged_tags=", ".join([e["tags"] for e in valid_entries if e["tags"]]),
-            suggested_category=valid_entries[0]["category"],
             reason=str(data.get("reasoning", "Decomposed bloated compound entry into atomic context facts.")),
             topic=f"Split Compound Fact #{record_id_int}",
             confidence=str(data.get("confidence", "medium")).strip().lower(),

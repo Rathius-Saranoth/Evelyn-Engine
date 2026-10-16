@@ -1,5 +1,6 @@
 # test_reference_library_tool.py
 # date created: 2026-09-11 17:22:00
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #reference-library, #chroma, #dual-collection
 
 import unittest

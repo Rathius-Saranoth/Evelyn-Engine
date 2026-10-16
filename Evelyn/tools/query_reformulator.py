@@ -1,6 +1,6 @@
 # query_reformulator.py
 # date created: 2026-04-26 13:03:48
-# date modified: 2026-09-19 09:31:34
+# date modified: 2026-10-16 00:13:19
 # tags: #query, #reformulation, #search, #keywords, #prompts
 
 """

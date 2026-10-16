@@ -1,3 +1,8 @@
+# test_history_bounding.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 """Unit tests to verify chat history bounding with before_id and channel isolation."""
 
 import pathlib

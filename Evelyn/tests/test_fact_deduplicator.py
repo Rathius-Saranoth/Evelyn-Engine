@@ -1,6 +1,6 @@
 # test_fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-10-15 22:51:35
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #fact_deduplicator, #deduplication, #hysteresis, #telemetry
 
 """Targeted unit tests for fact_deduplicator and fact_categorizer child modules."""
@@ -57,25 +57,9 @@ def test_deduplication_telemetry_metrics(mock_memory_db):
 
 
 def test_recategorization_anti_hysteresis_suppresses_flip_flops(mock_memory_db):
-    """Verify is_recategorization_suppressed prevents ping-pong loops."""
-    eid = memory_db.insert_entry(category="Cat05-U", subject=cfg.USER_NAME, observation="Sleep noise boundary", status="live")
-
-    # Initially, moving to Cat16-U is not suppressed
-    assert not fact_categorizer.is_recategorization_suppressed(eid, "Cat16-U")
-
-    # Simulate recategorization: proposal logged and entry recategorized_at updated
-    now = time.time()
-    memory_db.insert_proposal(
-        type="recategorize",
-        source_ids=[eid],
-        suggested_category="Cat16-U",
-        status="auto_applied",
-    )
-    memory_db.update_entry(eid, category="Cat16-U", recategorized_at=now)
-
-    # Now, trying to recategorize back to Cat05-U or Cat16-U within cooldown must be suppressed!
-    assert fact_categorizer.is_recategorization_suppressed(eid, "Cat05-U", cooldown_days=30)
-    assert fact_categorizer.is_recategorization_suppressed(eid, "Cat16-U", cooldown_days=30)
+    """Verify is_recategorization_suppressed is deprecated and always suppresses recategorization."""
+    eid = memory_db.insert_entry(subject=cfg.USER_NAME, observation="Sleep noise boundary", status="live")
+    assert fact_categorizer.is_recategorization_suppressed(eid, "Cat16-U")
 
 
 def test_find_deduplication_candidates_nearest_neighbors(mock_memory_db):
@@ -311,8 +295,8 @@ def test_extractor_reinforces_existing_fact_instead_of_duplicating(mock_memory_d
     assert updated["last_observed"] > orig_last_observed
     assert updated["date"] == "2026-10-15"
 
-    # Only 1 total entry exists in Cat05-U
-    all_entries = memory_db.get_entries_by_category("Cat05-U", status="live")
+    # Only 1 total live entry exists
+    all_entries = memory_db.get_all_entries(statuses=["live"])
     assert len(all_entries) == 1
     assert all_entries[0]["id"] == e1
 

@@ -1,6 +1,6 @@
 # visual_indexer.py
 # date created: 2026-08-21 19:44:00
-# date modified: 2026-10-11 00:45:04
+# date modified: 2026-10-16 00:13:20
 # tags: #vision, #indexer, #chroma, #multimodal, #taxonomy, #rag
 
 """visual_indexer.py — Asynchronous Visual Memory Extraction and Vector Indexer.

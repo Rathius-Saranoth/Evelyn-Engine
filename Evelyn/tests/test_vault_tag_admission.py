@@ -1,6 +1,6 @@
 # test_vault_tag_admission.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 19:10:10
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #librarian, #admission, #testing
 
 """The vault audit must send its unregistered terms to review, and never a container word.

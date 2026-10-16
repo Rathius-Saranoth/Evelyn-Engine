@@ -1,6 +1,6 @@
 # test_authority_taxonomy.py
 # date created: 2026-09-29
-# date modified: 2026-09-29 19:15:09
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #authority, #relevance, #testing
 
 """Targeted unit tests for institutional authority lookup, relevance ranking, and acronym handling."""

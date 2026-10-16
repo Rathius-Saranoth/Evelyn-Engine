@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-15 22:38:50
+# date modified: 2026-10-16 00:13:19
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -134,14 +134,6 @@ def _sanitize_entry(text: str) -> str | None:
         )
         return None
 
-    # Pass 3 — reject embedded category codes in summary body
-    if re.search(r"\bCat\d{2}\b", cleaned):
-        print(
-            "[EXTRACTOR] Sanitization: category code embedded in summary — dropping entry.",
-            flush=True,
-        )
-        return None
-
     return cleaned if cleaned.strip() else None
 
 
@@ -155,37 +147,8 @@ _CAT00_CACHE_TTL = 3600.0
 
 
 def load_cat00_index() -> str:
-    """Return the text content of Cat00 - Index.md (cached for 1 hour).
-
-    Used to inject the authoritative category taxonomy into the extraction
-    prompt so the model assigns the best-fitting Cat##-{E,R} code.
-
-    Returns:
-        str: Full markdown text of Cat00 (frontmatter stripped), or "" on error.
-    """
-    global _cat00_text, _cat00_loaded_at
-    now = time.time()
-    if _cat00_text and (now - _cat00_loaded_at) < _CAT00_CACHE_TTL:
-        return _cat00_text
-
-    cat00_path = os.path.join(
-        cfg.VAULT_BASE_DIR,
-        "Evelyn",
-        "Evelyn's Context",
-        "Context Categories",
-        "Cat00 - Index.md",
-    )
-    try:
-        with open(cat00_path, encoding="utf-8") as f:
-            text = f.read()
-        stripped = re.sub(r"^---.*?---\s*", "", text, count=1, flags=re.DOTALL)
-        _cat00_text = stripped.strip()
-        _cat00_loaded_at = now
-        print("[EXTRACTOR] Cat00 index loaded.", flush=True)
-    except OSError as e:
-        print(f"[EXTRACTOR] Warning: could not load Cat00 index: {e}", flush=True)
-        _cat00_text = ""
-    return _cat00_text
+    """Deprecated legacy helper: Cat00 category taxonomy has been retired."""
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +684,7 @@ def retrieve_candidate_taxonomy_and_clusters(
 
 def _build_extraction_prompt(
     messages: list[dict],
-    cat00: str,
+    cat00: str = "",
     taxonomy_candidates: list[dict] | None = None,
     memory_candidates: list[dict] | None = None,
     novelty_guidance: str | None = None,
@@ -730,7 +693,7 @@ def _build_extraction_prompt(
 
     Args:
         messages: A list of message dictionaries.
-        cat00: The Cat00 index taxonomy block.
+        cat00: Deprecated legacy argument (ignored).
         taxonomy_candidates: Retrieved master taxonomy candidates.
         memory_candidates: Retrieved prior memory chunks.
         novelty_guidance: Novelty directive string based on cosine distance.
@@ -740,19 +703,11 @@ def _build_extraction_prompt(
     """
     transcript = _format_messages_for_extraction(messages)
 
-    category_block = (
-        f"\n\nCATEGORY REFERENCE (use these codes for the 'category' field):\n{cat00}"
-        if cat00
-        else f"\n\n(Category reference unavailable — use best judgment for Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} codes.)"
-    )
-
     taxonomy_block = ""
     if taxonomy_candidates:
         tag_lines = []
         for t in taxonomy_candidates[:20]:
             desc = f" — {t['description']}" if t.get("description") else ""
-            # Bare, as a memory fact stores them. A leading `#` is Obsidian note syntax and
-            # showing it here taught a surface form the `tags` field never uses.
             tag_lines.append(f"  - {t['tag']}{desc}")
         taxonomy_block = (
             "\n\nREGISTERED VOCABULARY NEAREST THIS CONVERSATION (Tag RAG):\n" + "\n".join(tag_lines)
@@ -770,22 +725,19 @@ def _build_extraction_prompt(
     return (
         "You are a precise, highly observant personal memory extractor. "
         "Analyze the following conversation and extract ONLY concrete, durable personal facts "
-        f"about {cfg.USER_NAME} (the user), {cfg.ASSISTANT_NAME} (the AI), or their shared environment.\n"
+        f"about {cfg.USER_NAME} (the user), {cfg.ASSISTANT_NAME} (the AI), their pets, or their shared environment.\n"
         "Extract: preferences, physical traits, relationships, goals, beliefs, skills, events, "
         "opinions, habits, routines, or any detail worth remembering long-term.\n"
         "DO NOT extract: greetings, small talk, questions without answers, or hypotheticals.\n"
-        f"{category_block}"
         f"{taxonomy_block}"
         f"{memory_block}"
         f"{guidance_block}\n\n"
         "CRITICAL SUBSTANCE & OBSERVATION RULES:\n"
-        "1. PERSPECTIVE OWNERSHIP & CATEGORY CANON:\n"
-        f"   - The category suffix reflects WHOSE PERSPECTIVE/LEDGER the fact belongs to, NOT just the subject entity.\n"
-        f"   - Cat##-{cfg.SUBJECT_CODE_USER} (User Canon): Facts about {cfg.USER_NAME}'s traits, habits, IT setups, health, OR {cfg.USER_NAME}'s observations/feelings regarding {cfg.ASSISTANT_NAME} or third parties (family, friends, pets, colleagues).\n"
-        f"   - Cat##-{cfg.SUBJECT_CODE_ASSISTANT} (Assistant Canon): Facts about {cfg.ASSISTANT_NAME}'s persona, values, creative style, internal routines, OR {cfg.ASSISTANT_NAME}'s observations/feelings regarding {cfg.USER_NAME} or third parties.\n"
-        f"   - Third-party & shared environment facts (pets, friends, family, home fixtures) belong to Cat##-{cfg.SUBJECT_CODE_USER} when observed from {cfg.USER_NAME}'s life, or Cat##-{cfg.SUBJECT_CODE_ASSISTANT} when reflecting {cfg.ASSISTANT_NAME}'s personal sentiment.\n"
+        "1. ENTITY ATTRIBUTION & SUBJECT GROUNDING:\n"
         f"   - The 'subject' field records the specific entity being observed or discussed (e.g. {_known_entity_roster()}).\n"
-        f"   - CRITICAL THIRD-PARTY ENTITY SUBJECT ATTRIBUTION: Do NOT attribute third-party actions, habits, school events, pets, or family occurrences to {cfg.USER_NAME}. If an observation is primarily about a third party (e.g. {cfg.EXAMPLE_THIRD_PARTY_NAME}, {cfg.EXAMPLE_PET_NAME}), 'subject' MUST be that specific entity name. Suffix -{cfg.SUBJECT_CODE_USER} denotes User ledger, while 'subject' denotes the entity.\n"
+        f"   - Facts about {cfg.USER_NAME} have subject: '{cfg.USER_NAME}'.\n"
+        f"   - Facts about {cfg.ASSISTANT_NAME} have subject: '{cfg.ASSISTANT_NAME}'.\n"
+        f"   - CRITICAL THIRD-PARTY ENTITY SUBJECT ATTRIBUTION: Do NOT attribute third-party actions, habits, school events, pets, or family occurrences to {cfg.USER_NAME}. If an observation is primarily about a pet or third party (e.g. {cfg.EXAMPLE_THIRD_PARTY_NAME}, {cfg.EXAMPLE_PET_NAME}), 'subject' MUST be that specific entity name.\n"
         "2. EXPLICIT NOUN SUBJECT & ACTOR GROUNDING:\n"
         "   - NEVER use ambiguous floating third-person pronouns ('he', 'she', 'they', 'him', 'her') to refer to the primary subject in the summary.\n"
         "   - NEVER begin a summary with a subject-less verb (e.g. Do NOT write 'Enjoys...', 'Prefers...', 'Acts as...', 'Has a...').\n"
@@ -793,8 +745,8 @@ def _build_extraction_prompt(
         f"   - If one entity is observing, feeling, or commenting on another entity, explicitly name BOTH entities in the text (e.g. '{cfg.ASSISTANT_NAME} observes that {cfg.USER_NAME} values clarity...', '{cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating...').\n"
         "3. TEMPORAL GROUNDING & HISTORICAL ANCHORING (METADATA SEPARATION):\n"
         "   - The observation date is recorded in entry metadata ('date' field) and RAG XML envelopes (<memory_entry date=\"...\">).\n"
-        f"   - DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities (neither as a prefix like 'On YYYY-MM-DD,' nor as a suffix/clause like '...on YYYY-MM-DD' or '...on the morning of YYYY-MM-DD'). State the observation directly with an explicit subject (e.g. write '{cfg.USER_NAME} troubleshot a monitor outage', not '{cfg.USER_NAME} troubleshot a monitor outage on 2026-05-07').\n"
-        f"   - DO PRESERVE specific calendar dates when they are the subject of the fact itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, and historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {cfg.ASSISTANT_NAME} on 2025-05-05', 'Trip to Renaissance Festival on 2026-10-10').\n"
+        f"   - DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities. State the observation directly with an explicit subject (e.g. write '{cfg.USER_NAME} troubleshot a monitor outage', not '{cfg.USER_NAME} troubleshot a monitor outage on 2026-05-07').\n"
+        f"   - DO PRESERVE specific calendar dates when they are the subject of the fact itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, and historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {cfg.ASSISTANT_NAME} on 2025-05-05').\n"
         "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately'). Use simple past or enduring present tense.\n"
         f"   - If an observation represents an enduring preference or trait, state it as a lasting fact naming the subject (e.g. '{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk').\n"
         "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS WITH STRICT ATOMICITY & CONCISE LENGTH CEILING: "
@@ -806,53 +758,42 @@ def _build_extraction_prompt(
         "   - Each extracted fact must be 100% self-contained and intelligible in complete isolation ('in a vacuum').\n"
         "   - Memory facts are retrieved independently in vector RAG without access to other conversation turns.\n"
         "   - NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', or 'such changes'.\n"
-        "   - Always explicitly inline the specific objects, features, or events being discussed (e.g. write 'expressed love for the pointed ears and small nose' instead of 'expressed love for these traits').\n"
+        "   - Always explicitly inline the specific objects, features, or events being discussed.\n"
         "6. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant):\n"
         "   - Tags are strictly flat subject terms combined at retrieval time, not a tree. "
-        "Write `coffee, routine`, never `Home/Coffee/Espresso`. Building hierarchy into the tag only fragments retrieval.\n"
-        "   - Zero-Slash Invariant: NEVER include slashes (`/`), colons, or punctuation in tags. Hierarchies and facet prefixes are strictly forbidden in tags.\n"
+        "Write `coffee, routine`, never `Home/Coffee/Espresso`.\n"
+        "   - Zero-Slash Invariant: NEVER include slashes (`/`), colons, or punctuation in tags.\n"
         "   - Lowercase always; hyphens join words (`heart-rate-variability`, `home-improvement`).\n"
         "   - Singular count and mass nouns by default (`routine`, `cat`, `dream`, not `routines`, `cats`, `dreams`).\n"
-        "   - Named entities follow the SAME rule as any other term — no TitleCase, no "
-        "underscores. A person or place is usually better recorded in the observation text than "
-        "as a tag.\n"
-        "   - Prefer terms that already exist over inventing near-duplicates; a genuinely new "
-        "term is fine, and goes to review before it joins the vocabulary.\n"
-        "   - Name the specific subject, never the container it sits in. `work`, `home`, `tools`, `life`, `system`, `pets`, `wellness`, `environment`, `technology` and the like are not tags here: they are the folder headings a flat vocabulary removes, and they match so much that they narrow nothing. Write `firewall` not `work`, `cat` not `pets`, `thermostat` not `home`. If the only word that fits is a container, the tag is not earning its place — leave it out.\n"
-        "7. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
-        "Do NOT inject Category Reference titles into the observation text.\n\n"
+        "   - Name the specific subject, never the container it sits in. Write `firewall` not `work`, `cat` not `pets`, `thermostat` not `home`.\n"
+        "7. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no durable facts are found, output an empty list.\n\n"
         "```facts\n"
         "facts:\n"
         f"  - subject: {cfg.USER_NAME}          # referent entity being described\n"
-        f"    category: Cat05-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s preference)\n"
         "    tags: \"coffee, routine\"     # flat controlled-vocabulary terms\n"
         f"    summary: \"{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk in the morning, avoiding sugar.\" # grounded statement naming subject\n"
         "    confidence: high         # high / medium / low\n"
         "    date: \"2025-03-15\"      # date discussed (from message timestamps)\n"
         f"  - subject: {cfg.USER_NAME}          # referent entity\n"
-        f"    category: Cat06-{cfg.SUBJECT_CODE_ASSISTANT}        # Assistant canon ({cfg.ASSISTANT_NAME}'s perspective on {cfg.USER_NAME})\n"
         "    tags: \"relationship, software-architecture\"  # tags\n"
         f"    summary: \"{cfg.ASSISTANT_NAME} appreciates {cfg.USER_NAME}'s architectural approach to big-picture system design.\" # Evelyn's perspective naming both\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
         f"  - subject: {cfg.ASSISTANT_NAME}        # referent entity\n"
-        f"    category: Cat06-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s feeling toward {cfg.ASSISTANT_NAME})\n"
         "    tags: \"relationship, sleep\"  # tags\n"
-        f"    summary: \"{cfg.USER_NAME} finds {cfg.ASSISTANT_NAME}'s soothing presence grounding when recovering from fragmented sleep.\" # {cfg.USER_NAME}'s perspective naming both\n"
+        f"    summary: \"{cfg.USER_NAME} finds {cfg.ASSISTANT_NAME}'s soothing presence grounding when recovering from fragmented sleep.\" # User's perspective naming both\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
         f"  - subject: {cfg.EXAMPLE_PET_NAME:<16}# pet/household entity\n"
-        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s pet)\n"
         "    tags: \"cat, routine\"  # tags\n"
-        f"    summary: \"{cfg.EXAMPLE_PET_NAME} the cat acts as an alarm to wake {cfg.USER_NAME} up in the morning.\" # observation explicitly naming {cfg.EXAMPLE_PET_NAME} and {cfg.USER_NAME}\n"
+        f"    summary: \"{cfg.EXAMPLE_PET_NAME} the cat acts as an alarm to wake {cfg.USER_NAME} up in the morning.\" # observation explicitly naming entity\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
         f"  - subject: {cfg.EXAMPLE_THIRD_PARTY_NAME:<16}# third-party entity\n"
-        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s observation of friend/family)\n"
         "    tags: \"family, friendship\"  # tags\n"
-        f"    summary: \"{cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating to having greater independence and personal responsibility.\" # observation explicitly naming {cfg.EXAMPLE_THIRD_PARTY_NAME}\n"
+        f"    summary: \"{cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating to having greater independence and personal responsibility.\" # observation explicitly naming entity\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
         "```\n\n"
@@ -899,22 +840,17 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         return []
 
     validated = []
-    valid_cats = {f"Cat{n:02d}" for n in range(1, 17)}
 
     for item in facts:
         if not isinstance(item, dict):
             continue
         subj = str(item.get("subject", "")).strip()
-        cat = str(item.get("category", "")).strip()
         raw_tags = str(item.get("tags", "")).strip()
         # The subject column already records who the fact concerns; a tag repeating it is
         # duplicate state. Enforced deterministically rather than asked of the model.
         tag_list = taxonomy_db.canonicalize_tags(strip_subject_duplicate_tags(
             [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()], subj
         ))
-        # Admission is proposed at insertion, not here. This function only parses, so there is
-        # no entry id yet, and a proposal without one cannot be backfilled onto the fact that
-        # asked for the term when it is approved (v000.006.216).
         tags = ", ".join(tag_list)
 
         summ = str(item.get("summary", "")).strip()
@@ -928,35 +864,10 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         summ = string_utils.strip_redundant_date_anchors(summ, target_date=raw_date or None)
         conf = str(item.get("confidence", "medium")).strip().lower()
 
-        if not subj or not cat or not summ:
+        if not subj or not summ:
             continue
 
         subj = memory_db.normalize_subject_attribution(subj, summ)
-
-        cat_base = cat.split("-")[0] if "-" in cat else cat
-        if cat_base not in valid_cats:
-            print(f"[EXTRACTOR] Skipping fact — unknown category: {cat}", flush=True)
-            continue
-        if not cat.endswith(f"-{cfg.SUBJECT_CODE_ASSISTANT}") and not cat.endswith(f"-{cfg.SUBJECT_CODE_USER}"):
-            suffix = f"-{cfg.SUBJECT_CODE_ASSISTANT}" if subj.lower() == cfg.ASSISTANT_NAME.lower() else f"-{cfg.SUBJECT_CODE_USER}"
-            cat = cat_base + suffix
-            print(f"[EXTRACTOR] Inferred category suffix -> {cat}", flush=True)
-
-        # Perspective attribution sanity guard:
-        # If marked -U but observation clearly describes assistant's own perspective, internal traits, or feelings
-        asst_patterns = rf"^(?:{re.escape(cfg.ASSISTANT_NAME)}\b\s+(?:places a high value|articulated an aesthetic|feels|appreciates|prefers quiet|believes|confirmed that|notes|expresses|views|reciprocates)|Addresses\s+{re.escape(cfg.USER_NAME)}\b)"
-        user_patterns = rf"^(?:{re.escape(cfg.USER_NAME)}\b\s+(?:works in|uses a CPAP|experienced|troubleshot|plays a character|refers to {re.escape(cfg.ASSISTANT_NAME)}|values|prefers|enjoys)|Has a pet\b|Works in\b)"
-
-        if cat.endswith(f"-{cfg.SUBJECT_CODE_USER}") and re.search(asst_patterns, summ, re.IGNORECASE):
-            cat = f"{cat_base}-{cfg.SUBJECT_CODE_ASSISTANT}"
-            if subj.lower() == cfg.USER_NAME.lower() and not re.search(rf"\b{re.escape(cfg.USER_NAME)}\b", summ):
-                subj = cfg.ASSISTANT_NAME
-            print(f"[EXTRACTOR] Reconciled Assistant perspective canon -> {cat} (Subject: {subj})", flush=True)
-        elif cat.endswith(f"-{cfg.SUBJECT_CODE_ASSISTANT}") and re.search(user_patterns, summ, re.IGNORECASE):
-            cat = f"{cat_base}-{cfg.SUBJECT_CODE_USER}"
-            if subj.lower() == cfg.ASSISTANT_NAME.lower() and not re.search(rf"\b{re.escape(cfg.ASSISTANT_NAME)}\b", summ):
-                subj = cfg.USER_NAME
-            print(f"[EXTRACTOR] Reconciled User perspective canon -> {cat} (Subject: {subj})", flush=True)
 
         if conf not in ("high", "medium", "low"):
             conf = "medium"
@@ -973,7 +884,7 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
                 )
 
         validated.append(
-            {"subject": subj, "category": cat, "tags": tags, "summary": summ,
+            {"subject": subj, "tags": tags, "summary": summ,
              "confidence": conf, "date": fact_date}
         )
 
@@ -1347,7 +1258,6 @@ def write_extracted_facts(facts: list[dict]) -> int:
     written = 0
 
     for fact in facts:
-        category = fact["category"]
         subject  = fact["subject"]
         raw_summary = fact["summary"]
         # Final sanitization gate — defence-in-depth for any caller that
@@ -1363,12 +1273,11 @@ def write_extracted_facts(facts: list[dict]) -> int:
         confidence = fact["confidence"]
         fact_date = fact.get("date") or today_str
 
-        # Dedup check against live entries in the same category and subject
+        # Dedup check against live entries with the same subject
         # If an existing entry matches, reinforce it (bump observed_count and last_observed)
         # rather than inserting a redundant duplicate row.
         min_overlap = float(getattr(cfg, "FACT_EXTRACTION_DEDUP_MIN_OVERLAP", 0.70))
         similar = memory_db.find_similar_entries(
-            category=category,
             subject=subject,
             observation_text=summary,
             min_overlap=min_overlap,
@@ -1392,7 +1301,7 @@ def write_extracted_facts(facts: list[dict]) -> int:
                         kept = withhold_unregistered_tags(
                             matched_id,
                             combined_tags,
-                            origin=f"reinforced fact ({category})",
+                            origin=f"reinforced fact ({subject})",
                             reason="Tag enriched via observation reinforcement.",
                         )
                         if kept != existing_tags:
@@ -1411,7 +1320,6 @@ def write_extracted_facts(facts: list[dict]) -> int:
 
         try:
             row_id = memory_db.insert_entry(
-                category=category,
                 subject=subject,
                 observation=summary,
                 confidence=confidence,
@@ -1430,7 +1338,7 @@ def write_extracted_facts(facts: list[dict]) -> int:
                     kept = withhold_unregistered_tags(
                         row_id,
                         tag_list,
-                        origin=f"extracted fact ({category})",
+                        origin=f"extracted fact ({subject})",
                         reason="Tag proposed by fact extraction but not in the controlled vocabulary.",
                     )
                     if kept != tag_list:

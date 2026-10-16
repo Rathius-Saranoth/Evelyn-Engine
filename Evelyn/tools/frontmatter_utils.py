@@ -1,6 +1,6 @@
 # frontmatter_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-23 17:30:15
+# date modified: 2026-10-16 00:13:19
 # tags: #frontmatter, #yaml, #markdown, #visual-pkm, #utils
 
 """

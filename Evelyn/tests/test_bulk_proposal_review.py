@@ -1,6 +1,6 @@
 # test_bulk_proposal_review.py
 # date created: 2026-09-26
-# date modified: 2026-09-26 07:16:50
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #review, #proposals, #bulk, #taxonomy
 
 """Bulk proposal review applies the same decision the single-card route applies.

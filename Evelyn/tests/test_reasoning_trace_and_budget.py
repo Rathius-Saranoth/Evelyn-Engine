@@ -1,6 +1,6 @@
 # test_reasoning_trace_and_budget.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-19 09:31:34
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #streaming, #reasoning_trace, #think_budget, #v000_006_140
 
 """Regression coverage for the native multi-channel reasoning pipeline.

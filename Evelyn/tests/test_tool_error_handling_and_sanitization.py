@@ -1,6 +1,6 @@
 # test_tool_error_handling_and_sanitization.py
 # date created: 2026-09-17 18:15:00
-# date modified: 2026-10-11 14:22:25
+# date modified: 2026-10-16 00:13:20
 # tags: #[test, #tool-errors, #sanitization, #honesty, #core-directives]
 
 """Unit tests for tool error interception, input sanitization, and Core_Directives isolation."""

@@ -1,3 +1,8 @@
+# test_profile_evolver_tiers.py
+# date created: 2026-10-08 22:49:02
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 """Tier-scoring invariants for the profile evolver.
 
 These guard the behavioural-hardening contract: the deterministic pruner must not

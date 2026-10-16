@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-10-11 12:14:33
+# date modified: 2026-10-16 00:13:19
 # tags: #facts, #consolidation, #deduplication, #orchestrator, #governance
 
 """
@@ -32,7 +32,6 @@ import datetime
 import importlib
 import json
 import logging
-import re
 import sqlite3
 import time
 
@@ -40,14 +39,13 @@ import httpx
 
 import evelyn_config as cfg
 from Evelyn.tools import (
-    fact_categorizer,
     fact_deduplicator,
     fact_extractor,
     fact_splitter,
     memory_db,
 )
 from Evelyn.tools.fact_categorizer import (
-    remediate_database_categories,
+    remediate_database_categories as remediate_database_categories,
 )
 from Evelyn.tools.fact_categorizer import (
     validate_and_normalize_category as validate_and_normalize_category,
@@ -215,10 +213,7 @@ def scan_context_entries() -> list[dict]:
     records = []
 
     for row in rows:
-        cat = row["category"]
-        cat_num_match = re.search(r"Cat(\d{2})", cat)
-        cat_num = int(cat_num_match.group(1)) if cat_num_match else 0
-
+        subj = row.get("subject") or "General"
         try:
             entry_date = (
                 datetime.datetime.strptime(row["date"], "%Y-%m-%d").replace(tzinfo=datetime.UTC)
@@ -232,9 +227,10 @@ def scan_context_entries() -> list[dict]:
             "id": row["id"],
             "path": str(row["id"]),
             "rel_path": str(row["id"]),
-            "category": cat,
-            "cat_num": cat_num,
-            "subject": row["subject"],
+            "category": subj,
+            "cat_num": 0,
+            "subject": subj,
+            "tags": row.get("tags"),
             "date": entry_date,
             "summary": row["observation"],
             "observation": row["observation"],
@@ -263,7 +259,6 @@ async def _do_consolidation() -> None:
     logger.info("[CONSOLIDATOR] Starting modular consolidation pass...")
 
     _backup_memory_db()
-    remediate_database_categories()
 
     # Step 1: Fast exact match deduplication (instant SQL merge & soft-delete)
     dupes_collapsed = fast_deduplicate_exact_matches()
@@ -308,24 +303,14 @@ async def _do_consolidation() -> None:
             records, cat00, _call_ollama, word_threshold=threshold, limit=3
         )
 
-    # Step 5: Safe Category Auditing (with anti-flip-flop protection)
     recats_applied = 0
-    if records:
-        # Sample candidates from active categories
-        sample_batch = records[:10]
-        if sample_batch:
-            applied = await fact_categorizer.audit_category_classifications(
-                sample_batch[0]["category"], sample_batch, cat00, _call_ollama, limit=5
-            )
-            recats_applied = len(applied)
 
     # Collect aggregate telemetry
     metrics = memory_db.get_fact_deduplication_metrics()
     summary = (
         f"Consolidation pass complete: {dupes_collapsed} exact dupe(s) collapsed, "
         f"{merges_applied} semantic merge(s) applied, "
-        f"{splits_processed + auto_splits} split(s), "
-        f"{recats_applied} recat(s)."
+        f"{splits_processed + auto_splits} split(s)."
     )
     logger.info(f"[CONSOLIDATOR] {summary}")
 

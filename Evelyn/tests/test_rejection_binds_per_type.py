@@ -1,6 +1,6 @@
 # test_rejection_binds_per_type.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-10-16 00:13:20
 # tags: #proposals, #review, #g1, #testing
 
 """What a rejection means differs by type, and each producer has to honour its own answer (G1).

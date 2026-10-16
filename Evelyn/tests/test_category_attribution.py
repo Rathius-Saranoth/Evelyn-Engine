@@ -1,6 +1,6 @@
 # test_category_attribution.py
 # date created: 2026-09-06 08:58:00
-# date modified: 2026-10-13 21:56:05
+# date modified: 2026-10-16 00:13:20
 # tags: #tests, #fast-memory, #category-attribution, #temporal-grounding
 
 import re
@@ -14,7 +14,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 import evelyn_config as cfg
-from Evelyn.tools import chroma_rag, context_manager, fact_extractor, profile_evolver
+from Evelyn.tools import chroma_rag, fact_categorizer, fact_extractor, profile_evolver
 
 
 class TestCategoryAttributionAndTemporalGrounding(unittest.TestCase):
@@ -23,61 +23,57 @@ class TestCategoryAttributionAndTemporalGrounding(unittest.TestCase):
     def test_category_normalization_preserves_perspective(self):
         """Verify validate_and_normalize_category enforces Cat##-[U|A] format while preserving owner code."""
         # Standard user fact
-        self.assertEqual(context_manager.validate_and_normalize_category("Cat01-U", subject="Alex"), "Cat01-U")
+        self.assertEqual(fact_categorizer.validate_and_normalize_category("Cat01-U", subject="Alex"), "Cat01-U")
         # Standard assistant fact
-        self.assertEqual(context_manager.validate_and_normalize_category("Cat01-A", subject="Evelyn"), "Cat01-A")
+        self.assertEqual(fact_categorizer.validate_and_normalize_category("Cat01-A", subject="Evelyn"), "Cat01-A")
         # Base category normalization with subject
-        self.assertEqual(context_manager.validate_and_normalize_category("Cat06", subject="Alex"), "Cat06-U")
-        self.assertEqual(context_manager.validate_and_normalize_category("Cat06", subject="Evelyn"), "Cat06-A")
+        self.assertEqual(fact_categorizer.validate_and_normalize_category("Cat06", subject="Alex"), "Cat06-U")
+        self.assertEqual(fact_categorizer.validate_and_normalize_category("Cat06", subject="Evelyn"), "Cat06-A")
 
     def test_cross_perspective_attribution_yaml_parsing(self):
         """Verify _parse_facts_yaml honors cross-entity perspective canon."""
         yaml_content = f"""
 facts:
-  - category: "Cat06-A"
-    subject: "{cfg.USER_NAME}"
+  - subject: "{cfg.USER_NAME}"
     summary: "Evelyn expresses deep appreciation for {cfg.USER_NAME}'s patience."
     confidence: "high"
-    tags: "relationship/appreciation"
-  - category: "Cat06-U"
-    subject: "{cfg.ASSISTANT_NAME}"
+    tags: "relationship, appreciation"
+  - subject: "{cfg.ASSISTANT_NAME}"
     summary: "{cfg.USER_NAME} validates {cfg.ASSISTANT_NAME}'s unique cognitive presence."
     confidence: "high"
-    tags: "relationship/validation"
-  - category: "Cat05-U"
-    subject: "Biscuit"
+    tags: "relationship, validation"
+  - subject: "Biscuit"
     summary: "Biscuit prefers napping on the sunny side of the rug."
     confidence: "high"
-    tags: "pets/habits"
+    tags: "cat, habits"
 """
         facts = fact_extractor._parse_facts_yaml(yaml_content, fallback_date="2026-09-06")
         self.assertEqual(len(facts), 3)
 
         # Fact 1: Evelyn canon about User
-        self.assertEqual(facts[0]["category"], "Cat06-A")
         self.assertEqual(facts[0]["subject"], cfg.USER_NAME)
+        self.assertEqual(facts[0]["confidence"], "high")
 
         # Fact 2: User canon about Assistant
-        self.assertEqual(facts[1]["category"], "Cat06-U")
         self.assertEqual(facts[1]["subject"], cfg.ASSISTANT_NAME)
+        self.assertEqual(facts[1]["confidence"], "high")
 
         # Fact 3: User canon about pet
-        self.assertEqual(facts[2]["category"], "Cat05-U")
         self.assertEqual(facts[2]["subject"], "Biscuit")
+        self.assertEqual(facts[2]["confidence"], "high")
 
     def test_extraction_prompt_contains_perspective_and_temporal_rules(self):
-        """Verify extraction prompt contains strict perspective ownership and temporal grounding directives."""
+        """Verify extraction prompt contains strict entity attribution and temporal grounding directives."""
         messages = [
             {"role": "user", "content": "I'm setting up a new 3D printer today."},
             {"role": "assistant", "content": "That sounds great! I love calibrated machinery."},
         ]
-        prompt = fact_extractor._build_extraction_prompt(messages, cat00="Cat00 Context Index")
+        prompt = fact_extractor._build_extraction_prompt(messages)
 
-        # Perspective ownership rules present
-        self.assertIn("PERSPECTIVE OWNERSHIP & CATEGORY CANON", prompt)
-        self.assertIn("Cat##-A", prompt)
-        self.assertIn("Cat##-U", prompt)
-        self.assertIn("The category suffix reflects WHOSE PERSPECTIVE/LEDGER the fact belongs to", prompt)
+        # Entity attribution rules present
+        self.assertIn("ENTITY ATTRIBUTION & SUBJECT GROUNDING", prompt)
+        self.assertIn(f"Facts about {cfg.USER_NAME} have subject: '{cfg.USER_NAME}'", prompt)
+        self.assertIn(f"Facts about {cfg.ASSISTANT_NAME} have subject: '{cfg.ASSISTANT_NAME}'", prompt)
 
         # Strict temporal grounding rules present
         self.assertIn("TEMPORAL GROUNDING & HISTORICAL ANCHORING", prompt)
@@ -123,17 +119,16 @@ facts:
              patch("memory_db.get_db", return_value=mock_conn, create=True):
             xml_output = chroma_rag.build_rag_context("engineering background")
 
-            self.assertIn('<memory_entry id="101" category="Cat06-A"', xml_output)
+            self.assertIn('<memory_entry id="101"', xml_output)
             self.assertIn(f'subject="{cfg.USER_NAME}"', xml_output)
             self.assertIn('date="2026-05-15"', xml_output)
             self.assertIn('tags="engineering, software-development"', xml_output)
 
     def test_profile_evolver_evidence_formatting(self):
-        """Verify _cluster_entries_by_theme formats evidence lines with category code and subject."""
+        """Verify _cluster_entries_by_theme formats evidence lines with subject."""
         entries = [
             {
                 "id": 42,
-                "category": "Cat06-A",
                 "subject": "Alex",
                 "observation": "Evelyn articulated deep trust in Alex's judgment.",
                 "created_at": 1700000000.0,
@@ -144,9 +139,9 @@ facts:
         found = False
         for b in batches:
             evidence_text = b.get("evidence_text", "")
-            if "[Cat06-A | Subject: Alex]" in evidence_text:
+            if "[Subject: Alex]" in evidence_text:
                 found = True
-        self.assertTrue(found, "Evidence line should include both category code and subject")
+        self.assertTrue(found, "Evidence line should include subject")
 
     def test_deterministic_temporal_anchoring_regex(self):
         """Verify Tier A regex patterns correctly anchor transient phrasing while preserving statives."""
@@ -205,17 +200,15 @@ facts:
             obs_user_actor = f"{cfg.USER_NAME} helped Jordan downstairs after school."
             self.assertEqual(memory_db.normalize_subject_attribution(cfg.USER_NAME, obs_user_actor), cfg.USER_NAME)
 
-    def test_suffix_inference_for_third_party_entities_defaults_to_user_canon(self):
-        """Verify _parse_facts_yaml assigns -U (User Canon ledger) to third-party entities rather than -A."""
+    def test_subject_attribution_for_third_party_entities(self):
+        """Verify _parse_facts_yaml preserves explicit third-party subjects."""
         yaml_content = """
 facts:
-  - category: "Cat01"
-    subject: "Jordan"
+  - subject: "Jordan"
     summary: "Jordan is acclimating to having greater independence."
     confidence: "high"
     tags: "family, routine"
-  - category: "Cat05"
-    subject: "Biscuit"
+  - subject: "Biscuit"
     summary: "Biscuit the cat prefers sleeping on warm blankets."
     confidence: "high"
     tags: "cat, habits"
@@ -223,9 +216,7 @@ facts:
         with patch.object(cfg, "PRIVATE_IDENTITY_NAMES", ["Jordan", "Biscuit"]):
             facts = fact_extractor._parse_facts_yaml(yaml_content, fallback_date="2026-09-06")
             self.assertEqual(len(facts), 2)
-            self.assertEqual(facts[0]["category"], f"Cat01-{cfg.SUBJECT_CODE_USER}")
             self.assertEqual(facts[0]["subject"], "Jordan")
-            self.assertEqual(facts[1]["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
             self.assertEqual(facts[1]["subject"], "Biscuit")
 
     def test_find_similar_entries_scoped_by_subject(self):

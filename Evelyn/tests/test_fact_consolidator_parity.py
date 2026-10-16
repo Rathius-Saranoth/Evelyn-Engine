@@ -1,3 +1,8 @@
+# test_fact_consolidator_parity.py
+# date created: 2026-10-16 00:09:47
+# date modified: 2026-10-16 00:13:20
+# tags:
+
 import os
 import tempfile
 
@@ -27,16 +32,16 @@ def test_fast_deduplicate_exact_matches(mock_memory_db):
     cur = con.cursor()
     # Insert 3 entries: 1 and 2 are duplicates of each other, 3 is distinct
     cur.execute(
-        "INSERT INTO context_entries (category, subject, observation, tags, observed_count, status, created_at) VALUES (?, ?, ?, ?, ?, 'live', ?)",
-        ("Cat05-U", "Alex", "Drinks oat milk latte every morning.", "coffee, morning", 2, 1000.0),
+        "INSERT INTO context_entries (subject, observation, tags, observed_count, status, created_at) VALUES (?, ?, ?, ?, 'live', ?)",
+        ("Alex", "Drinks oat milk latte every morning.", "coffee, morning", 2, 1000.0),
     )
     cur.execute(
-        "INSERT INTO context_entries (category, subject, observation, tags, observed_count, status, created_at) VALUES (?, ?, ?, ?, ?, 'live', ?)",
-        ("Cat05-U", "Alex", "drinks oat milk   latte every morning", "beverage", 1, 1100.0),
+        "INSERT INTO context_entries (subject, observation, tags, observed_count, status, created_at) VALUES (?, ?, ?, ?, 'live', ?)",
+        ("Alex", "drinks oat milk   latte every morning", "beverage", 1, 1100.0),
     )
     cur.execute(
-        "INSERT INTO context_entries (category, subject, observation, tags, observed_count, status, created_at) VALUES (?, ?, ?, ?, ?, 'live', ?)",
-        ("Cat05-U", "Alex", "Drinks green tea in the afternoon.", "tea", 1, 1200.0),
+        "INSERT INTO context_entries (subject, observation, tags, observed_count, status, created_at) VALUES (?, ?, ?, ?, 'live', ?)",
+        ("Alex", "Drinks green tea in the afternoon.", "tea", 1, 1200.0),
     )
     con.commit()
     con.close()
@@ -63,12 +68,12 @@ def test_apply_fact_merge_preserves_master(mock_memory_db):
     con = memory_db.get_db()
     cur = con.cursor()
     cur.execute(
-        "INSERT INTO context_entries (id, category, subject, observation, tags, observed_count, retrieval_count, first_observed, last_observed, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1000.0)",
-        (10, "Cat05-U", "Alex", "Enjoys dark roast coffee.", "coffee", 3, 5, 1000.0, 2000.0),
+        "INSERT INTO context_entries (id, subject, observation, tags, observed_count, retrieval_count, first_observed, last_observed, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live', 1000.0)",
+        (10, "Alex", "Enjoys dark roast coffee.", "coffee", 3, 5, 1000.0, 2000.0),
     )
     cur.execute(
-        "INSERT INTO context_entries (id, category, subject, observation, tags, observed_count, retrieval_count, first_observed, last_observed, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1500.0)",
-        (20, "Cat05-U", "Alex", "Drinks Ethiopian dark roast daily.", "coffee, ethiopian", 2, 3, 1500.0, 2500.0),
+        "INSERT INTO context_entries (id, subject, observation, tags, observed_count, retrieval_count, first_observed, last_observed, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live', 1500.0)",
+        (20, "Alex", "Drinks Ethiopian dark roast daily.", "coffee, ethiopian", 2, 3, 1500.0, 2500.0),
     )
     con.commit()
 
@@ -106,38 +111,9 @@ def test_apply_fact_merge_preserves_master(mock_memory_db):
 
 
 def test_remediate_database_categories_ignores_procedure_proposals(mock_memory_db):
-    """Verify remediate_database_categories does NOT alter procedure proposal suggested_category."""
-    con = memory_db.get_db()
-    cur = con.cursor()
-    # Insert procedure proposal whose suggested_category is a master procedure numeric string
-    cur.execute(
-        "INSERT INTO proposals (id, type, source_ids, suggested_category, merged_observation, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (101, "procedure", "[1034]", "1034", "trigger: bedtime", "pending", 1000.0),
-    )
-    cur.execute(
-        "INSERT INTO proposals (id, type, source_ids, suggested_category, merged_observation, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (102, "procedure_merge", "[1034, 1205]", "1034", "trigger: bedtime merge", "pending", 1000.0),
-    )
-    # Insert context proposal with old category code
-    cur.execute(
-        "INSERT INTO proposals (id, type, source_ids, suggested_category, merged_observation, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (103, "merge", "[1, 2]", "Cat05-R", "observation text", "pending", 1000.0),
-    )
-    con.commit()
-
-    remediate_database_categories()
-
-    # Procedure proposals must retain numeric master IDs
-    p101 = dict(con.execute("SELECT suggested_category FROM proposals WHERE id = 101").fetchone())
-    assert p101["suggested_category"] == "1034"
-
-    p102 = dict(con.execute("SELECT suggested_category FROM proposals WHERE id = 102").fetchone())
-    assert p102["suggested_category"] == "1034"
-
-    # Context proposal should be remediated to Cat05-U
-    p103 = dict(con.execute("SELECT suggested_category FROM proposals WHERE id = 103").fetchone())
-    assert p103["suggested_category"] == "Cat05-U"
-    con.close()
+    """Verify remediate_database_categories is a deprecated no-op returning 0."""
+    result = remediate_database_categories()
+    assert result == 0
 
 
 def test_fact_merge_queue_operations(mock_memory_db):

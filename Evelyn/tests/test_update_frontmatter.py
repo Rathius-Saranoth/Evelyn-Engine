@@ -1,6 +1,6 @@
 # test_update_frontmatter.py
 # date created: 2026-08-21 21:05:00
-# date modified: 2026-08-21 21:04:14
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #frontmatter, #pytest, #utility
 
 import os

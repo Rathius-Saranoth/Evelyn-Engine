@@ -1,6 +1,6 @@
 # test_review_card_novelty.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-10-16 00:13:20
 # tags: #review, #taxonomy, #novelty, #testing
 
 """The review card answers "is this term new?" by lookup, not by cosine distance (B2).

@@ -1,5 +1,6 @@
 # test_pdf_sidecar_generator.py
 # date created: 2026-08-22 19:10:00
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #pdf, #sidecar, #normalization, #obsidian
 
 from scripts.extract_pdf_library import (

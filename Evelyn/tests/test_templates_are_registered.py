@@ -1,6 +1,6 @@
 # test_templates_are_registered.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 20:49:55
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #templates, #vocabulary, #testing
 
 """A template's tags seed every note made from it, and nothing else ever checks them (F2).

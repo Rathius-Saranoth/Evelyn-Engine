@@ -1,6 +1,6 @@
 # test_excerpt_link_truncation.py
 # date created: 2026-09-26 19:52:23
-# date modified: 2026-09-26 19:53:18
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Tests that a context excerpt never ends mid-wikilink.

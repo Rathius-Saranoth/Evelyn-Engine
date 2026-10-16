@@ -1,6 +1,6 @@
 # test_librarian_excluded_prefixes.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 17:33:15
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #librarian, #vault, #testing
 
 """Whole subtrees the librarian does not audit, and why the list is in config.

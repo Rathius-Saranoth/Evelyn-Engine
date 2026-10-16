@@ -1,6 +1,6 @@
 # gtasks_sync.py
 # date created: 2026-08-23
-# date modified: 2026-10-11 14:22:25
+# date modified: 2026-10-16 00:13:19
 # tags: #gtasks, #google-tasks, #tasks, #sync, #offline-first, #caching
 
 """gtasks_sync.py — Google Tasks Synchronizer and Local Task Cache.

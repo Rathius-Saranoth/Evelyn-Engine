@@ -1,6 +1,6 @@
 # test_relation_proposals.py
 # date created: 2026-09-25
-# date modified: 2026-10-09 23:12:07
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #relations, #proposals, #review, #testing
 
 """Relation candidates reach the review queue, and both answers have a reader (F7).

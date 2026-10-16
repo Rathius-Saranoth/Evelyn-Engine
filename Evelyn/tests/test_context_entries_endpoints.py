@@ -1,6 +1,6 @@
 # test_context_entries_endpoints.py
 # date created: 2026-10-15 11:55:00
-# date modified: 2026-10-15 12:26:34
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #context_entries, #api, #endpoints
 
 """Unit tests for the context_entries search, edit, queueing, and proposal endpoints."""
@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 import evelyn_config as cfg
 from Evelyn.tools import memory_db
-from Evelyn.tools.db_migrator import BASELINE_CHAT_SQL, BASELINE_MEMORY_SQL
+from Evelyn.tools.db_migrator import BASELINE_CHAT_SQL
 from evelyn_server import app
 
 
@@ -27,9 +27,6 @@ def isolated_dbs():
 
     with sqlite3.connect(temp_chat_db) as conn:
         conn.executescript(BASELINE_CHAT_SQL)
-
-    with sqlite3.connect(temp_memory_db) as conn:
-        conn.executescript(BASELINE_MEMORY_SQL)
 
     orig_chat_db = getattr(cfg, "CHAT_DB_PATH", None)
     orig_memory_db = getattr(cfg, "MEMORY_DB_PATH", None)
@@ -54,7 +51,6 @@ def test_search_and_metadata_endpoints():
 
     # Insert test entries
     id1 = memory_db.insert_entry(
-        category="Cat05-U",
         subject=cfg.USER_NAME,
         observation="User drinks dark roast coffee every morning.",
         confidence="high",
@@ -63,7 +59,6 @@ def test_search_and_metadata_endpoints():
         tags="coffee, morning, routine",
     )
     id2 = memory_db.insert_entry(
-        category="Cat01-A",
         subject=cfg.ASSISTANT_NAME,
         observation="Assistant prefers concise replies with code examples.",
         confidence="medium",
@@ -72,7 +67,6 @@ def test_search_and_metadata_endpoints():
         tags="conciseness, code",
     )
     id3 = memory_db.insert_entry(
-        category="Cat05-U",
         subject=cfg.USER_NAME,
         observation="User enjoys weekend mountain biking.",
         confidence="low",
@@ -88,9 +82,10 @@ def test_search_and_metadata_endpoints():
     assert meta["total_live"] == 2
     assert meta["total_all"] == 3
     assert meta["latest_date"] == "2026-10-02"
-    cats = [c["category"] for c in meta["categories"]]
-    assert "Cat05-U" in cats
-    assert "Cat01-A" in cats
+    assert meta["categories"] == []
+    subjs = [s["subject"] for s in meta["subjects"]]
+    assert cfg.USER_NAME in subjs
+    assert cfg.ASSISTANT_NAME in subjs
 
     # 2. Query search
     res_q = client.get("/api/context/entries?q=coffee")
@@ -104,11 +99,11 @@ def test_search_and_metadata_endpoints():
     assert res_id.status_code == 200
     assert res_id.json()["entries"][0]["id"] == id2
 
-    # 4. Filter by category
-    res_cat = client.get("/api/context/entries?category=Cat01-A")
-    assert res_cat.status_code == 200
-    assert res_cat.json()["total"] == 1
-    assert res_cat.json()["entries"][0]["id"] == id2
+    # 4. Filter by subject
+    res_subj = client.get(f"/api/context/entries?subject={cfg.ASSISTANT_NAME}")
+    assert res_subj.status_code == 200
+    assert res_subj.json()["total"] == 1
+    assert res_subj.json()["entries"][0]["id"] == id2
 
     # 5. Filter by status
     res_del = client.get("/api/context/entries?status=deleted")
@@ -127,7 +122,6 @@ def test_direct_safe_save_with_chroma_queue():
     client = TestClient(app)
 
     eid = memory_db.insert_entry(
-        category="Cat05-U",
         subject=cfg.USER_NAME,
         observation="Initial observation statement.",
         status="live",
@@ -136,7 +130,6 @@ def test_direct_safe_save_with_chroma_queue():
 
     patch_payload = {
         "observation": "Updated observation statement with refined phrasing.",
-        "category": "Cat08-U",
         "tags": "refined, update",
         "confidence": "high",
     }
@@ -146,13 +139,11 @@ def test_direct_safe_save_with_chroma_queue():
     assert data["status"] == "ok"
     assert data["mode"] == "direct_save"
     assert data["entry"]["observation"] == "Updated observation statement with refined phrasing."
-    assert data["entry"]["category"] == "Cat08-U"
 
     # Verify SQLite row directly
     updated = memory_db.get_entry(eid)
     assert updated is not None
     assert updated["observation"] == "Updated observation statement with refined phrasing."
-    assert updated["category"] == "Cat08-U"
     assert updated["confidence"] == "high"
 
     # Verify Chroma sync queue has an enqueued item (single-writer rule compliance)

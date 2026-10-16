@@ -1,6 +1,6 @@
 # test_resolve_moved_note.py
 # date created: 2026-09-27 07:22:31
-# date modified: 2026-09-27 07:22:43
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Tests for following a note that has been refiled.

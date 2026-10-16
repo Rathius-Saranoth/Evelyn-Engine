@@ -1,6 +1,6 @@
 # tag_synonym.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-25 20:15:27
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #synonyms, #vocabulary, #uf, #clustering
 
 """tag_synonym.py — Equivalence detection for the controlled vocabulary (taxonomy §6.2).

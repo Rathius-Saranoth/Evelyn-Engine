@@ -1,6 +1,6 @@
 # gcal_sync.py
 # date created: 2026-06-19
-# date modified: 2026-09-17 18:13:55
+# date modified: 2026-10-16 00:13:19
 # tags: #gcal, #sync, #google-calendar, #offline-first, #caching
 
 """gcal_sync.py — Google Calendar Synchronizer and Local Event Cache.

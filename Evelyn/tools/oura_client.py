@@ -1,5 +1,6 @@
 # oura_client.py
 # date created: 2026-08-16
+# date modified: 2026-10-16 00:13:19
 # tags: #oura, #oura-ring, #sleep, #readiness, #vitals, #api
 
 """oura_client.py — Oura Ring Cloud API v2 Client for Evelyn Engine.

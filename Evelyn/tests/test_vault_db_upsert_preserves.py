@@ -1,6 +1,6 @@
 # test_vault_db_upsert_preserves.py
 # date created: 2026-09-22 12:30:00
-# date modified: 2026-09-22 07:29:57
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #vault, #sqlite, #upsert, #tags, #regression
 
 """Regression cover for vault_db.upsert_document metadata preservation.

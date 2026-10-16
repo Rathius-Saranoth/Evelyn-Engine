@@ -1,6 +1,6 @@
 # test_backlog_drainer.py
 # date created: 2026-09-05 17:36:00
-# date modified: 2026-09-05 17:36:00
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #backlog_drainer, #queue, #unit_test
 
 """Unit tests for the canonical backlog_drainer module."""

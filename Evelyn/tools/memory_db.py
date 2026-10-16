@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-10-15 22:38:50
+# date modified: 2026-10-16 00:13:19
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -79,7 +79,6 @@ def init_db() -> None:
     con.execute("""
         CREATE TABLE IF NOT EXISTS context_entries (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            category          TEXT NOT NULL,
             subject           TEXT NOT NULL,
             observation       TEXT NOT NULL,
             confidence        TEXT NOT NULL DEFAULT 'medium',
@@ -92,7 +91,6 @@ def init_db() -> None:
             last_retrieved_at REAL,
             retrieval_count   INTEGER NOT NULL DEFAULT 0,
             last_evolved_at   REAL,
-            recategorized_at  REAL,
             first_observed    REAL,
             last_observed     REAL,
             observed_count    INTEGER NOT NULL DEFAULT 1,
@@ -242,7 +240,6 @@ def init_db() -> None:
 
     # Indexes — IF NOT EXISTS prevents errors on re-init
     for stmt in [
-        "CREATE INDEX IF NOT EXISTS idx_ce_category ON context_entries(category)",
         "CREATE INDEX IF NOT EXISTS idx_ce_status ON context_entries(status)",
         "CREATE INDEX IF NOT EXISTS idx_ce_date ON context_entries(date)",
         "CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status)",
@@ -340,19 +337,24 @@ def normalize_subject_attribution(subj: str | None, observation: str = "") -> st
 
 
 def insert_entry(
-    category: str,
-    subject: str,
-    observation: str,
+    *args: Any,
+    subject: str | None = None,
+    observation: str | None = None,
     confidence: str = "medium",
     source: str = "manual",
     status: str = "live",
     date: str | None = None,
     tags: str | None = None,
+    category: str | None = None,
+    **kwargs: Any,
 ) -> int:
     """Insert a new context entry and return its row ID.
 
+    Maintains backward compatibility with legacy positional calls
+    (category, subject, observation, ...) while storing strictly into
+    the modern subject + tags schema.
+
     Args:
-        category: Category code, e.g. 'Cat05-U'.
         subject: Configured user or assistant name (e.g. cfg.USER_NAME or cfg.ASSISTANT_NAME).
         observation: The factual observation text.
         confidence: 'high', 'medium', or 'low'.
@@ -360,25 +362,52 @@ def insert_entry(
         status: 'live', 'extracted', or 'pending_review'.
         date: Optional YYYY-MM-DD date when the fact was discussed.
         tags: Optional comma-separated keyword tags.
+        category: Deprecated legacy argument (ignored).
 
     Returns:
         int: The auto-generated row ID of the new entry.
     """
+    if len(args) >= 3:
+        # Legacy positional call: (category, subject, observation, ...)
+        subject = str(args[1])
+        observation = str(args[2])
+        if len(args) > 3:
+            confidence = str(args[3])
+        if len(args) > 4:
+            source = str(args[4])
+        if len(args) > 5:
+            status = str(args[5])
+        if len(args) > 6:
+            date = args[6]
+        if len(args) > 7:
+            tags = args[7]
+    elif len(args) == 2:
+        subject = str(args[0])
+        observation = str(args[1])
+    elif len(args) == 1:
+        if subject is None:
+            subject = str(args[0])
+
+    if not subject:
+        subject = getattr(cfg, "USER_NAME", "User")
+    if not observation:
+        observation = ""
+
     subject = normalize_subject_attribution(subject, observation)
     now = time.time()
     con = get_db()
     cur = con.execute(
         """INSERT INTO context_entries
-           (category, subject, observation, confidence, source, status,
+           (subject, observation, confidence, source, status,
             date, tags, created_at, first_observed, last_observed, observed_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
-        (category, subject, observation, confidence, source, status,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+        (subject, observation, confidence, source, status,
          date, tags, now, now, now),
     )
     row_id = cur.lastrowid
     con.commit()
     con.close()
-    return row_id
+    return int(row_id or 0)
 
 
 def get_entry(entry_id: int) -> dict | None:
@@ -401,23 +430,11 @@ def get_entry(entry_id: int) -> dict | None:
 def get_entries_by_category(
     category: str, status: str = "live"
 ) -> list[dict]:
-    """Fetch all entries for a given category and status.
+    """Deprecated legacy helper: fetches entries for a category (retired).
 
-    Args:
-        category: Category code, e.g. 'Cat05-U'.
-        status: Filter by status. Default 'live'.
-
-    Returns:
-        list[dict]: A list of entry dictionaries, sorted chronologically.
+    Returns an empty list as categories have been retired in favor of tags and subjects.
     """
-    con = get_db()
-    rows = con.execute(
-        "SELECT * FROM context_entries WHERE category = ? AND status = ? "
-        "ORDER BY date ASC, id ASC",
-        (category, status),
-    ).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
+    return []
 
 
 def get_all_entries(statuses: list[str] | None = None) -> list[dict]:
@@ -435,7 +452,7 @@ def get_all_entries(statuses: list[str] | None = None) -> list[dict]:
     placeholders = ",".join("?" for _ in statuses)
     rows = con.execute(
         f"SELECT * FROM context_entries WHERE status IN ({placeholders}) "
-        f"ORDER BY category ASC, date ASC, id ASC",
+        f"ORDER BY date ASC, id ASC",
         statuses,
     ).fetchall()
     con.close()
@@ -457,13 +474,13 @@ def search_context_entries(
     """Search and paginate context entries with flexible filtering and sorting.
 
     Args:
-        query: Optional search text (matches observation, tags, subject, category, or ID).
-        category: Optional category filter (e.g. 'Cat05-U').
+        query: Optional search text (matches observation, tags, subject, or ID).
+        category: Deprecated legacy argument (ignored).
         status: Optional status filter ('live', 'extracted', 'pending_review', 'archived', 'deleted', 'all').
         subject: Optional subject entity filter.
         tag: Optional tag filter.
         confidence: Optional confidence filter ('high', 'medium', 'low').
-        sort_by: Column to sort by ('id', 'date', 'created_at', 'updated_at', 'observed_count', 'retrieval_count', 'last_retrieved_at', 'category', 'subject').
+        sort_by: Column to sort by ('id', 'date', 'created_at', 'updated_at', 'observed_count', 'retrieval_count', 'last_retrieved_at', 'subject').
         sort_order: Sort direction ('asc' or 'desc').
         limit: Max rows to return (1-200).
         offset: Number of rows to skip.
@@ -479,20 +496,16 @@ def search_context_entries(
         q_raw = query.strip()
         if q_raw.isdigit():
             conditions.append(
-                "(id = ? OR observation LIKE ? OR tags LIKE ? OR subject LIKE ? OR category LIKE ?)"
+                "(id = ? OR observation LIKE ? OR tags LIKE ? OR subject LIKE ?)"
             )
             like_val = f"%{q_raw}%"
-            params.extend([int(q_raw), like_val, like_val, like_val, like_val])
+            params.extend([int(q_raw), like_val, like_val, like_val])
         else:
             conditions.append(
-                "(observation LIKE ? OR tags LIKE ? OR subject LIKE ? OR category LIKE ?)"
+                "(observation LIKE ? OR tags LIKE ? OR subject LIKE ?)"
             )
             like_val = f"%{q_raw}%"
-            params.extend([like_val, like_val, like_val, like_val])
-
-    if category and category.strip() and category.strip() != "all":
-        conditions.append("category = ?")
-        params.append(category.strip())
+            params.extend([like_val, like_val, like_val])
 
     if status and status.strip() and status.strip() != "all":
         conditions.append("status = ?")
@@ -525,7 +538,6 @@ def search_context_entries(
         "observed_count": "observed_count",
         "retrieval_count": "retrieval_count",
         "last_retrieved_at": "last_retrieved_at",
-        "category": "category",
         "subject": "subject",
         "confidence": "confidence",
         "status": "status",
@@ -549,11 +561,8 @@ def search_context_entries(
 
 
 def get_context_entries_metadata() -> dict[str, Any]:
-    """Retrieve distinct categories, subjects, and statuses for filter UI dropdowns."""
+    """Retrieve distinct subjects, tags, and statuses for filter UI dropdowns."""
     con = get_db()
-    cat_rows = con.execute(
-        "SELECT DISTINCT category, COUNT(*) as count FROM context_entries GROUP BY category ORDER BY category ASC"
-    ).fetchall()
     subj_rows = con.execute(
         "SELECT DISTINCT subject, COUNT(*) as count FROM context_entries GROUP BY subject ORDER BY count DESC, subject ASC"
     ).fetchall()
@@ -572,7 +581,7 @@ def get_context_entries_metadata() -> dict[str, Any]:
     max_created = latest_row["max_created"] if latest_row else None
 
     return {
-        "categories": [{"category": r["category"], "count": r["count"]} for r in cat_rows if r["category"]],
+        "categories": [],
         "subjects": [{"subject": r["subject"], "count": r["count"]} for r in subj_rows if r["subject"]],
         "statuses": [{"status": r["status"], "count": r["count"]} for r in status_rows if r["status"]],
         "total_live": total_live,
@@ -659,9 +668,9 @@ def update_entry(entry_id: int, **fields) -> bool:
         bool: True if the row was found and updated, False otherwise.
     """
     valid_cols = {
-        "category", "subject", "observation", "confidence", "source",
+        "subject", "observation", "confidence", "source",
         "status", "date", "tags", "last_retrieved_at", "retrieval_count",
-        "last_evolved_at", "recategorized_at", "first_observed", "last_observed", "observed_count",
+        "last_evolved_at", "first_observed", "last_observed", "observed_count",
         "vad", "merged_into_id", "last_audited_at", "split_from_id", "last_tag_audit_at",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
@@ -671,9 +680,6 @@ def update_entry(entry_id: int, **fields) -> bool:
     now = time.time()
     if "subject" in updates:
         updates["subject"] = normalize_subject_attribution(updates["subject"], str(updates.get("observation") or ""))
-
-    if "category" in updates and "recategorized_at" not in updates:
-        updates["recategorized_at"] = now
 
     if any(k in updates for k in ("observation", "subject", "status", "confidence")) and "updated_at" not in updates:
         updates["updated_at"] = now
@@ -691,8 +697,8 @@ def update_entry(entry_id: int, **fields) -> bool:
     return affected > 0
 
 
-def get_entries_by_category_for_document(
-    category: str, document_name: str, status: str = "live"
+def get_unevolved_entries_for_document(
+    document_name: str, subject: str | None = None, status: str = "live"
 ) -> list[dict]:
     """Fetch qualifying un-evolved (or modified since evolution) entries for a specific document.
 
@@ -700,28 +706,48 @@ def get_entries_by_category_for_document(
     entries evolved for other documents remain eligible for this document.
 
     Args:
-        category: Category code, e.g. 'Cat05-U'.
         document_name: Target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
+        subject: Optional entity name filter (e.g. cfg.USER_NAME or cfg.ASSISTANT_NAME).
         status: Filter by status. Default 'live'.
 
     Returns:
         list[dict]: A list of qualifying entry dictionaries, sorted chronologically.
     """
     con = get_db()
-    query = """
-        SELECT ce.*
-        FROM context_entries ce
-        LEFT JOIN entry_document_evolution ede
-               ON ede.entry_id = ce.id
-              AND ede.document_name = ?
-        WHERE ce.category = ?
-          AND ce.status = ?
-          AND (ede.evolved_at IS NULL OR ce.updated_at > ede.evolved_at)
-        ORDER BY ce.date ASC, ce.id ASC
-    """
-    rows = con.execute(query, (document_name, category, status)).fetchall()
+    if subject:
+        query = """
+            SELECT ce.*
+            FROM context_entries ce
+            LEFT JOIN entry_document_evolution ede
+                   ON ede.entry_id = ce.id
+                  AND ede.document_name = ?
+            WHERE ce.subject = ?
+              AND ce.status = ?
+              AND (ede.evolved_at IS NULL OR ce.updated_at > ede.evolved_at)
+            ORDER BY ce.date ASC, ce.id ASC
+        """
+        rows = con.execute(query, (document_name, subject, status)).fetchall()
+    else:
+        query = """
+            SELECT ce.*
+            FROM context_entries ce
+            LEFT JOIN entry_document_evolution ede
+                   ON ede.entry_id = ce.id
+                  AND ede.document_name = ?
+            WHERE ce.status = ?
+              AND (ede.evolved_at IS NULL OR ce.updated_at > ede.evolved_at)
+            ORDER BY ce.date ASC, ce.id ASC
+        """
+        rows = con.execute(query, (document_name, status)).fetchall()
     con.close()
     return [dict(r) for r in rows]
+
+
+def get_entries_by_category_for_document(
+    category: str, document_name: str, status: str = "live"
+) -> list[dict]:
+    """Deprecated legacy compatibility alias: fetches unevolved entries for a document."""
+    return get_unevolved_entries_for_document(document_name=document_name, status=status)
 
 
 def get_entry_document_evolutions(entry_id: int) -> dict[str, float]:
@@ -933,7 +959,6 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
 
         # 2. Insert new child entries (inheriting temporal lineage from parent)
         for item in new_entries:
-            cat = item.get("category") or source.get("category", f"Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}")
             subj = item.get("subject") or default_subject
             obs = item.get("observation", "").strip()
             if not obs:
@@ -948,10 +973,10 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
 
             cur = con.execute(
                 """INSERT INTO context_entries
-                   (category, subject, observation, confidence, source, status,
+                   (subject, observation, confidence, source, status,
                     date, tags, created_at, first_observed, last_observed, observed_count, split_from_id)
-                   VALUES (?, ?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (cat, subj, obs, conf, status, entry_date, tags, now, first_obs, last_obs, obs_cnt, source_entry_id),
+                   VALUES (?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (subj, obs, conf, status, entry_date, tags, now, first_obs, last_obs, obs_cnt, source_entry_id),
             )
             new_ids.append(cur.lastrowid)
 
@@ -989,7 +1014,7 @@ def select_merge_master(source_entries: list[dict]) -> dict:
 def apply_fact_merge(
     source_entries: list[dict],
     merged_text: str,
-    target_category: str,
+    target_category: str | None = None,
     merged_tags: str | None = None,
 ) -> int:
     """Consolidate multiple context entries into a single primary master entry in place.
@@ -998,27 +1023,18 @@ def apply_fact_merge(
     aggregates observed_count, retrieval_count, earliest first_observed and latest date,
     updates the master entry in place, and soft-deletes secondary entries.
 
-    **`merged_tags` is a selection, not an addition.** The merge prompt asks the model to choose
-    the tags for the consolidated fact, preferring terms already on the sources and leaving out
-    container words. This function used to union every source's tags and then add that answer on
-    top, so the model's choice could only ever grow the list — a leaving-out was impossible to
-    express. Merging three four-tag facts produced up to twelve tags, and the corpus accumulated
-    compound facts carrying eight or nine, most of them terms seen once. Where the caller supplies
-    tags, they are the result; the union survives only as the fallback for a caller that has none.
-
     Args:
         source_entries: List of existing context entry dicts being consolidated.
         merged_text: The synthesized observation string.
-        target_category: Normalized target category string (e.g. 'Cat05-U').
-        merged_tags: The chosen tags for the merged fact. None falls back to the union of the
-            sources' tags, which is right only when nobody has decided.
+        target_category: Deprecated legacy parameter (ignored).
+        merged_tags: The chosen tags for the merged fact.
 
     Returns:
         int: The row ID of the updated master entry (or newly inserted if source_entries empty).
     """
+    _ = target_category
     if not source_entries:
         return insert_entry(
-            category=target_category,
             subject=getattr(cfg, "USER_NAME", "Alex"),
             observation=merged_text,
             source="consolidated",
@@ -1028,8 +1044,6 @@ def apply_fact_merge(
     # Sort entries: prioritize lowest id or earliest first_observed
     master_entry = select_merge_master(source_entries)
     master_id = int(master_entry["id"])
-    # Exclude by id, not identity: a caller that passed the master twice would otherwise have
-    # the merge soft-delete the row it just wrote.
     secondary_entries = [e for e in source_entries if int(e["id"]) != master_id]
 
     # Aggregate metadata
@@ -1051,8 +1065,6 @@ def apply_fact_merge(
 
     chosen = [t.strip() for t in (merged_tags or "").split(",") if t.strip()]
     if chosen:
-        # The caller decided. Adding the sources back would override the decision, since a term
-        # left out deliberately is indistinguishable from one the union puts back.
         final_tags = ", ".join(sorted(dict.fromkeys(chosen)))
     else:
         union = {
@@ -1069,7 +1081,6 @@ def apply_fact_merge(
     now = time.time()
     update_entry(
         master_id,
-        category=target_category,
         subject=subject,
         observation=merged_text,
         source="consolidated",
@@ -1097,17 +1108,26 @@ def apply_fact_merge(
     return master_id
 
 
-def get_oldest_unaudited_entries(limit: int = 10, category: str | None = None) -> list[dict]:
+def get_oldest_unaudited_entries(
+    limit: int = 10, subject: str | None = None, category: str | None = None
+) -> list[dict]:
     """Fetch live context entries prioritized by oldest audit timestamp or never audited."""
     con = get_db()
     try:
-        if category:
+        filter_subject = subject
+        if not filter_subject and category:
+            if category.endswith("-A"):
+                filter_subject = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+            elif category.endswith("-U"):
+                filter_subject = getattr(cfg, "USER_NAME", "Alex")
+
+        if filter_subject:
             rows = con.execute(
                 """SELECT * FROM context_entries
-                   WHERE status = 'live' AND category = ?
+                   WHERE status = 'live' AND subject = ?
                    ORDER BY last_audited_at ASC NULLS FIRST, id ASC
                    LIMIT ?""",
-                (category, limit),
+                (filter_subject, limit),
             ).fetchall()
         else:
             rows = con.execute(
@@ -1183,18 +1203,8 @@ def count_entries(status: str | None = None) -> int:
 
 
 def count_entries_by_category() -> dict[str, int]:
-    """Return a dict of category -> count for all live entries.
-
-    Returns:
-        dict[str, int]: Mapping of category codes to their respective entry counts.
-    """
-    con = get_db()
-    rows = con.execute(
-        "SELECT category, COUNT(*) as cnt FROM context_entries "
-        "WHERE status = 'live' GROUP BY category ORDER BY category"
-    ).fetchall()
-    con.close()
-    return {r["category"]: r["cnt"] for r in rows}
+    """Deprecated legacy helper: returns empty category count mapping."""
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -1364,26 +1374,52 @@ def get_all_queued_fact_merge_ids() -> set[int]:
 
 
 def find_similar_entries(
-    category: str,
-    observation_text: str,
+    *args: Any,
+    observation_text: str | None = None,
     min_overlap: float = 0.5,
     status: str = "live",
     subject: str | None = None,
+    category: str | None = None,
+    **kwargs: Any,
 ) -> list[dict]:
-    """Find entries in the same category with high keyword overlap.
+    """Find live entries with high keyword overlap for the same subject.
 
     Args:
-        category: Category to search within.
         observation_text: The candidate observation to check against.
         min_overlap: Minimum keyword overlap ratio (0.0–1.0). Default 0.5.
         status: Filter by status. Default 'live'.
         subject: Optional entity subject filter to prevent cross-entity duplicate matching.
+        category: Deprecated legacy argument (ignored).
 
     Returns:
         list[dict]: Matching entry dictionaries with an added 'overlap' key, sorted
             by highest overlap first, then highest observed_count, then earliest ID.
     """
-    candidates = get_entries_by_category(category, status=status)
+    if len(args) == 1:
+        if observation_text is None:
+            observation_text = str(args[0])
+    elif len(args) >= 2:
+        if observation_text is None:
+            observation_text = str(args[1])
+        if category is None:
+            category = str(args[0])
+
+    if not observation_text:
+        return []
+
+    con = get_db()
+    if subject:
+        rows = con.execute(
+            "SELECT * FROM context_entries WHERE status = ? AND subject = ?",
+            (status, subject),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT * FROM context_entries WHERE status = ?",
+            (status,),
+        ).fetchall()
+    con.close()
+    candidates = [dict(r) for r in rows]
     if not candidates:
         return []
 

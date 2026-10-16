@@ -1,6 +1,6 @@
 # tag_entities.py
 # date created: 2026-09-26 17:16:45
-# date modified: 2026-09-26 17:20:01
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #authority, #names, #entities
 
 """The name register: the third answer to a tag admission proposal.

@@ -1,6 +1,6 @@
 # ambient_providers.py
 # date created: 2026-09-02 21:28:00
-# date modified: 2026-09-05 17:38:20
+# date modified: 2026-10-16 00:13:19
 # tags: #ambient, #thought-bubbles, #providers, #registry, #multi-modal
 
 """

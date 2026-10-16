@@ -1,6 +1,6 @@
 # test_xml_envelopes.py
 # date created: 2026-08-29 13:14:00
-# date modified: 2026-10-02 17:02:06
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #xml, #telemetry, #envelopes, #string_utils
 
 """Unit tests for XML envelope generation, sanitization, pruning, and turn injection."""
@@ -154,16 +154,25 @@ class TestXMLEnvelopes(unittest.TestCase):
 
     def test_build_memory_context_envelope(self):
         """Verify fast memory envelope formatting and empty pruning."""
-        self.assertEqual(build_memory_context_envelope(category="Cat01-U", subject="Alex", observation=""), "")
+        self.assertEqual(build_memory_context_envelope(subject="Alex", observation=""), "")
 
         xml = build_memory_context_envelope(
+            subject="Alex",
+            tags="cli, sqlite",
+            observation="Prefers concise command line tools & SQLite.",
+        )
+        self.assertTrue(xml.startswith('<memory_context subject="Alex" tags="cli, sqlite">'))
+        self.assertIn("Prefers concise command line tools &amp; SQLite.", xml)
+        self.assertTrue(xml.endswith("</memory_context>"))
+
+        # Legacy backward compatibility check
+        xml_legacy = build_memory_context_envelope(
             category="Cat01-U",
             subject="Alex",
             observation="Prefers concise command line tools & SQLite.",
         )
-        self.assertTrue(xml.startswith('<memory_context category="Cat01-U" subject="Alex">'))
-        self.assertIn("Prefers concise command line tools &amp; SQLite.", xml)
-        self.assertTrue(xml.endswith("</memory_context>"))
+        self.assertIn('subject="Alex"', xml_legacy)
+        self.assertIn('category="Cat01-U"', xml_legacy)
 
     def test_build_visual_context_envelope(self):
         """Verify <visual_context> envelope formats structured captions, OCR, and domains."""

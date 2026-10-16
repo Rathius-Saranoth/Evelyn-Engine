@@ -1,6 +1,6 @@
 # test_semantic_tagger.py
 # date created: 2026-09-18 19:25:00
-# date modified: 2026-09-18 19:33:58
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #semantic_tagger, #tag_librarian, #vault_db, #unit_test
 
 """Hermetic unit tests for the dedicated semantic tagging subsystem and Tag RAG drainer."""

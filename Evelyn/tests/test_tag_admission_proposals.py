@@ -1,6 +1,6 @@
 # test_tag_admission_proposals.py
 # date created: 2026-09-22 20:20:00
-# date modified: 2026-09-27 12:16:52
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #tags, #taxonomy, #proposals, #admission, #review
 
 """Cover for the tag-admission quarantine route (v000.006.201).

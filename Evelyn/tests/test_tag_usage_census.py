@@ -1,6 +1,6 @@
 # test_tag_usage_census.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 17:26:08
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #census, #retirement, #testing
 
 """The usage census must read the whole corpus, not the vault alone.

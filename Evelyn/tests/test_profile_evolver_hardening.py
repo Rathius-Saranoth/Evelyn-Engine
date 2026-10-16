@@ -1,6 +1,6 @@
 # test_profile_evolver_hardening.py
 # date created: 2026-09-11
-# date modified: 2026-09-18 17:42:28
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #profile_evolver, #hardening, #compaction, #circuit_breaker
 
 """Unit tests for profile evolver hardening against runaway proposals, backlog capping, and compaction pruning."""

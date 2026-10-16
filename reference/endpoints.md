@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-15 22:54:19
+date modified: 2026-10-16 00:24:33
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -180,30 +180,30 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `GET /api/context/entries`
 * **Purpose**: Search, filter, sort, and paginate context facts from `context_entries` in `evelyn_memory.db` with joined split and merge queue annotations.
-* **Query Parameters**: `q` (search text or ID), `category` (e.g. `Cat05-U`), `status` (`live`, `extracted`, `pending_review`, `archived`, `deleted`, `all`), `subject`, `tag`, `confidence`, `sort_by` (`id`, `date`, `created_at`, `updated_at`, `observed_count`, `retrieval_count`), `sort_order` (`asc`, `desc`), `limit` (default 50), `offset` (default 0).
+* **Query Parameters**: `q` (search text or ID), `subject` (entity filter), `tag` (controlled vocabulary tag), `status` (`live`, `extracted`, `pending_review`, `archived`, `deleted`, `all`), `confidence`, `sort_by` (`id`, `date`, `created_at`, `updated_at`, `observed_count`, `retrieval_count`, `last_observed`, `subject`), `sort_order` (`asc`, `desc`), `limit` (default 50), `offset` (default 0), optional legacy `category` (ignored).
 * **Returns**: JSON object `{"entries": [...], "total": int, "limit": int, "offset": int}`.
 
 ### `GET /api/context/entries/metadata`
-* **Purpose**: Retrieves distinct categories with counts, distinct subjects with counts, distinct statuses, and live/total fact counts for UI filtering.
-* **Returns**: JSON object `{"categories": [...], "subjects": [...], "statuses": [...], "total_live": int, "total_all": int}`.
+* **Purpose**: Retrieves distinct subjects with counts, distinct statuses with counts, live/total fact counts, and latest observation timestamps for UI filtering.
+* **Returns**: JSON object `{"categories": [], "subjects": [...], "statuses": [...], "total_live": int, "total_all": int, "latest_date": str, "latest_last_observed": float, "latest_created_at": float}`.
 
 ### `GET /api/context/entries/{id}`
 * **Purpose**: Fetches a single context fact by row ID with `document_evolutions` and `is_queued_split`/`is_queued_merge` queue status flags.
 * **Returns**: Context entry JSON object.
 
 ### `PATCH /api/context/entries/{id}`
-* **Purpose**: Direct safe edit of a context fact in SQLite. Validates category codes (`Cat01-U` to `Cat16-A`), normalizes subject attribution and master taxonomy tags, sets `updated_at`, enqueues vector re-indexing into `chroma_sync_queue` via `chroma_rag.enqueue_upsert` (following the Chroma single-writer rule), and triggers a memory refresh.
-* **Payload**: `ContextEntryUpdateRequest` JSON: `{"observation": str, "category": str, "subject": str, "tags": str, "confidence": str, "status": str, "date": str}`.
+* **Purpose**: Direct safe edit of a context fact in SQLite. Normalizes subject attribution and master taxonomy tags, sets `updated_at`, enqueues vector re-indexing into `chroma_sync_queue` via `chroma_rag.enqueue_upsert` (following the Chroma single-writer rule), and triggers a memory refresh.
+* **Payload**: `ContextEntryUpdateRequest` JSON: `{"observation": str, "subject": str, "tags": str, "confidence": str, "status": str, "date": str, "category": optional str}`.
 * **Returns**: `{"status": "ok", "entry": {...}, "mode": "direct_save"}`.
 
 ### `POST /api/context/entries/{id}/propose`
 * **Purpose**: Stages a proposed edit to an existing context fact as a non-destructive pending proposal in the `proposals` table (type `rephrase`) for developer review or idle consolidation without directly altering the live entry immediately.
-* **Payload**: `ContextEntryProposeRequest` JSON: `{"observation": str, "category": str, "subject": str, "tags": str, "reason": str}`.
+* **Payload**: `ContextEntryProposeRequest` JSON: `{"observation": str, "subject": str, "tags": str, "reason": str, "category": optional str}`.
 * **Returns**: `{"status": "ok", "proposal_id": int, "entry_id": int, "mode": "proposal_staged"}`.
 
 ### `POST /api/context/entries`
 * **Purpose**: Creates a new context fact. If `stage_as_pending` is true, sets `status='pending_review'`; otherwise sets `status='live'` and enqueues Chroma vector indexing.
-* **Payload**: `ContextEntryCreateRequest` JSON: `{"category": str, "observation": str, "subject": str, "tags": str, "confidence": str, "stage_as_pending": bool}`.
+* **Payload**: `ContextEntryCreateRequest` JSON: `{"observation": str, "subject": str, "tags": str, "confidence": str, "stage_as_pending": bool, "category": optional str}`.
 * **Returns**: `{"status": "ok", "entry": {...}}`.
 
 ### `DELETE /api/context/entries/{id}`

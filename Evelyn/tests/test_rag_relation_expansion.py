@@ -1,6 +1,6 @@
 # test_rag_relation_expansion.py
 # date created: 2026-09-26 20:30:47
-# date modified: 2026-09-26 20:31:41
+# date modified: 2026-10-16 00:13:20
 # tags:
 
 """Tests for the query-time relation re-rank (vault-tag-taxonomy §6.4).

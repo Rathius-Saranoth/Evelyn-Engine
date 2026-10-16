@@ -1,6 +1,6 @@
 # media_db.py
 # date created: 2026-08-21 19:43:00
-# date modified: 2026-09-15 18:16:17
+# date modified: 2026-10-16 00:13:19
 # tags: #database, #sqlite, #media, #vision, #attachments, #guid
 
 """media_db.py — SQLite access layer for Evelyn's media and attachment assets database.

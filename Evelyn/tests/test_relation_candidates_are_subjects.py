@@ -1,6 +1,6 @@
 # test_relation_candidates_are_subjects.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 19:20:57
+# date modified: 2026-10-16 00:13:20
 # tags: #taxonomy, #relations, #facets, #testing
 
 """A relation candidate must be two subjects, never a subject and a facet (C1).

@@ -1,6 +1,6 @@
 # test_tag_retirement.py
 # date created: 2026-09-22 21:10:00
-# date modified: 2026-09-24 17:41:28
+# date modified: 2026-10-16 00:13:20
 # tags: #test, #tags, #taxonomy, #retirement, #vocabulary
 
 """Cover for retirement-by-review replacing zero-usage pruning (v000.006.202).
