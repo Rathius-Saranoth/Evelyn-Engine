@@ -1,6 +1,6 @@
 # test_name_register.py
 # date created: 2026-09-26
-# date modified: 2026-10-16 00:57:50
+# date modified: 2026-10-16 02:26:40
 # tags: #taxonomy, #names, #entities, #review, #testing
 
 """A name is not a subject, and the queue needs a third answer for one.
@@ -196,4 +196,18 @@ def test_entity_merge_hybrid(queue: None) -> None:
     assert resolved is not None
     assert resolved["term"] == "tenser"
     assert tag_entities.resolve_entity_label("tenser-persona") == "Tenser"
+
+
+def test_entity_label_strips_emojis(queue: None) -> None:
+    """Verify emojis are cleanly stripped when recording or updating entities."""
+    tag_entities.update_entity("adventurer-atlas", label="🏛️ Adventurer's Atlas", kind="other")
+    ent = tag_entities.get_entity("adventurer-atlas")
+    assert ent is not None
+    assert ent["label"] == "Adventurer's Atlas"
+
+    tag_entities.record_entity("oura-ring", label="💍 Oura", kind="product")
+    ent2 = tag_entities.get_entity("oura-ring")
+    assert ent2 is not None
+    assert ent2["label"] == "Oura"
+
 

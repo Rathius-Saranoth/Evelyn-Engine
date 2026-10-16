@@ -1,6 +1,6 @@
 # tag_entities.py
 # date created: 2026-09-26 17:16:45
-# date modified: 2026-10-16 01:55:18
+# date modified: 2026-10-16 02:24:50
 # tags: #taxonomy, #authority, #names, #entities
 
 """The name register: the third answer to a tag admission proposal.
@@ -32,6 +32,7 @@ import sqlite3
 import time
 from typing import Any
 
+from Evelyn.tools.string_utils import strip_emojis
 from Evelyn.tools.vault_db import get_db, init_db
 
 logger = logging.getLogger("evelyn.tag_entities")
@@ -67,6 +68,8 @@ def record_entity(term: str, label: str = "", kind: str = "other", note: str = "
     if kind not in ENTITY_KINDS:
         kind = "other"
 
+    clean_label = strip_emojis(label or "")
+
     init_db()
     con = get_db()
     try:
@@ -80,7 +83,7 @@ def record_entity(term: str, label: str = "", kind: str = "other", note: str = "
                 "  label = CASE WHEN excluded.label <> '' THEN excluded.label ELSE tag_entities.label END,"
                 "  kind = excluded.kind,"
                 "  note = CASE WHEN excluded.note <> '' THEN excluded.note ELSE tag_entities.note END",
-                (clean, (label or "").strip(), kind, (note or "").strip(), time.time()),
+                (clean, clean_label, kind, (note or "").strip(), time.time()),
             )
     except sqlite3.Error as exc:
         logger.warning("[TAG ENTITIES] Could not record '%s': %s", clean, exc)
@@ -101,6 +104,8 @@ def update_entity(term: str, label: str = "", kind: str = "other", note: str = "
     if kind not in ENTITY_KINDS:
         kind = "other"
 
+    clean_label = strip_emojis(label or "")
+
     init_db()
     con = get_db()
     try:
@@ -112,12 +117,12 @@ def update_entity(term: str, label: str = "", kind: str = "other", note: str = "
                 "  label = excluded.label, "
                 "  kind = excluded.kind, "
                 "  note = excluded.note",
-                (clean, (label or "").strip(), kind, (note or "").strip(), time.time()),
+                (clean, clean_label, kind, (note or "").strip(), time.time()),
             )
     except sqlite3.Error as exc:
         logger.warning("[TAG ENTITIES] Could not update '%s': %s", clean, exc)
         return False
-    logger.info("[TAG ENTITIES] Updated entity '%s' (%s, label=%s).", clean, kind, label)
+    logger.info("[TAG ENTITIES] Updated entity '%s' (%s, label=%s).", clean, kind, clean_label)
     return True
 
 

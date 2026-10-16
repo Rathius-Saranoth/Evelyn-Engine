@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 02:10:14
+date modified: 2026-10-16 02:24:50
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.050] - 2026-10-16 — *Entity Emoji Sanitization & Duplicate Cleanup*
+
+### Added
+
+- **Canonical Emoji Stripping Utility (`Evelyn/tools/string_utils.py`)**:
+  - Implemented `strip_emojis(text: str) -> str` to cleanly remove pictorial emojis, dingbats, and symbol modifiers while preserving natural punctuation and alphanumerics.
+- **Inbound Entity Label Sanitization (`Evelyn/tools/tag_entities.py`, `evelyn_ui/taxonomy.html`)**:
+  - Integrated `strip_emojis` into `record_entity()` and `update_entity()`, preventing emoji leaks from note headings and titles during entity registration.
+  - Added JavaScript Unicode property escape sanitization in the Name Register modal input (`handleModalLabelInput`, `saveEntityFromModal`) in `taxonomy.html`.
+
+### Changed
+
+- **Database Migration 000.008.050 (`Evelyn/tools/db_migrator.py`)**:
+  - Applied migration `000.008.050` on `evelyn_vault.db`:
+    - Cleaned emoji prefixes from 120 entity display names in `tag_entities` (e.g. vault note anchor emojis `🏛️` and symbol `💍`).
+    - Merged 12 duplicate entity variants into their canonical entities, aggregating request counts and establishing alias redirects in `tag_entity_aliases` (including series vs specific items, possessives, and leading articles).
 
 ## [000.008.049] - 2026-10-16 — *Name Register Slug & Display Sorting*
 

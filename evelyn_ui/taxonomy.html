@@ -2780,9 +2780,14 @@
       editingEntity = null;
     }
 
+    function stripEmojiJs(s) {
+      return (s || '').replace(/[\p{Extended_Pictographic}\u2600-\u27BF\uFE00-\uFE0F]/gu, '').replace(/\s+/g, ' ').trim();
+    }
+
     function handleModalLabelInput(val) {
       if (!editingEntity) {
-        const slug = (val || '')
+        const clean = stripEmojiJs(val);
+        const slug = clean
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-+|-+$/g, '');
@@ -2792,7 +2797,8 @@
 
     async function saveEntityFromModal() {
       const term = document.getElementById('modal-entity-term').value.trim().toLowerCase();
-      const label = document.getElementById('modal-entity-label').value.trim();
+      const rawLabel = document.getElementById('modal-entity-label').value;
+      const label = stripEmojiJs(rawLabel);
       const kind = document.getElementById('modal-entity-kind').value;
       const note = document.getElementById('modal-entity-note').value.trim();
 

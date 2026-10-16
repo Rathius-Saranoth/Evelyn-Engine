@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-16 02:24:50
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -87,6 +87,34 @@ def clean_llm_gist(text: str) -> str:
     # Strip leading/trailing quotation marks
     cleaned = cleaned.strip('"\'').strip()
     return cleaned
+
+
+def strip_emojis(text: str) -> str:
+    """Strip emoji characters and symbols from text, leaving natural punctuation and alphanumerics.
+
+    Args:
+        text: String containing potential emojis or symbols.
+
+    Returns:
+        Cleaned text with emojis stripped and collapsed whitespace.
+    """
+    if not text:
+        return ""
+    cleaned: list[str] = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        cp = ord(ch)
+        is_emoji = (
+            cat in ("So", "Sk")
+            or 0x1F300 <= cp <= 0x1F9FF
+            or 0x1FA00 <= cp <= 0x1FAFF
+            or 0x2600 <= cp <= 0x27BF
+            or 0xFE00 <= cp <= 0xFE0F
+            or cp == 0x200D
+        )
+        if not is_emoji:
+            cleaned.append(ch)
+    return " ".join("".join(cleaned).split()).strip()
 
 
 def sanitize_filename(

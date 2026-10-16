@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-10-16 01:55:18
+# date modified: 2026-10-16 02:24:50
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6880,6 +6880,93 @@ def migrate_000_008_048_entity_aliases_and_merge(
         )
 
 
+def migrate_000_008_050_strip_entity_emojis_and_merge_duplicates(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.008.050: Strip emoji prefixes from entity display names and merge duplicates."""
+    from Evelyn.tools.string_utils import strip_emojis
+
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Strip emojis from all entity labels in tag_entities
+    cursor.execute("SELECT term, label FROM tag_entities")
+    rows = cursor.fetchall()
+    cleaned_count = 0
+    for term, label in rows:
+        raw = label or ""
+        cleaned = strip_emojis(raw)
+        if cleaned != raw:
+            cursor.execute("UPDATE tag_entities SET label = ? WHERE term = ?", (cleaned, term))
+            cleaned_count += 1
+
+    logger.info("Migration 000.008.050: Cleaned emojis from %d entity labels.", cleaned_count)
+
+    # 2. Merge known duplicates resulting from stripped prefixes or redundant variants
+    # Tuple format: (source_term, target_term, override_kind, override_label)
+    merges: list[tuple[str, str, str | None, str | None]] = [
+        ("queen-s-palace", "the-queen-s-palace", None, "The Queen's Palace"),
+        ("windows", "windows-os", "other", "Windows (OS)"),
+        ("diablo", "diablo-game-series", "work", "Diablo (game series)"),
+        ("blacklaw-mountain", "blackclaw-mountain", "place", "Blackclaw Mountain"),
+        ("the-legend-of-zelda", "legend-of-zelda", "work", "Legend of Zelda"),
+        ("the-deepdelver-s-enclave", "deepdelver-s-enclave", "place", "Deepdelver's Enclave"),
+        ("the-deepdelvers", "deepdelvers", "other", "Deepdelvers"),
+        ("the-cult-of-vecna", "cult-of-vecna", "other", "Cult of Vecna"),
+        ("the-trade-gate", "trade-gate", "place", "Trade Gate"),
+        ("bang-and-babble", "bang-babble", "other", "Bang & Babble"),
+        ("navy", "united-states-navy", "organization", "United States Navy"),
+    ]
+
+    # Dynamically discover and merge any '-pet' duplicates where the base term exists
+    pet_dups = cursor.execute("SELECT term FROM tag_entities WHERE term LIKE '%-pet'").fetchall()
+    for (p_term,) in pet_dups:
+        base_term = p_term[:-4]
+        if cursor.execute("SELECT 1 FROM tag_entities WHERE term = ?", (base_term,)).fetchone():
+            merges.append((p_term, base_term, "pet", None))
+
+    for src_term, tgt_term, kind_override, label_override in merges:
+        src = cursor.execute(
+            "SELECT request_count, note, kind, label FROM tag_entities WHERE term = ?", (src_term,)
+        ).fetchone()
+        tgt = cursor.execute(
+            "SELECT request_count, note, kind, label FROM tag_entities WHERE term = ?", (tgt_term,)
+        ).fetchone()
+        if not src:
+            continue
+
+        src_count = src[0] or 1
+        src_note = src[1] or ""
+        src_kind = src[2] or "other"
+
+        tgt_count = (tgt[0] or 0) if tgt else 0
+        tgt_note = tgt[1] if (tgt and tgt[1]) else src_note
+        tgt_kind = kind_override or (tgt[2] if tgt else src_kind)
+        tgt_label = label_override or (tgt[3] if tgt else src[3])
+
+        combined_count = src_count + tgt_count
+
+        cursor.execute(
+            "INSERT INTO tag_entities (term, label, kind, note, request_count, recorded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(term) DO UPDATE SET "
+            "  label = excluded.label, kind = excluded.kind, note = excluded.note, request_count = ?",
+            (tgt_term, tgt_label, tgt_kind, tgt_note, combined_count, now, combined_count),
+        )
+        cursor.execute("DELETE FROM tag_entities WHERE term = ?", (src_term,))
+        cursor.execute(
+            "INSERT OR REPLACE INTO tag_entity_aliases (alias, canonical, created_at) VALUES (?, ?, ?)",
+            (src_term, tgt_term, now),
+        )
+        cursor.execute(
+            "UPDATE tag_entity_aliases SET canonical = ? WHERE canonical = ?",
+            (tgt_term, src_term),
+        )
+        logger.info("Migration 000.008.050: Merged duplicate entity '%s' -> '%s'.", src_term, tgt_term)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -7503,6 +7590,13 @@ MIGRATIONS: list[Migration] = [
         version="000.008.048",
         name="entity_aliases_and_merge",
         up_fn=migrate_000_008_048_entity_aliases_and_merge,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.008.050",
+        name="strip_entity_emojis_and_merge_duplicates",
+        up_fn=migrate_000_008_050_strip_entity_emojis_and_merge_duplicates,
         post_sync_chroma=False,
     ),
 ]
