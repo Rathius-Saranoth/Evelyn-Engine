@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-16 01:24:52
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8055,6 +8055,36 @@ async def list_tag_names(_: None = Depends(check_auth)):
 
     names = await asyncio.to_thread(tag_entities.get_entities)
     return {"names": names, "total": len(names)}
+
+
+class SaveEntityRequest(BaseModel):
+    """Payload to register or update an entity in the name register."""
+
+    term: str
+    label: str = ""
+    kind: str = "other"
+    note: str = ""
+
+
+@app.post("/api/taxonomy/names")
+async def save_tag_name(req: SaveEntityRequest, _: None = Depends(check_auth)):
+    """Register or update an entity in the name register."""
+    from Evelyn.tools import tag_entities
+
+    term = (req.term or "").strip().lower()
+    if not term:
+        raise HTTPException(status_code=400, detail="Entity term is required")
+
+    ok = await asyncio.to_thread(
+        tag_entities.update_entity,
+        term,
+        label=req.label,
+        kind=req.kind,
+        note=req.note,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Failed to record entity '{term}'")
+    return {"status": "ok", "term": term}
 
 
 @app.post("/api/taxonomy/names/{term}/forget")

@@ -536,6 +536,76 @@
       background: rgba(255, 255, 255, 0.03);
     }
 
+    .entities-dashboard {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .kind-pill-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .kind-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 4px 10px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      user-select: none;
+    }
+
+    .kind-pill:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .kind-pill.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .kind-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .kind-badge.kind-persona { background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.4); color: #c084fc; }
+    .kind-badge.kind-person { background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); color: #60a5fa; }
+    .kind-badge.kind-pet { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #34d399; }
+    .kind-badge.kind-project { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #fbbf24; }
+    .kind-badge.kind-product { background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.4); color: #38bdf8; }
+    .kind-badge.kind-organization { background: rgba(244, 63, 94, 0.15); border-color: rgba(244, 63, 94, 0.4); color: #fb7185; }
+    .kind-badge.kind-work { background: rgba(99, 102, 241, 0.15); border-color: rgba(99, 102, 241, 0.4); color: #a5b4fc; }
+    .kind-badge.kind-place { background: rgba(20, 184, 166, 0.15); border-color: rgba(20, 184, 166, 0.4); color: #2dd4bf; }
+    .kind-badge.kind-other { background: rgba(148, 163, 184, 0.15); border-color: rgba(148, 163, 184, 0.4); color: #94a3b8; }
+
+    .entity-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     .tree-scroll {
       flex: 1;
       overflow-y: auto;
@@ -1091,6 +1161,10 @@
         <span>Relations:</span>
         <b id="stat-relations">—</b>
       </div>
+      <div class="stat-pill pill-cyan">
+        <span>Entities:</span>
+        <b id="stat-entities">—</b>
+      </div>
     </div>
 
     <div class="nav-actions">
@@ -1115,11 +1189,12 @@
           <span id="search-clear" class="search-clear" onclick="clearSearch()">✕</span>
         </div>
         <div class="nav-tabs">
-          <button class="nav-tab-btn active" data-mode="trees" onclick="setNavMode('trees')">🌳 Trees</button>
-          <button class="nav-tab-btn" data-mode="categories" onclick="setNavMode('categories')">📊 Categories</button>
-          <button class="nav-tab-btn" data-mode="peers" onclick="setNavMode('peers')">⚡ Peers</button>
-          <button class="nav-tab-btn" data-mode="all" onclick="setNavMode('all')">🔤 All</button>
-          <button class="nav-tab-btn" data-mode="aliases" onclick="setNavMode('aliases')">🔀 Aliases</button>
+          <button class="nav-tab-btn active" data-mode="categories" onclick="setNavMode('categories')" title="Category & Concept Intelligence Dashboard">📊 Categories</button>
+          <button class="nav-tab-btn" data-mode="trees" onclick="setNavMode('trees')" title="Hierarchical Taxonomy Trees">🌳 Trees</button>
+          <button class="nav-tab-btn" data-mode="entities" onclick="setNavMode('entities')" title="Named Entities & Authority Register">👤 Entities</button>
+          <button class="nav-tab-btn" data-mode="peers" onclick="setNavMode('peers')" title="Peer & Narrower Relationships">⚡ Peers</button>
+          <button class="nav-tab-btn" data-mode="all" onclick="setNavMode('all')" title="All Controlled Vocabulary Terms">🔤 All</button>
+          <button class="nav-tab-btn" data-mode="aliases" onclick="setNavMode('aliases')" title="Equivalence Synonyms & Aliases">🔀 Aliases</button>
         </div>
       </div>
 
@@ -1141,6 +1216,11 @@
 
       <!-- Center: Dynamic Category Intelligence Dashboard -->
       <div id="category-dashboard" style="display: none; min-width: 0;">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- Center: Named Entity Authority Register Dashboard -->
+      <div id="entities-dashboard" style="display: none; min-width: 0; width: 100%;">
         <!-- Rendered dynamically -->
       </div>
 
@@ -1302,6 +1382,43 @@
     </div>
   </div>
 
+  <!-- Entity Modal -->
+  <div class="modal-overlay" id="entity-modal" onclick="if(event.target === this) closeEntityModal()">
+    <div class="modal" style="width: 480px;">
+      <h3 id="entity-modal-title">Register Named Entity</h3>
+      <div class="form-group">
+        <label>Display Name / Full Label:</label>
+        <input type="text" id="modal-entity-label" class="form-control" placeholder="e.g. Tenser or Evelyn Engine" oninput="handleModalLabelInput(this.value)" title="Full proper name as it should appear in notes and memory entries">
+      </div>
+      <div class="form-group">
+        <label>Canonical Slug Term:</label>
+        <input type="text" id="modal-entity-term" class="form-control" placeholder="e.g. tenser or evelyn-engine" title="Unique lowercase slug term used in taxonomy register" style="font-family: var(--font-mono);">
+      </div>
+      <div class="form-group">
+        <label>Entity Kind / Classification:</label>
+        <select id="modal-entity-kind" class="form-control" title="Choose the entity kind">
+          <option value="persona">🤖 Persona (AI companion, system persona)</option>
+          <option value="person">👤 Person (Human contact, operator, character)</option>
+          <option value="pet">🐾 Pet / Animal Companion</option>
+          <option value="project">🛠️ Project / Engineering Work / Codebase</option>
+          <option value="product">📦 Product or Tool</option>
+          <option value="organization">🏢 Company, Group, or Shop</option>
+          <option value="work">📖 Book, Game, Film, or Creative Work</option>
+          <option value="place">📍 Place or Location</option>
+          <option value="other">🏷️ Other / General Named Entity</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Context Note / Source:</label>
+        <input type="text" id="modal-entity-note" class="form-control" placeholder="e.g. AI Persona or Contacts/JT.md" title="Optional descriptive note or vault file reference">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
+        <button class="btn" onclick="closeEntityModal()" title="Cancel and close dialog">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-entity" onclick="saveEntityFromModal()" title="Save entity to name authority register">💾 Save Entity</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = window.location.origin;
     let apiKey = localStorage.getItem('evelyn_api_key') || '';
@@ -1326,11 +1443,17 @@
     let childrenMap = new Map();      // parent -> list of narrower children
     let relatedMap = new Map();       // term -> list of related terms
 
-    let navMode = 'trees';            // 'trees' | 'categories' | 'peers' | 'all' | 'aliases'
+    let navMode = 'categories';        // 'categories' | 'trees' | 'entities' | 'peers' | 'all' | 'aliases'
     let selectedTag = null;
     let selectedCategory = null;
     let categorySort = 'branches';    // 'branches' | 'usage'
     let searchQuery = '';
+
+    // Entity State
+    let allEntities = [];
+    let entityKindFilter = 'all';
+    let entitySearchQuery = '';
+    let editingEntity = null;
 
     // Initialize
     window.addEventListener('DOMContentLoaded', () => {
@@ -1338,7 +1461,11 @@
       window.addEventListener('keydown', (e) => {
         if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
           e.preventDefault();
-          document.getElementById('tag-search').focus();
+          if (navMode === 'entities') {
+            document.getElementById('entity-filter-input')?.focus();
+          } else {
+            document.getElementById('tag-search')?.focus();
+          }
         }
       });
 
@@ -1364,6 +1491,7 @@
       }
 
       loadGraphData();
+      loadEntities();
     });
 
     function toggleToolbox() {
@@ -1402,16 +1530,25 @@
       });
 
       const catDash = document.getElementById('category-dashboard');
+      const entDash = document.getElementById('entities-dashboard');
       const empty = document.getElementById('inspector-empty');
       const content = document.getElementById('inspector-content');
 
       if (mode === 'categories') {
         if (catDash) catDash.style.display = 'block';
+        if (entDash) entDash.style.display = 'none';
         if (empty) empty.style.display = 'none';
         if (content) content.style.display = 'none';
         renderCategoryDashboard();
+      } else if (mode === 'entities') {
+        if (catDash) catDash.style.display = 'none';
+        if (entDash) entDash.style.display = 'block';
+        if (empty) empty.style.display = 'none';
+        if (content) content.style.display = 'none';
+        renderEntitiesDashboard();
       } else {
         if (catDash) catDash.style.display = 'none';
+        if (entDash) entDash.style.display = 'none';
         if (selectedTag) {
           if (content) content.style.display = 'block';
           if (empty) empty.style.display = 'none';
@@ -1441,7 +1578,9 @@
         processGraphData();
         renderNavList();
         if (navMode === 'categories') renderCategoryDashboard();
-        if (selectedTag && navMode !== 'categories') selectTag(selectedTag);
+        if (navMode === 'entities') renderEntitiesDashboard();
+        if (selectedTag && navMode !== 'categories' && navMode !== 'entities') selectTag(selectedTag);
+        loadEntities();
         if (forceToast) showToast('Taxonomy graph refreshed.');
       } catch (err) {
         showToast('Failed to load taxonomy graph: ' + err.message, true);
@@ -1502,6 +1641,8 @@
         renderTreeMode(container);
       } else if (navMode === 'categories') {
         renderCategoriesMode(container);
+      } else if (navMode === 'entities') {
+        renderEntitiesNavMode(container);
       } else if (navMode === 'peers') {
         renderPeersMode(container);
       } else if (navMode === 'all') {
@@ -1926,6 +2067,328 @@
         if (chev) chev.classList.toggle('expanded', !isVisible);
       }
       selectTag(tag);
+    }
+
+    // ==========================================
+    // Mode: Named Entity Authority Register (tag_entities)
+    // ==========================================
+
+    const ENTITY_KINDS = ['persona', 'person', 'pet', 'project', 'product', 'organization', 'work', 'place', 'other'];
+
+    const KIND_ICONS = {
+      persona: '🤖',
+      person: '👤',
+      pet: '🐾',
+      project: '🛠️',
+      product: '📦',
+      organization: '🏢',
+      work: '📖',
+      place: '📍',
+      other: '🏷️'
+    };
+
+    async function loadEntities() {
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/names`, { headers: headers() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        allEntities = data.names || [];
+        const statElem = document.getElementById('stat-entities');
+        if (statElem) statElem.textContent = allEntities.length.toLocaleString();
+        if (navMode === 'entities') {
+          renderEntitiesDashboard();
+          renderNavList();
+        }
+      } catch (err) {
+        console.warn('Could not load entities:', err);
+      }
+    }
+
+    function setEntityKindFilter(kind) {
+      entityKindFilter = kind;
+      renderEntitiesDashboard();
+    }
+
+    function handleEntitySearch(val) {
+      entitySearchQuery = (val || '').trim();
+      renderEntitiesDashboard();
+    }
+
+    function renderEntitiesDashboard() {
+      const container = document.getElementById('entities-dashboard');
+      if (!container) return;
+
+      const counts = { all: allEntities.length };
+      ENTITY_KINDS.forEach(k => counts[k] = 0);
+      allEntities.forEach(e => {
+        const k = e.kind || 'other';
+        counts[k] = (counts[k] || 0) + 1;
+      });
+
+      const q = entitySearchQuery.toLowerCase();
+      const filtered = allEntities.filter(e => {
+        if (entityKindFilter !== 'all' && (e.kind || 'other') !== entityKindFilter) return false;
+        if (q) {
+          const matchTerm = (e.term || '').toLowerCase().includes(q);
+          const matchLabel = (e.label || '').toLowerCase().includes(q);
+          const matchNote = (e.note || '').toLowerCase().includes(q);
+          if (!matchTerm && !matchLabel && !matchNote) return false;
+        }
+        return true;
+      });
+
+      container.innerHTML = `
+        <div class="entities-dashboard">
+          <!-- Top Banner -->
+          <div class="dashboard-banner">
+            <div>
+              <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cyan); font-weight: 600; margin-bottom: 3px;">Authority Control · Name Authority Register</div>
+              <h2 style="font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+                👤 Named Entity Authority Register
+                <span class="badge-count" style="font-size: 12px; background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid rgba(6, 182, 212, 0.3);">${allEntities.length} Total</span>
+              </h2>
+              <p style="font-size: 12.5px; color: var(--text-dim); margin-top: 4px; max-width: 640px;">
+                Discrete individuals, personas, pets, projects, and organizations maintained as distinct entities outside the subject tag taxonomy.
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn btn-sm btn-primary" onclick="openCreateEntityModal()" title="Add a new proper entity to the name register">
+                ➕ Register Entity
+              </button>
+            </div>
+          </div>
+
+          <!-- Controls: Kind Filter Pills & Search -->
+          <div class="card" style="padding: 12px 16px; margin-bottom: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div class="kind-pill-group">
+                <div class="kind-pill ${entityKindFilter === 'all' ? 'active' : ''}" onclick="setEntityKindFilter('all')" title="Show all registered entities">
+                  All <b style="font-family: var(--font-mono); font-size: 11px;">(${counts.all})</b>
+                </div>
+                ${ENTITY_KINDS.map(k => `
+                  <div class="kind-pill ${entityKindFilter === k ? 'active' : ''}" onclick="setEntityKindFilter('${k}')" title="Filter to ${k} entities">
+                    ${KIND_ICONS[k] || '🏷️'} ${k.charAt(0).toUpperCase() + k.slice(1)} <b style="font-family: var(--font-mono); font-size: 11px;">(${counts[k] || 0})</b>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div style="min-width: 220px; flex-shrink: 0;">
+                <input type="text" id="entity-filter-input" class="search-input" value="${escapeAttr(entitySearchQuery)}" placeholder="Search entities... (/)" oninput="handleEntitySearch(this.value)" style="padding: 6px 12px; font-size: 12.5px;" title="Filter entities by name, slug term, or note">
+              </div>
+            </div>
+          </div>
+
+          <!-- Entities Table -->
+          <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 0;">
+            <div class="table-responsive" style="max-height: calc(100vh - 280px); overflow-y: auto;">
+              <table class="leaderboard-table" style="table-layout: auto;">
+                <thead>
+                  <tr style="position: sticky; top: 0; background: #0e131f; z-index: 10;">
+                    <th style="padding: 10px 14px; width: 220px;">Display Label</th>
+                    <th style="padding: 10px 14px; width: 170px;">Slug Term</th>
+                    <th style="padding: 10px 14px; width: 130px;">Kind</th>
+                    <th style="padding: 10px 14px;">Context / Note</th>
+                    <th style="padding: 10px 14px; width: 90px; text-align: center;">Requests</th>
+                    <th style="padding: 10px 14px; width: 110px; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filtered.length === 0 ? `
+                    <tr>
+                      <td colspan="6" style="padding: 40px; text-align: center; color: var(--text-dim); font-size: 13px;">
+                        No entities match the current filter.
+                      </td>
+                    </tr>
+                  ` : filtered.map(e => {
+                    const k = e.kind || 'other';
+                    const icon = KIND_ICONS[k] || '🏷️';
+                    const label = e.label || e.term.replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
+                    return `
+                      <tr>
+                        <td style="padding: 10px 14px;">
+                          <div style="font-weight: 600; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                            <span>${icon}</span>
+                            <span>${highlightText(label, entitySearchQuery)}</span>
+                          </div>
+                        </td>
+                        <td style="padding: 10px 14px;">
+                          <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--cyan); background: rgba(6, 182, 212, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(6, 182, 212, 0.2);">
+                            ${highlightText(e.term, entitySearchQuery)}
+                          </span>
+                        </td>
+                        <td style="padding: 10px 14px;">
+                          <span class="kind-badge kind-${escapeAttr(k)}">
+                            ${icon} ${k.toUpperCase()}
+                          </span>
+                        </td>
+                        <td style="padding: 10px 14px; color: var(--text-muted); font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
+                          ${e.note ? highlightText(e.note, entitySearchQuery) : '<span style="color: var(--text-dim); font-style: italic;">—</span>'}
+                        </td>
+                        <td style="padding: 10px 14px; text-align: center;">
+                          <span class="badge-count" style="font-size: 11px;">${e.request_count || 1}</span>
+                        </td>
+                        <td style="padding: 10px 14px; text-align: right;">
+                          <div class="entity-actions" style="justify-content: flex-end;">
+                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px;" onclick="openEditEntityModal('${escapeAttr(e.term)}')" title="Edit entity label, kind, or note">✏️</button>
+                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px; color: var(--rose);" onclick="forgetEntity('${escapeAttr(e.term)}', '${escapeAttr(label)}')" title="Unregister entity and return term to vocabulary pool">🗑️</button>
+                          </div>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderEntitiesNavMode(container) {
+      const q = searchQuery.toLowerCase();
+      const filtered = allEntities.filter(e => {
+        if (!q) return true;
+        return (e.term || '').toLowerCase().includes(q) || (e.label || '').toLowerCase().includes(q);
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No entities found.</div>`;
+        return;
+      }
+
+      let html = `
+        <div style="padding: 8px 10px; margin-bottom: 6px;">
+          <button class="btn btn-sm btn-primary" style="width: 100%; justify-content: center; font-size: 12px;" onclick="openCreateEntityModal()" title="Register a new proper entity">
+            ➕ Register Entity
+          </button>
+        </div>
+      `;
+
+      for (const e of filtered) {
+        const k = e.kind || 'other';
+        const icon = KIND_ICONS[k] || '🏷️';
+        const label = e.label || e.term.replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
+        html += `
+          <div class="tree-node-parent" title="${escapeAttr(label)} (${escapeAttr(e.term)})" onclick="focusEntity('${escapeAttr(e.term)}')">
+            <div class="node-label">
+              <span style="font-size: 12px; flex-shrink: 0;">${icon}</span>
+              <span class="term-text" style="font-weight: 500;">${highlightText(label, searchQuery)}</span>
+            </div>
+            <div class="node-badges">
+              <span class="badge-count" style="font-size: 10.5px;">${e.request_count || 1}</span>
+            </div>
+          </div>
+        `;
+      }
+      container.innerHTML = html;
+    }
+
+    function focusEntity(term) {
+      setNavMode('entities');
+      entitySearchQuery = term;
+      entityKindFilter = 'all';
+      renderEntitiesDashboard();
+    }
+
+    function openCreateEntityModal() {
+      editingEntity = null;
+      document.getElementById('entity-modal-title').textContent = '➕ Register Named Entity';
+      document.getElementById('modal-entity-term').value = '';
+      document.getElementById('modal-entity-term').disabled = false;
+      document.getElementById('modal-entity-label').value = '';
+      document.getElementById('modal-entity-kind').value = 'person';
+      document.getElementById('modal-entity-note').value = '';
+      document.getElementById('entity-modal').style.display = 'flex';
+      setTimeout(() => document.getElementById('modal-entity-label').focus(), 50);
+    }
+
+    function openEditEntityModal(term) {
+      const e = allEntities.find(x => x.term === term);
+      if (!e) return;
+      editingEntity = e;
+      document.getElementById('entity-modal-title').textContent = '✏️ Edit Named Entity';
+      document.getElementById('modal-entity-term').value = e.term;
+      document.getElementById('modal-entity-term').disabled = true;
+      document.getElementById('modal-entity-label').value = e.label || '';
+      document.getElementById('modal-entity-kind').value = e.kind || 'other';
+      document.getElementById('modal-entity-note').value = e.note || '';
+      document.getElementById('entity-modal').style.display = 'flex';
+      setTimeout(() => document.getElementById('modal-entity-label').focus(), 50);
+    }
+
+    function closeEntityModal() {
+      document.getElementById('entity-modal').style.display = 'none';
+      editingEntity = null;
+    }
+
+    function handleModalLabelInput(val) {
+      if (!editingEntity) {
+        const slug = (val || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        document.getElementById('modal-entity-term').value = slug;
+      }
+    }
+
+    async function saveEntityFromModal() {
+      const term = document.getElementById('modal-entity-term').value.trim().toLowerCase();
+      const label = document.getElementById('modal-entity-label').value.trim();
+      const kind = document.getElementById('modal-entity-kind').value;
+      const note = document.getElementById('modal-entity-note').value.trim();
+
+      if (!term) {
+        alert('Please specify a canonical slug term for the entity (e.g. tenser).');
+        return;
+      }
+
+      const btn = document.getElementById('btn-save-entity');
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = 'Saving...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/names`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ term, label, kind, note })
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          alert(`Could not save entity: ${detail}`);
+          return;
+        }
+        showToast(`Saved entity '${label || term}' (${kind})!`);
+        closeEntityModal();
+        await loadEntities();
+      } catch (err) {
+        alert(`Error saving entity: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
+    }
+
+    async function forgetEntity(term, label) {
+      if (!confirm(`Un-register "${label || term}" from the Name Authority Register?\n\nThis removes it from registered entities and allows the word to be proposed as a subject tag again if encountered.`)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/names/${encodeURIComponent(term)}/forget`, {
+          method: 'POST',
+          headers: headers()
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          alert(`Could not unregister entity: ${detail}`);
+          return;
+        }
+        showToast(`Unregistered entity '${label || term}'.`);
+        await loadEntities();
+      } catch (err) {
+        alert(`Error unregistering entity: ${err.message}`);
+      }
     }
 
     // Mode 2: Peer Atoms (Independent tags without parent or children)

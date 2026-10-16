@@ -1,6 +1,6 @@
 # tag_entities.py
 # date created: 2026-09-26 17:16:45
-# date modified: 2026-10-16 00:57:50
+# date modified: 2026-10-16 01:24:52
 # tags: #taxonomy, #authority, #names, #entities
 
 """The name register: the third answer to a tag admission proposal.
@@ -42,6 +42,7 @@ ENTITY_KINDS = (
     "work",
     "project",
     "person",
+    "persona",
     "pet",
     "place",
     "other",
@@ -85,6 +86,38 @@ def record_entity(term: str, label: str = "", kind: str = "other", note: str = "
         logger.warning("[TAG ENTITIES] Could not record '%s': %s", clean, exc)
         return False
     logger.info("[TAG ENTITIES] Recorded '%s' as a name (%s).", clean, kind)
+    return True
+
+
+def update_entity(term: str, label: str = "", kind: str = "other", note: str = "") -> bool:
+    """Directly update or register an entity with explicit label, kind, and note.
+
+    Unlike `record_entity` which preserves existing labels when given empty strings,
+    `update_entity` is used for explicit curation and overrides values.
+    """
+    clean = (term or "").strip().lower().replace(" ", "-").replace("_", "-")
+    if not clean:
+        return False
+    if kind not in ENTITY_KINDS:
+        kind = "other"
+
+    init_db()
+    con = get_db()
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO tag_entities (term, label, kind, note, request_count, recorded_at) "
+                "VALUES (?, ?, ?, ?, 1, ?) "
+                "ON CONFLICT(term) DO UPDATE SET "
+                "  label = excluded.label, "
+                "  kind = excluded.kind, "
+                "  note = excluded.note",
+                (clean, (label or "").strip(), kind, (note or "").strip(), time.time()),
+            )
+    except sqlite3.Error as exc:
+        logger.warning("[TAG ENTITIES] Could not update '%s': %s", clean, exc)
+        return False
+    logger.info("[TAG ENTITIES] Updated entity '%s' (%s, label=%s).", clean, kind, label)
     return True
 
 

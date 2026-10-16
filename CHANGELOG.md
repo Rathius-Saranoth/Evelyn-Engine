@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 00:58:12
+date modified: 2026-10-16 01:24:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.047] - 2026-10-16 — *Taxonomy Entity Authority Register & Default Category View*
+
+### Added
+
+- **Named Entity Authority Register & Management Tab (`evelyn_ui/taxonomy.html`)**:
+  - Integrated a dedicated `👤 Entities` workstation tab into the Taxonomy Explorer (`taxonomy.html`), uniting Name Authority Control (LCNAF equivalent) with Subject Headings (LCSH equivalent).
+  - Features real-time search, kind filtering pills (`All`, `Persona`, `Person`, `Pet`, `Project`, `Product`, `Organization`, `Work`, `Place`, `Other`) with live counter badges, and a responsive entity data table.
+  - Added glassmorphic `➕ Register Entity` and `✏️ Edit Entity` modal dialog supporting automated slug term generation, kind selection, and context notes.
+  - Added sidebar navigation mode for entities with kind icons, search filtering, and usage badges.
+  - Added header statistics badge showing total registered entities.
+- **Entity Authority REST Endpoints (`evelyn_server.py`)**:
+  - Added `POST /api/taxonomy/names` endpoint accepting `SaveEntityRequest` (`term`, `label`, `kind`, `note`) for creating and editing proper entities.
+- **Explicit Entity Curation Helper (`Evelyn/tools/tag_entities.py`)**:
+  - Added `update_entity(term, label, kind, note)` allowing explicit label, kind, and note updates.
+  - Added `"persona"` to `ENTITY_KINDS` to officially classify companion and system personas.
+
+### Changed
+
+- **Default View State in Taxonomy Explorer (`evelyn_ui/taxonomy.html`)**:
+  - Moved `📊 Categories` (Dynamic Category & Concept Intelligence Dashboard) to be the default loaded view on initial page load, presenting macro-category distribution and branch statistics immediately upon entry.
+- **Review Queue Entity Kind Selection (`evelyn_ui/dev.html`)**:
+  - Expanded entity kind dropdown in proposal reviews to include all recognized taxonomy entity kinds (`person`, `persona`, `pet`, `project`, `product`, `organization`, `work`, `place`, `other`).
 
 ## [000.008.046] - 2026-10-16 — *Unification of Memory Subjects & Taxonomy Entities / Non-Entity Topic Curation*
 

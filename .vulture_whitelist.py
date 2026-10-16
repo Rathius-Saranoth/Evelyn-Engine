@@ -1,6 +1,6 @@
 # .vulture_whitelist.py
 # date created: 2026-09-06 18:45:00
-# date modified: 2026-10-06 18:50:12
+# date modified: 2026-10-16 01:24:52
 # tags:
 # Framework whitelist for Vulture dead-code auditing in Evelyn Engine
 # date created: 2026-09-06 18:45:00
@@ -21,6 +21,7 @@ _.MODEL_TOOL_DEFINITIONS
 
 # FastAPI / Server models and background tasks
 _.FinalizeGuidanceRequest
+_.SaveEntityRequest
 
 # Database functions called dynamically or conditionally
 _.list_unindexed_media
