@@ -1,6 +1,6 @@
 # .vulture_whitelist.py
 # date created: 2026-09-06 18:45:00
-# date modified: 2026-10-16 01:24:52
+# date modified: 2026-10-17 12:44:40
 # tags:
 # Framework whitelist for Vulture dead-code auditing in Evelyn Engine
 # date created: 2026-09-06 18:45:00
@@ -34,6 +34,7 @@ _.get_entries_by_category
 _.get_entries_by_category_for_document
 _.is_recategorization_suppressed
 _.audit_category_classifications
+_.load_cat00_index
 _.promote_deferred_proposals
 
 # Google API client helpers & Oura client

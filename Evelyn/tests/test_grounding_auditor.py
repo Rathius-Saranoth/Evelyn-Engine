@@ -1,6 +1,6 @@
 # test_grounding_auditor.py
 # date created: 2026-09-14
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-17 12:44:40
 # tags: #test, #grounding_auditor, #pronouns, #review_queue, #chat_context
 
 """
@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 import evelyn_config as cfg
 from Evelyn.tools import grounding_auditor, memory_db
-from Evelyn.tools.db_migrator import BASELINE_CHAT_SQL, BASELINE_MEMORY_SQL
+from Evelyn.tools.db_migrator import BASELINE_CHAT_SQL
 from evelyn_server import app
 
 
@@ -31,9 +31,6 @@ def isolated_dbs():
 
     with sqlite3.connect(temp_chat_db) as conn:
         conn.executescript(BASELINE_CHAT_SQL)
-
-    with sqlite3.connect(temp_memory_db) as conn:
-        conn.executescript(BASELINE_MEMORY_SQL)
 
     orig_chat_db = getattr(cfg, "CHAT_DB_PATH", None)
     orig_memory_db = getattr(cfg, "MEMORY_DB_PATH", None)
@@ -172,7 +169,7 @@ def test_stage_grounding_proposals():
     assert prop["type"] == "rephrase"
     assert prop["source_ids"] == [eid]
     assert prop["merged_observation"] == f"{cfg.USER_NAME} enjoys listening to synthwave while writing code."
-    assert prop["suggested_category"] == "Cat05-U"
+    assert prop["merged_tags"] == "music, coding"
 
     # Subsequent scan should ignore this entry due to pending proposal
     issues_after = grounding_auditor.detect_grounding_issues(limit=10)

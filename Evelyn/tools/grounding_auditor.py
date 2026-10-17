@@ -1,6 +1,6 @@
 # grounding_auditor.py
 # date created: 2026-09-14
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #memory, #auditor, #grounding, #pronouns, #review_queue
 
 """
@@ -184,24 +184,31 @@ def detect_grounding_issues(
 
     Args:
         limit: Maximum number of ungrounded entries to return.
-        category: Optional category filter (e.g. 'Cat05-U').
+        category: Deprecated legacy filter (maps to subject if provided).
         subject: Optional subject filter.
 
     Returns:
         List of Issue dicts ready to be previewed or staged as proposals.
     """
+    user_name = getattr(cfg, "USER_NAME", "Alex")
+    assistant_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+
+    if category and not subject:
+        cat_upper = str(category).strip().upper()
+        if cat_upper.endswith("-A"):
+            subject = assistant_name
+        elif cat_upper.endswith("-U"):
+            subject = user_name
+
     con = memory_db.get_db()
     cur = con.cursor()
 
     query = """
-        SELECT id, category, subject, observation, tags, date
+        SELECT id, subject, observation, tags, date
         FROM context_entries
         WHERE status = 'live'
     """
     params: list[Any] = []
-    if category:
-        query += " AND category = ?"
-        params.append(category)
     if subject:
         query += " AND subject = ?"
         params.append(subject)
@@ -210,9 +217,6 @@ def detect_grounding_issues(
     rows = cur.execute(query, params).fetchall()
     con.close()
 
-    user_name = getattr(cfg, "USER_NAME", "Alex")
-    assistant_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
-
     issues: list[dict[str, Any]] = []
 
     for row in rows:
@@ -220,14 +224,11 @@ def detect_grounding_issues(
         if memory_db.has_pending_proposal_for([eid]):
             continue
 
-        cat = str(row["category"])
         subj = str(row["subject"])
         obs = str(row["observation"]).strip()
         tags = str(row["tags"] or "")
         entry_date = row["date"]
 
-        is_user_canon = cat.endswith("-U")
-        is_assistant_canon = cat.endswith("-A")
 
         issue_type = None
         grounded_obs = None
@@ -243,7 +244,7 @@ def detect_grounding_issues(
 
         if matched_pronoun:
             # Check for subject contradiction: e.g. subj=Evelyn but obs starts with "He "
-            if matched_pronoun in ("He ", "His ") and subj == assistant_name and is_user_canon:
+            if matched_pronoun in ("He ", "His ") and subj == assistant_name:
                 issue_type = "contradiction_pronoun_subject"
                 # The text is about user, but subject tag was set to assistant
                 suggested_subject = user_name
@@ -260,7 +261,20 @@ def detect_grounding_issues(
             elif matched_pronoun in ("She ", "Her ") and subj == user_name:
                 issue_type = "contradiction_pronoun_subject"
                 remainder = obs[len(matched_pronoun):]
-                if is_assistant_canon:
+                # In User context, female pronoun refers to assistant or third party
+                third_party = memory_db.normalize_subject_attribution("", obs)
+                if third_party and third_party.lower() != user_name.lower() and third_party.lower() != assistant_name.lower():
+                    suggested_subject = third_party
+                    grounded_obs = (
+                        f"{third_party} {remainder}"
+                        if matched_pronoun == "She "
+                        else f"{third_party}'s {remainder}"
+                    )
+                    reason = (
+                        f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
+                        f"Reconciled third-party subject to '{third_party}' and grounded text."
+                    )
+                else:
                     suggested_subject = assistant_name
                     grounded_obs = (
                         f"{assistant_name} {remainder}"
@@ -271,31 +285,11 @@ def detect_grounding_issues(
                         f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
                         f"Corrected subject to '{assistant_name}' and grounded text."
                     )
-                else:
-                    # In User canon (-U), user is male; female pronoun refers to a third party or assistant
-                    third_party = memory_db.normalize_subject_attribution("", obs)
-                    if third_party and third_party.lower() != user_name.lower():
-                        suggested_subject = third_party
-                        grounded_obs = (
-                            f"{third_party} {remainder}"
-                            if matched_pronoun == "She "
-                            else f"{third_party}'s {remainder}"
-                        )
-                        reason = (
-                            f"Subject column was set to '{subj}', but observation refers to '{matched_pronoun.strip()}'. "
-                            f"Reconciled third-party subject to '{third_party}' and grounded text."
-                        )
-                    else:
-                        grounded_obs = None
-                        reason = (
-                            f"Observation refers to '{matched_pronoun.strip()}', but subject is '{user_name}'. "
-                            "Referent entity cannot be determined automatically without chat context."
-                        )
             else:
                 # Floating pronoun matching the subject column
                 remainder = obs[len(matched_pronoun):]
                 target_name = memory_db.normalize_subject_attribution(
-                    subj if subj not in ("Unknown", "") else (user_name if is_user_canon else assistant_name),
+                    subj if subj not in ("Unknown", "") else user_name,
                     obs,
                 )
                 suggested_subject = target_name
@@ -311,7 +305,7 @@ def detect_grounding_issues(
             for v_start in _COMMON_BARE_VERBS:
                 if obs.startswith(v_start):
                     issue_type = "bare_verb"
-                    fallback = user_name if is_user_canon else assistant_name
+                    fallback = assistant_name if subj == assistant_name else user_name
                     raw_target = subj if subj not in ("Unknown", "") else fallback
                     target_name = memory_db.normalize_subject_attribution(raw_target, obs)
                     suggested_subject = target_name
@@ -324,7 +318,7 @@ def detect_grounding_issues(
         if issue_type and grounded_obs:
             issues.append({
                 "entry_id": eid,
-                "current_category": cat,
+                "current_category": None,
                 "current_subject": subj,
                 "suggested_subject": suggested_subject,
                 "original_observation": obs,
@@ -367,7 +361,7 @@ def stage_grounding_proposals(issues: list[dict[str, Any]]) -> list[int]:
             source_ids=[eid],
             merged_observation=issue["grounded_observation"],
             merged_tags=issue.get("tags") or "",
-            suggested_category=issue.get("current_category"),
+            suggested_category=None,
             reason=issue.get("reason"),
             topic=subj_note or f"Ground Observation #{eid}",
             confidence="high",

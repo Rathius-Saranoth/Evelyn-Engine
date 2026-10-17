@@ -1229,7 +1229,7 @@
     function getTriageSearchableFields(item) {
       if (item.item_type === 'extraction') {
         return {
-          text: [item.observation, item.category, item.subject, item.source_file, item.id ? String(item.id) : '', 'extraction'],
+          text: [item.observation, item.subject, item.source_file, item.id ? String(item.id) : '', 'extraction'],
           tags: item.tags ? String(item.tags).split(',').map(t => t.trim()).filter(Boolean) : []
         };
       } else if (item.item_type === 'procedure') {
@@ -1283,7 +1283,7 @@
           const allText = [item.reason, item.topic, item.id ? String(item.id) : '', 'split', 'fact split', 'proposal'];
           const allTags = [];
           for (const f of facts) {
-            allText.push(f.category, f.subject, f.observation);
+            allText.push(f.subject, f.observation);
             if (f.tags) allTags.push(...f.tags.split(',').map(t => t.trim()).filter(Boolean));
           }
           return { text: allText, tags: allTags };
@@ -1328,29 +1328,25 @@
           if (!trimmed || trimmed.startsWith('#')) continue;
           if (trimmed === 'entries:') continue;
 
-          if (trimmed.startsWith('- ') || (trimmed.startsWith('category:') && (!cur || cur.category))) {
-            if (cur && (cur.observation || cur.category)) {
+          if (trimmed.startsWith('- ')) {
+            if (cur && (cur.observation || cur.subject)) {
               cur.observation = cleanYamlScalar(cur.observation);
-              cur.category = cleanYamlScalar(cur.category);
               cur.subject = cleanYamlScalar(cur.subject);
               cur.tags = cleanYamlScalar(cur.tags);
               entries.push(cur);
             }
-            cur = { category: '', subject: currentIdentity.user_name, tags: '', observation: '' };
+            cur = { subject: currentIdentity.user_name, tags: '', observation: '' };
             activeField = null;
           }
 
-          if (!cur) cur = { category: '', subject: currentIdentity.user_name, tags: '', observation: '' };
+          if (!cur) cur = { subject: currentIdentity.user_name, tags: '', observation: '' };
 
           let lineContent = trimmed;
           if (lineContent.startsWith('- ')) {
             lineContent = lineContent.substring(2).trim();
           }
 
-          if (lineContent.startsWith('category:')) {
-            cur.category = lineContent.substring(9).trim();
-            activeField = 'category';
-          } else if (lineContent.startsWith('subject:')) {
+          if (lineContent.startsWith('subject:')) {
             cur.subject = lineContent.substring(8).trim();
             activeField = 'subject';
           } else if (lineContent.startsWith('tags:')) {
@@ -1359,13 +1355,14 @@
           } else if (lineContent.startsWith('observation:')) {
             cur.observation = lineContent.substring(12).trim();
             activeField = 'observation';
+          } else if (lineContent.startsWith('category:')) {
+            // Deprecated category field ignored
           } else if (activeField === 'observation' && (rawLine.startsWith('  ') || rawLine.startsWith('\t') || rawLine.startsWith('    '))) {
             cur.observation = cur.observation ? (cur.observation + '\n' + rawLine) : rawLine;
           }
         }
-        if (cur && (cur.observation || cur.category)) {
+        if (cur && (cur.observation || cur.subject)) {
           cur.observation = cleanYamlScalar(cur.observation);
-          cur.category = cleanYamlScalar(cur.category);
           cur.subject = cleanYamlScalar(cur.subject);
           cur.tags = cleanYamlScalar(cur.tags);
           entries.push(cur);
@@ -1379,12 +1376,10 @@
     function dumpSplitYaml(entries) {
       let lines = ['entries:'];
       for (const e of entries) {
-        const cat = (e.category || `Cat05-${currentIdentity.subject_code_user}`).trim();
         const subj = (e.subject || currentIdentity.user_name).trim();
         const tags = (e.tags || '').trim();
         const obs = (e.observation || '').trim();
-        lines.push(`  - category: ${JSON.stringify(cat)}`);
-        lines.push(`    subject: ${JSON.stringify(subj)}`);
+        lines.push(`  - subject: ${JSON.stringify(subj)}`);
         lines.push(`    tags: ${JSON.stringify(tags)}`);
         if (obs.includes('\n')) {
           lines.push(`    observation: |`);
@@ -2151,7 +2146,7 @@
         inner = entries.slice(0, 4).map(e => `
           <div style="border-left: 2px solid var(--border); padding: 2px 0 2px 10px; margin-bottom: 8px;">
             <div style="font-size: 14px; color: var(--text); line-height: 1.5;">${highlightTerm(e.observation || '', term)}</div>
-            <div style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">memory #${e.id} \u00b7 ${escapeHtml(e.category || '')}</div>
+            <div style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">memory #${e.id}${e.subject ? ` · ${escapeHtml(e.subject)}` : ''}${e.tags ? ` · #${escapeHtml(e.tags)}` : ''}</div>
           </div>`).join('');
         if (entries.length > 4) {
           inner += `<div style="font-size: 11px; color: var(--text-dim);">\u2026 and ${entries.length - 4} more</div>`;
@@ -2410,10 +2405,9 @@
         if (action === 'edit' && type === 'extractions') {
           // obs-${id} is the inline edit textarea on the extraction card.
           const obs = document.getElementById(`obs-${id}`)?.value;
-          const cat = document.getElementById(`ext-cat-${id}`)?.value || document.getElementById(`ce-cat-${id}`)?.value;
           const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
           const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
-          body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
+          body = JSON.stringify({ observation: obs, subject: subj, tags: tags });
         } else if ((action === 'approve' || action === 'merge_into_master' || action === 'edit') && type === 'proposals') {
           const item = unifiedItems.find(x => x.id == id && (x.item_type === 'proposal' || x.item_type === 'profile_update'));
           const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
@@ -2460,11 +2454,10 @@
           } else if (item && item.type === 'split') {
             const currentFacts = parseSplitYaml(item.merged_observation);
             const updatedFacts = currentFacts.map((fact, idx) => {
-              const cat = document.getElementById(`split-prop-cat-${id}-${idx}`)?.value ?? fact.category;
               const subj = document.getElementById(`split-prop-subj-${id}-${idx}`)?.value ?? fact.subject;
               const tags = document.getElementById(`split-prop-tags-${id}-${idx}`)?.value ?? fact.tags;
               const obs = document.getElementById(`split-prop-obs-${id}-${idx}`)?.value ?? fact.observation;
-              return { category: cat, subject: subj, tags: tags, observation: obs };
+              return { subject: subj, tags: tags, observation: obs };
             }).filter(f => f.observation && f.observation.trim().length > 0);
             if (updatedFacts.length > 0) {
               const constructedYaml = dumpSplitYaml(updatedFacts);
@@ -2794,13 +2787,12 @@
         activeBtn.innerHTML = '⏳ Saving...';
       }
 
-      const cat = document.getElementById(`ce-cat-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-cat-${entryId}`)?.value || '';
       const subj = document.getElementById(`ce-subj-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-subj-${entryId}`)?.value || '';
       const obs = document.getElementById(`ce-obs-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-obs-${entryId}`)?.value || '';
       const tags = document.getElementById(`ce-tags-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-tags-${entryId}`)?.value || '';
 
       const endpoint = `${API_BASE}/api/review/extractions/${entryId}/edit`;
-      const body = JSON.stringify({ category: cat, subject: subj, observation: obs, tags: tags });
+      const body = JSON.stringify({ subject: subj, observation: obs, tags: tags });
 
       try {
         const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
@@ -2809,7 +2801,6 @@
           if (item && item.source_entries) {
             const s = item.source_entries.find(e => e.id === entryId);
             if (s) {
-              s.category = cat;
               s.subject = subj;
               s.observation = obs;
               s.tags = tags;
@@ -3052,12 +3043,11 @@
       const entries = parseSplitYaml(item.merged_observation);
       if (!entries[factIdx]) return;
 
-      const cat = document.getElementById(`split-prop-cat-${proposalId}-${factIdx}`)?.value || entries[factIdx].category;
       const subj = document.getElementById(`split-prop-subj-${proposalId}-${factIdx}`)?.value || entries[factIdx].subject || currentIdentity.user_name;
       const tags = document.getElementById(`split-prop-tags-${proposalId}-${factIdx}`)?.value ?? '';
       const obs = document.getElementById(`split-prop-obs-${proposalId}-${factIdx}`)?.value ?? '';
 
-      entries[factIdx] = { category: cat, subject: subj, tags: tags, observation: obs };
+      entries[factIdx] = { subject: subj, tags: tags, observation: obs };
       const newYaml = dumpSplitYaml(entries);
       item.merged_observation = newYaml;
 
@@ -3132,9 +3122,8 @@
       const item = unifiedItems.find(x => x.id === proposalId);
       if (!item) return;
       const entries = parseSplitYaml(item.merged_observation);
-      const defaultCat = entries[0]?.category || item.suggested_category || `Cat05-${currentIdentity.subject_code_user}`;
       const defaultSubj = entries[0]?.subject || currentIdentity.user_name;
-      entries.push({ category: defaultCat, subject: defaultSubj, tags: '', observation: '' });
+      entries.push({ subject: defaultSubj, tags: '', observation: '' });
       const newYaml = dumpSplitYaml(entries);
       item.merged_observation = newYaml;
 
@@ -3689,10 +3678,9 @@
       const item = unifiedItems.find(x => x.id === id);
       if (!item) return;
       const obs = document.getElementById(`obs-${id}`)?.value ?? item.observation;
-      const cat = document.getElementById(`ext-cat-${id}`)?.value ?? item.category;
       const subj = document.getElementById(`ext-subj-${id}`)?.value ?? (item.subject || currentIdentity.user_name);
       const tags = document.getElementById(`ext-tags-${id}`)?.value ?? (item.tags || '');
-      const isDirty = (obs !== item.observation || cat !== item.category || subj !== (item.subject || currentIdentity.user_name) || tags !== (item.tags || ''));
+      const isDirty = (obs !== item.observation || subj !== (item.subject || currentIdentity.user_name) || tags !== (item.tags || ''));
       
       const btnApprove = document.getElementById(`btn-approve-${id}`);
       const btnEdit = document.getElementById(`btn-edit-${id}`);
@@ -3714,20 +3702,11 @@
       }
     }
 
-    function setExtractionCategory(id, cat) {
-      const input = document.getElementById(`ext-cat-${id}`);
-      if (!input) return;
-      input.value = cat;
-      handleEditInput(id);
-    }
-
     function handleRevert(id) {
       const item = unifiedItems.find(x => x.id === id);
       if (!item) return;
       const textarea = document.getElementById(`obs-${id}`);
       if (textarea) textarea.value = item.observation;
-      const catInput = document.getElementById(`ext-cat-${id}`);
-      if (catInput) catInput.value = item.category;
       const subjInput = document.getElementById(`ext-subj-${id}`);
       if (subjInput) subjInput.value = item.subject || currentIdentity.user_name;
       const tagsInput = document.getElementById(`ext-tags-${id}`);
@@ -3748,7 +3727,6 @@
       currentSplitDrafts = [];
 
       let origText = '';
-      let origCat = `Cat05-${currentIdentity.subject_code_user}`;
       let origSubj = currentIdentity.user_name;
       let origTags = '';
 
@@ -3756,7 +3734,6 @@
         const item = unifiedItems.find(x => x.item_type === 'extraction' && x.id === entryId);
         if (item) {
           origText = document.getElementById(`obs-${entryId}`)?.value || item.observation;
-          origCat = document.getElementById(`ext-cat-${entryId}`)?.value || item.category;
           origSubj = document.getElementById(`ext-subj-${entryId}`)?.value || item.subject || currentIdentity.user_name;
           origTags = document.getElementById(`ext-tags-${entryId}`)?.value || item.tags || '';
         }
@@ -3765,7 +3742,6 @@
         const s = prop?.source_entries?.find(e => e.id === entryId);
         if (s) {
           origText = document.getElementById(`ce-obs-${entryId}`)?.value || s.observation;
-          origCat = document.getElementById(`ce-cat-${entryId}`)?.value || s.category;
           origSubj = document.getElementById(`ce-subj-${entryId}`)?.value || s.subject || currentIdentity.user_name;
           origTags = document.getElementById(`ce-tags-${entryId}`)?.value || s.tags || '';
         }
@@ -3774,7 +3750,6 @@
       currentSplitOriginal = {
         entry_id: entryId,
         observation: origText,
-        category: origCat,
         subject: origSubj,
         tags: origTags
       };
@@ -3810,15 +3785,15 @@
           currentSplitDrafts = data.splits || [];
           if (currentSplitDrafts.length === 0) {
             currentSplitDrafts = [
-              { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: currentSplitOriginal.observation, tags: currentSplitOriginal.tags },
-              { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: '', tags: '' }
+              { subject: currentSplitOriginal.subject, observation: currentSplitOriginal.observation, tags: currentSplitOriginal.tags },
+              { subject: currentSplitOriginal.subject, observation: '', tags: '' }
             ];
           }
         } else {
           alert('Failed to decompose with LLM. Creating manual split template.');
           currentSplitDrafts = [
-            { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: currentSplitOriginal.observation, tags: currentSplitOriginal.tags },
-            { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: '', tags: '' }
+            { subject: currentSplitOriginal.subject, observation: currentSplitOriginal.observation, tags: currentSplitOriginal.tags },
+            { subject: currentSplitOriginal.subject, observation: '', tags: '' }
           ];
         }
       } catch (e) {
@@ -3855,11 +3830,10 @@
               <button class="btn btn-sm" style="font-size: 11px; padding: 2px 6px; background: rgba(239, 68, 68, 0.15); color: #f87171;" onclick="removeSplitDraft(${idx})">✕ Remove</button>
             </div>
             <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
-              <input type="text" id="split-cat-${idx}" value="${escapeHtml(d.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="updateSplitDraft(${idx})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-              <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="updateSplitDraft(${idx})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Tags (e.g. coffee, routine)" oninput="updateSplitDraft(${idx})" style="flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="updateSplitDraft(${idx})" title="Subject entity this memory describes" style="width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Tags (e.g. coffee, routine)" oninput="updateSplitDraft(${idx})" title="Controlled vocabulary subject tags (comma-separated)" style="flex: 1; min-width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
             </div>
-            <textarea id="split-obs-${idx}" oninput="updateSplitDraft(${idx})" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(d.observation || '')}</textarea>
+            <textarea id="split-obs-${idx}" oninput="updateSplitDraft(${idx})" placeholder="Substantive atomic observation..." title="Substantive atomic observation statement" style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(d.observation || '')}</textarea>
             ${suggTags}
           </div>
         `;
@@ -3868,7 +3842,6 @@
 
     function addSplitDraft() {
       currentSplitDrafts.push({
-        category: currentSplitOriginal?.category || `Cat05-${currentIdentity.subject_code_user}`,
         subject: currentSplitOriginal?.subject || currentIdentity.user_name,
         observation: '',
         tags: ''
@@ -3887,7 +3860,6 @@
 
     function updateSplitDraft(idx) {
       if (!currentSplitDrafts[idx]) return;
-      currentSplitDrafts[idx].category = document.getElementById(`split-cat-${idx}`)?.value || '';
       currentSplitDrafts[idx].subject = document.getElementById(`split-subj-${idx}`)?.value || currentIdentity.user_name;
       currentSplitDrafts[idx].tags = document.getElementById(`split-tags-${idx}`)?.value || '';
       currentSplitDrafts[idx].observation = document.getElementById(`split-obs-${idx}`)?.value || '';
@@ -4995,7 +4967,7 @@
           <div class="source-item-card" id="source-entry-${item.id}-${s.id || ''}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
               <div style="font-size: 13px;">
-                <span style="color: var(--accent); font-weight: 600;">[${escapeHtml(s.category || 'Context')}]</span>
+                <span style="color: var(--accent); font-weight: 600;">#${escapeHtml(s.id || '')}</span>
                 <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || currentIdentity.user_name)})</span>
               </div>
               ${s.id ? `
@@ -5016,8 +4988,7 @@
             ${s.id ? `
             <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
               <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <input type="text" id="ce-cat-${item.id}-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ce-subj-${item.id}-${s.id}" value="${escapeHtml(s.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ce-subj-${item.id}-${s.id}" value="${escapeHtml(s.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
               <textarea id="ce-obs-${item.id}-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(s.observation)}</textarea>
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -5118,8 +5089,7 @@
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 8px;">
               <div style="display: flex; gap: 8px;">
-                <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" title="Memory taxonomy category code (e.g. Cat05-U for user preferences, Cat04-A for assistant observations)" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes (user name or assistant persona)" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes (user name or assistant persona)" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Tags (e.g. coffee, routine)" title="Controlled vocabulary subject tags (comma-separated)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
               <textarea id="obs-${item.id}" title="The factual observation or atomic memory statement to be stored" oninput="handleEditInput(${item.id})" style="min-height: 70px; line-height: 1.4;">${escapeHtml(item.observation)}</textarea>
@@ -5152,7 +5122,7 @@
                 <div class="split-fact-card" id="split-fact-${item.id}-${idx}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                      <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;" title="Atomic fact item to be created from this split">Fact #${idx + 1}: ${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}</span>
+                      <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;" title="Atomic fact item to be created from this split">Fact #${idx + 1}</span>
                       <span style="color: var(--text-dim); font-size: 12px;" title="Entity subject this fact describes">(${escapeHtml(ce.subject || currentIdentity.user_name)})</span>
                       ${ce.tags ? `<span style="font-size: 11px; color: var(--accent); font-family: monospace;" title="Controlled vocabulary subject tags">#${escapeHtml(ce.tags)}</span>` : ''}
                     </div>
@@ -5164,8 +5134,7 @@
                   <div style="font-size: 13px; line-height: 1.4; color: var(--text); white-space: pre-wrap;">${escapeHtml(ce.observation || '') || '<span style="color: var(--text-dim); font-style: italic;">*(New atomic fact — enter observation below)*</span>'}</div>
                   <div id="edit-split-fact-${item.id}-${idx}" style="${ce.observation ? 'display: none;' : 'display: flex;'} margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                      <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" title="Memory taxonomy category code (e.g. Cat05-U for user preferences, Cat04-A for assistant observations)" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                      <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                       <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Tags (e.g. coffee, routine)" title="Controlled vocabulary subject tags (comma-separated)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                     </div>
                     <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." title="Substantive atomic observation statement" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
@@ -5912,8 +5881,8 @@
 
       // 5. Fact split specifications
       const handledFactSplitIds = new Set();
-      document.querySelectorAll('[id^="split-prop-cat-"]').forEach(el => {
-        const parts = el.id.replace('split-prop-cat-', '').split('-');
+      document.querySelectorAll('[id^="split-prop-obs-"]').forEach(el => {
+        const parts = el.id.replace('split-prop-obs-', '').split('-');
         const id = parseInt(parts[0], 10);
         if (handledFactSplitIds.has(id)) return;
         handledFactSplitIds.add(id);
@@ -5921,11 +5890,10 @@
         if (item) {
           const currentFacts = parseSplitYaml(item.merged_observation);
           const updatedFacts = currentFacts.map((fact, idx) => {
-            const cat = document.getElementById(`split-prop-cat-${id}-${idx}`)?.value ?? fact.category;
             const subj = document.getElementById(`split-prop-subj-${id}-${idx}`)?.value ?? fact.subject;
             const tags = document.getElementById(`split-prop-tags-${id}-${idx}`)?.value ?? fact.tags;
             const obs = document.getElementById(`split-prop-obs-${id}-${idx}`)?.value ?? fact.observation;
-            return { category: cat, subject: subj, tags: tags, observation: obs };
+            return { subject: subj, tags: tags, observation: obs };
           });
           if (updatedFacts.length > 0) {
             item.merged_observation = dumpSplitYaml(updatedFacts);

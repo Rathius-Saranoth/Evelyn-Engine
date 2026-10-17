@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -443,7 +443,7 @@ def search_by_tag(
         tags: One or more subject tags to search (list of strings or comma-separated string).
         target: Target knowledge substrate ('all', 'vault', 'memory', or 'procedures'). Default 'all'.
         match_all: If True (default), requires all specified tags (intersection). If False, matches any (union).
-        limit: Maximum number of results to return per category (default: 5, max: 20).
+        limit: Maximum number of results to return per substrate (default: 5, max: 20).
         **kwargs: Flexible keyword arguments (e.g. tag, query, search).
 
     Returns:
@@ -532,7 +532,7 @@ def search_by_tag(
                 con.row_factory = sqlite3.Row
                 cursor = con.cursor()
                 sql = f"""
-                    SELECT id, category, subject, observation, tags, date
+                    SELECT id, subject, observation, tags, date
                       FROM context_entries
                      WHERE status = 'live' AND tags IS NOT NULL AND tags != '' AND ({where_sql})
                      ORDER BY id DESC
@@ -595,12 +595,11 @@ def search_by_tag(
     if memory_hits:
         out.append(f"### 🧠 Long-Term Memory Facts ({len(memory_hits)})")
         for m in memory_hits:
-            cat = m.get("category") or ""
             subj = m.get("subject") or ""
             date_str = f" ({m['date']})" if m.get("date") else ""
             t_str = f" [tags: {m['tags']}]" if m.get("tags") else ""
             obs = m.get("observation") or ""
-            out.append(f"- `#{m['id']}` [**{cat}** / **{subj}**]{date_str}: {obs}{t_str}")
+            out.append(f"- `#{m['id']}` [**{subj}**]{date_str}: {obs}{t_str}")
         out.append("")
 
     if proc_hits:
@@ -4236,7 +4235,7 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of results to return per category (default: 5, max: 20).",
+                        "description": "Maximum number of results to return per substrate (default: 5, max: 20).",
                     },
                 },
                 "required": ["tags"],

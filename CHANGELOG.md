@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-16 11:37:13
+date modified: 2026-10-17 13:49:09
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,67 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.053] - 2026-10-17 — *Exhaustive Fast Memory Category Removal & Hygiene Convergence*
+
+### Fixed
+
+- **Memory Tag Search Restoration (`Evelyn/tools/evelyn_tools.py`)**:
+  - Fixed critical `sqlite3.OperationalError` in `search_by_tag()` caused by querying dropped `category` column from `context_entries` (`SELECT id, category, subject, observation, tags, date`), which had previously thrown an unhandled database error and caused all memory tag searches to return 0 hits.
+  - Updated result line formatting from `[**{cat}** / **{subj}**]` to `[**{subj}**]`.
+- **Grounding Auditor SQL & Perspective Decoupling (`Evelyn/tools/grounding_auditor.py`, `scripts/audit_grounding.py`)**:
+  - Removed dropped `category` column from `detect_grounding_issues()` query.
+  - Decoupled perspective logic from legacy `cat.endswith("-U")` / `"-A"` codes to direct subject comparison against `cfg.ASSISTANT_NAME` and `cfg.USER_NAME`.
+  - Removed `current_category` from issue payloads and `suggested_category` from staged proposals, preventing `KeyError` crashes in `scripts/audit_grounding.py`.
+- **Merge Remediation SQL & Chroma Chunk Ingestion (`scripts/audit_and_remediate_past_merges.py`, `Evelyn/tools/ingest_obsidian_knowledge.py`)**:
+  - Fixed SQLite queries in `audit_and_remediate_past_merges.py` querying dropped `category` column.
+  - Removed obsolete `Category: Unknown\n` string prefix and `category` metadata key from ChromaDB memory chunks in both `ingest_obsidian_knowledge.py` and `audit_and_remediate_past_merges.py`.
+- **Memory Tag Batch Script (`scripts/memory_tag_batch.py`)**:
+  - Fixed `r.get("category")` lookups on `context_entries` that prevented export filtering and caused `None` to be printed in tab-delimited export streams; re-routed `--category` as a backward-compatible alias for `--subject`.
+- **Test Isolation Fixtures (`Evelyn/tests/test_grounding_auditor.py`, `Evelyn/tests/test_review_endpoints.py`)**:
+  - Replaced ancient `BASELINE_MEMORY_SQL` executions with modern `memory_db.init_db()` in test setup fixtures, preventing schema collision with obsolete non-null `category` columns.
+
+### Changed
+
+- **Temporal RAG Decay Cleanup (`Evelyn/tools/chroma_rag.py`, `evelyn_config.py`)**:
+  - Pruned unused `RAG_CATEGORY_HALF_LIFE_DAYS` mapping and legacy category regex checks; fast memory recency decay is now purely tag-aware (`RAG_TAG_HALF_LIFE_DAYS`) with a default 90-day fallback.
+- **Server Background Telemetry & Endpoint Sanitization (`evelyn_server.py`)**:
+  - Pruned obsolete category scan state tracking (`scan_st`, `active_cat`, `tracked_categories`, `total_categories: 32`, `recats_written`) from the `/api/heavy_tasks` status loop.
+  - Removed `validate_and_normalize_category` import and category normalization blocks from `/api/context/entries/{id}/propose`.
+  - Updated `update_context_entry` tag withholding origin string to use entity subject labels.
+  - Handled legacy `recategorize` proposal approvals by applying `merged_tags` to source entries.
+- **Profile Evolver & Thematic Clustering (`Evelyn/tools/profile_evolver.py`)**:
+  - Updated module docstrings, section headers, and comments to document tag-based thematic clustering and entity attribution.
+  - Annotated `DOCUMENT_CATEGORIES` as a deprecated compatibility mapping.
+- **Fact Categorizer & Extractor Shims (`Evelyn/tools/fact_categorizer.py`, `Evelyn/tools/fact_extractor.py`, `.vulture_whitelist.py`)**:
+  - Pruned dead `_RECAT_DETECT_SYSTEM_PROMPT` and `_RECAT_DETECT_PROMPT` templates.
+  - Documented `fact_categorizer.py` and `load_cat00_index()` as deprecated compatibility shims; whitelisted `load_cat00_index` for Vulture inspection.
+- **Documentation & Agent Rules Alignment (`AGENTS.md`, `reference/engine_architecture.md`, `evelyn_config.py`)**:
+  - Updated `AGENTS.md` §4 to mandate controlled-vocabulary tags (`master_tag_taxonomy`) and explicit entity attribution.
+  - Synchronized `reference/engine_architecture.md` description of `fact_consolidator.py`.
+  - Cleaned up obsolete category comments across `evelyn_config.py`.
+
+## [000.008.052] - 2026-10-17 — *Scrub Split Proposal Categories & Dev UI Alignment*
+
+### Fixed
+
+- **Split Proposal Category Elimination in Dev UI (`evelyn_ui/dev.html`)**:
+  - Scrubbed legacy `Cat##-U/A` category displays and fallback inputs from split proposal cards, extraction candidates, and source entries.
+  - Eliminated the client-side fallback `${escapeHtml(ce.category || \`Cat05-${currentIdentity.subject_code_user}\`)}` on atomic split fact badges and the editable `split-prop-cat` input fields that caused un-categorized split proposals to visually display as `Cat05-U`.
+  - Updated `flushAllPendingInputs()` to query `[id^="split-prop-obs-"]` rather than obsolete `[id^="split-prop-cat-"]` selectors and removed category extraction from pending save payloads.
+  - Aligned split YAML parsing (`parseSplitYaml`) and dumping (`dumpSplitYaml`) to strictly omit `category` attributes.
+  - Scrubbed category fields and inputs from the interactive Split Modal (`openSplitModal`, `renderSplitDrafts`, `addSplitDraft`, `updateSplitDraft`).
+
+### Changed
+
+- **Split Preview Endpoint Taxonomy Alignment (`evelyn_server.py`)**:
+  - Removed `load_cat00_index`, category prompt directives, category rules, and legacy `c_cat` parsing from `/api/context/split_preview`.
+  - Returned split preview objects now conform strictly to `{observation, subject, tags}`, matching the post-000.008.045 memory schema.
+  - Updated tag admission withholding origin label from `split fact (Cat...)` to `split fact (#source_id)`.
+- **Fact Consolidator & Splitter Decoupling (`Evelyn/tools/fact_consolidator.py`, `Evelyn/tools/fact_splitter.py`)**:
+  - Pruned unused `load_cat00_index` import from `fact_consolidator.py`.
+  - Marked `cat00` optional with empty string defaults in `process_split_queue` and `find_and_split_bloated_facts`.
+  - Updated `Evelyn/tests/test_context_split.py` to assert categories are absent from split preview payloads.
 
 ## [000.008.051] - 2026-10-16 — *Fact Consolidator Temporal Anchor Type Guard*
 

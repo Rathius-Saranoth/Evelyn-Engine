@@ -1,18 +1,14 @@
 # fact_categorizer.py
 # date created: 2026-09-14
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #facts, #categories, #taxonomy, #recategorization, #hysteresis
 
 """
-fact_categorizer.py — Category Governance & Taxonomy Audit Engine for Evelyn's Memory Vault.
+fact_categorizer.py — Deprecated Category Governance & Taxonomy Compatibility Shim.
 
-Child engine to fact_consolidator. Audits category placement against the Cat00 taxonomy
-with anti-flip-flop hysteresis protection to prevent repetitive churn.
-
-Key capabilities:
-1. validate_and_normalize_category: Verifies category against canonical taxonomy & subject codes (-U/-A).
-2. remediate_database_categories: Fixes malformed or legacy category labels in SQLite.
-3. audit_category_classifications: Audits records with 30-day anti-hysteresis to prevent ping-pong loops.
+Maintained exclusively for backward compatibility with historical migrations and tests.
+The Cat## fast memory category taxonomy was retired in 000.008.045 in favor of controlled
+vocabulary faceted tags and direct entity attribution.
 """
 
 from __future__ import annotations
@@ -24,37 +20,6 @@ from typing import Any
 import evelyn_config as cfg
 
 logger = logging.getLogger("evelyn.fact_categorizer")
-
-_RECAT_DETECT_SYSTEM_PROMPT = (
-    "You are a Category Auditor for a personal memory system. "
-    "Your job is to evaluate whether entries are filed in the correct category. "
-    "Output only the YAML block, nothing else."
-)
-
-_RECAT_DETECT_PROMPT = """\
-You are auditing context memory entries in category {category} for correct categorization.
-
-For each entry below, evaluate whether it primarily belongs in a different category. \
-Suggest recategorization ONLY when the entry's main subject matter fits another category better \
-— not because it references or touches on another topic. Entries that relate to multiple \
-categories stay in the category with the most weight; cross-category relevance is captured \
-via Secondary links, not file moves.
-{cat_ref}
-
-ENTRIES TO AUDIT:
-{entries_text}
-
-Output ONLY a YAML block in this exact format:
-
-```yaml
-recategorize:
-    - entry_index: 1
-      suggested_category: Cat08-U
-      topic: "brief topic label"
-      reason: "why primary weight belongs in the other category"
-```
-If no recategorizations are needed, output an empty list.\
-"""
 
 _CATEGORY_PATTERN = re.compile(
     r"^Cat(\d{2})-([A-Z])$", re.IGNORECASE

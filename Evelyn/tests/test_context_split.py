@@ -1,6 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-10-16 11:37:13
+# date modified: 2026-10-17 12:11:38
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import datetime
@@ -94,12 +94,10 @@ class TestContextSplit(unittest.TestCase):
         mock_llm_yaml = """
 ```yaml
 entries:
-  - category: Cat05-U
-    subject: Alex
+  - subject: Alex
     tags: "coffee, routine"
     observation: "Prefers morning espresso."
-  - category: Cat14-U
-    subject: Alex
+  - subject: Alex
     tags: "homelab, smart-home-technology"
     observation: "Runs a HomeAssistant Zigbee server."
 ```
@@ -107,15 +105,12 @@ entries:
         with patch("Evelyn.tools.tag_librarian.query_ollama", return_value=mock_llm_yaml):
             req = evelyn_server.SplitPreviewRequest(
                 observation="Likes espresso and runs HomeAssistant.",
-                category="Cat05-U",
                 subject="Alex"
             )
             # Call preview route
             preview_result = asyncio_run(evelyn_server.preview_context_split(req, None))
             self.assertEqual(len(preview_result["splits"]), 2)
-            # Flat controlled-vocabulary terms, not the pre-coordinate path the split prompt
-            # taught until v000.006.204. This assertion previously expected `Home/Coffee/Espresso`
-            # and had been failing since that release.
+            self.assertNotIn("category", preview_result["splits"][0])
             self.assertEqual(preview_result["splits"][0]["tags"], "coffee, routine")
 
     def test_generate_split_proposal_in_consolidator(self):

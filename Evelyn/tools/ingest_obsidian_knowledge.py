@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
@@ -245,7 +245,6 @@ def sync_memory_collection() -> None:
             mtime = float(row.get("updated_at") or row.get("created_at") or 0)
             content = (
                 f"Subject: {row.get('subject', 'Unknown')}\n"
-                f"Category: {row.get('category', 'Unknown')}\n"
                 f"Date: {row['date'] or 'Unknown'}\n"
                 f"Tags: {row.get('tags', '')}\n"
                 f"Observation: {row['observation']}"
@@ -265,7 +264,6 @@ def sync_memory_collection() -> None:
                 "rag_pinned": False,
                 "aliases": "",
                 "subject": row.get("subject", ""),
-                "category": row.get("category", ""),
                 # A context entry's tags were written into the chunk *text* above but never
                 # into its metadata, so anything reading tags at query time saw nothing for
                 # 73% of the collection — they are the majority of what gets retrieved.

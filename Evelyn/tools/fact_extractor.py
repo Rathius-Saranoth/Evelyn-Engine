@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-10-16 00:57:50
+# date modified: 2026-10-17 12:44:40
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -14,7 +14,7 @@ Exports:
   run_extraction()            — Idle-time entry point; called from the server loop.
   cancel_pending_extraction() — Called on each new chat request to free Ollama.
   write_extracted_facts()     — Write parsed facts to the SQLite memory DB.
-  load_cat00_index()          — Return the Cat00 category taxonomy (cached 1 h).
+  load_cat00_index()          — Deprecated legacy helper (retired).
 
 Internal security:
   _sanitize_entry()           — Strips invisible Unicode and rejects prompt-injection
@@ -146,7 +146,7 @@ def _sanitize_entry(text: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Category taxonomy cache - [[Cat00 - Index.md]]
+# Deprecated taxonomy cache (retired)
 # ---------------------------------------------------------------------------
 
 _cat00_text: str = ""
@@ -1068,11 +1068,9 @@ async def _do_extraction(messages: list[dict]):
     Args:
         messages: A list of chat message dictionaries.
     """
-    cat00 = load_cat00_index()
     tag_candidates, mem_candidates, _min_dist, novelty_guidance = retrieve_candidate_taxonomy_and_clusters(messages)
     prompt = _build_extraction_prompt(
         messages=messages,
-        cat00=cat00,
         taxonomy_candidates=tag_candidates,
         memory_candidates=mem_candidates,
         novelty_guidance=novelty_guidance,

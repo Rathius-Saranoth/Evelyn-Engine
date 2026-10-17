@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # memory_tag_batch.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 20:44:26
+# date modified: 2026-10-17 12:44:40
 # tags: #memory, #taxonomy, #backfill, #curation
 
 """Export a batch of untagged memory facts for hand curation, and import the decisions.
@@ -10,7 +10,7 @@ The counterpart to `backfill_memory_tags.py`, which drives the same backlog thro
 model. Reading the facts directly produces better tags and far fewer admission proposals, at the
 cost of somebody's attention — the same trade the Pass 2 vault assignment made.
 
-    --export 150 [--category Cat05-U] > batch.txt
+    --export 150 [--subject User] > batch.txt
     --import decisions.json [--propose]
 
 `decisions.json` is `{"<entry id>": "tag, tag"}`. **Every tag must already be registered.** An
@@ -30,13 +30,13 @@ sys.path.insert(0, "/home/rathius/evelyn")
 from Evelyn.tools import memory_db, tag_librarian, taxonomy_db
 
 
-def export(limit: int, category: str | None) -> None:
-    rows = memory_db.fetch_next_entries_for_tag_audit(batch_size=limit * 4 if category else limit)
-    if category:
-        rows = [r for r in rows if r.get("category") == category][:limit]
+def export(limit: int, subject: str | None) -> None:
+    rows = memory_db.fetch_next_entries_for_tag_audit(batch_size=limit * 4 if subject else limit)
+    if subject:
+        rows = [r for r in rows if r.get("subject") == subject][:limit]
     for r in rows:
         obs = " ".join(str(r.get("observation") or "").split())
-        print(f"{r['id']}\t{r.get('category')}\t{obs}")
+        print(f"{r['id']}\t{r.get('subject')}\t{obs}")
 
 
 def import_decisions(path: str, propose: bool) -> int:
@@ -84,7 +84,8 @@ def import_decisions(path: str, propose: bool) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--export", type=int, metavar="N", help="Print N untagged facts.")
-    ap.add_argument("--category", help="Restrict the export to one Cat##-X code.")
+    ap.add_argument("--subject", help="Restrict the export to one subject entity.")
+    ap.add_argument("--category", help="Deprecated: alias for --subject.")
     ap.add_argument("--import", dest="import_path", metavar="FILE", help="Apply a decisions file.")
     ap.add_argument("--propose", action="store_true", help="Route unregistered terms to review.")
     ap.add_argument("--vocabulary", action="store_true", help="Print the registered vocabulary.")
@@ -99,7 +100,8 @@ def main() -> int:
             print("  " + ", ".join(sorted(by_cat[cat])))
         return 0
     if args.export:
-        export(args.export, args.category)
+        subj = args.subject or args.category
+        export(args.export, subj)
         return 0
     if args.import_path:
         return import_decisions(args.import_path, args.propose)

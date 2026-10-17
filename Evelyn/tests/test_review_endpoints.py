@@ -1,6 +1,6 @@
 # test_review_endpoints.py
 # date created: 2026-09-03 19:47:07
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-17 12:44:40
 # tags:
 
 """
@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 import evelyn_config as cfg
 from Evelyn.tools import memory_db
-from Evelyn.tools.db_migrator import BASELINE_CHAT_SQL, BASELINE_MEMORY_SQL
+from Evelyn.tools.db_migrator import BASELINE_CHAT_SQL
 from evelyn_server import app
 
 
@@ -31,9 +31,6 @@ def isolated_dbs():
 
     with sqlite3.connect(temp_chat_db) as conn:
         conn.executescript(BASELINE_CHAT_SQL)
-
-    with sqlite3.connect(temp_memory_db) as conn:
-        conn.executescript(BASELINE_MEMORY_SQL)
 
     orig_chat_db = getattr(cfg, "CHAT_DB_PATH", None)
     orig_memory_db = getattr(cfg, "MEMORY_DB_PATH", None)

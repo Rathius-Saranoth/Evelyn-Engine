@@ -1,10 +1,10 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
-context_manager.py — Context Category management for Evelyn's memory system.
+context_manager.py — Context Entry lifecycle management for Evelyn's memory system.
 
 Provides two sets of functionality:
   - Standalone helper functions used by ``evelyn_tools.py`` and other modules:
@@ -37,7 +37,7 @@ def append_context_log(
     Args:
         category_code: Deprecated legacy parameter (used only for backward-compatible subject inference if subject is None).
         summary: The fact or event to log. Should be a concise, self-contained statement.
-        secondary_cats: Optional secondary category codes or cross-refs.
+        secondary_cats: Deprecated legacy parameter (cross-refs).
         subject: Optional entity name (defaults to inferred entity or configured USER_NAME).
         tags: Optional comma-separated tags.
 
@@ -60,7 +60,7 @@ def append_context_log(
     else:
         subject = memory_db.normalize_subject_attribution(subject, summary)
 
-    # Clean and combine tags / secondary categories.
+    # Clean and combine tags / cross-refs.
     raw_tag_parts: list[str] = []
     if tags:
         raw_tag_parts.extend(tags.split(","))

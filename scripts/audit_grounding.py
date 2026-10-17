@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # audit_grounding.py
 # date created: 2026-09-14
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-10-17 12:44:40
 # tags: #cli, #grounding, #auditor, #proposals
 
 """
@@ -11,7 +11,7 @@ subject contradictions, and stage non-destructive review proposals into SQLite.
 Usage:
   python scripts/audit_grounding.py --dry-run
   python scripts/audit_grounding.py --limit 10 --show-chat
-  python scripts/audit_grounding.py --category Cat05-U --limit 20 --execute
+  python scripts/audit_grounding.py --subject User --limit 20 --execute
 """
 
 import argparse
@@ -31,8 +31,8 @@ from Evelyn.tools.grounding_auditor import (
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audit and ground memory facts.")
     parser.add_argument("--limit", type=int, default=25, help="Maximum entries to audit (default: 25)")
-    parser.add_argument("--category", type=str, default=None, help="Filter by category (e.g. Cat05-U)")
-    parser.add_argument("--subject", type=str, default=None, help="Filter by subject")
+    parser.add_argument("--category", type=str, default=None, help="Deprecated: filter by legacy category code")
+    parser.add_argument("--subject", type=str, default=None, help="Filter by subject entity (e.g. User, Evelyn)")
     parser.add_argument("--execute", action="store_true", help="Stage proposals in SQLite (default: dry run)")
     parser.add_argument("--dry-run", action="store_true", help="Preview proposed fixes without modifying DB")
     parser.add_argument("--show-chat", action="store_true", help="Fetch and display surrounding chat context")
@@ -44,7 +44,8 @@ def main() -> int:
     print("🔍 Evelyn Engine — Subject & Pronoun Grounding Auditor")
     print("=" * 78)
     mode_label = "⚡ EXECUTE (Staging Proposals)" if is_execute else "🛡️  DRY RUN (Read Only)"
-    print(f"Mode: {mode_label} | Limit: {args.limit} | Category: {args.category or 'ALL'}")
+    filter_label = args.subject or args.category or "ALL"
+    print(f"Mode: {mode_label} | Limit: {args.limit} | Subject Filter: {filter_label}")
     print("-" * 78)
 
     issues = detect_grounding_issues(
@@ -61,7 +62,7 @@ def main() -> int:
     print(f"Found {len(issues)} ungrounded entries:\n")
 
     for idx, item in enumerate(issues, 1):
-        print(f"[{idx}/{len(issues)}] Entry #{item['entry_id']} ({item['current_category']} | Subj: {item['current_subject']})")
+        print(f"[{idx}/{len(issues)}] Entry #{item['entry_id']} (Subj: {item['current_subject']})")
         print(f"  Issue:       {item['issue_type']}")
         print(f"  Reason:      {item['reason']}")
         print(f"  Original:    \"{item['original_observation']}\"")
@@ -87,8 +88,8 @@ def main() -> int:
         print("   Review them in evelyn_ui/dev.html under the Unified Review tab.\n")
     else:
         print(f"\n💡 Dry run complete. To stage these {len(issues)} items as review proposals in dev.html, run:")
-        cat_arg = f" --category {args.category}" if args.category else ""
-        print(f"   python scripts/audit_grounding.py --limit {args.limit}{cat_arg} --execute\n")
+        filter_arg = f" --subject {args.subject}" if args.subject else (f" --category {args.category}" if args.category else "")
+        print(f"   python scripts/audit_grounding.py --limit {args.limit}{filter_arg} --execute\n")
 
     print("=" * 78 + "\n")
     return 0

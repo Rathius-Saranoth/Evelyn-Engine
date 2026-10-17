@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-16 01:55:18
+# date modified: 2026-10-17 12:44:40
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5681,15 +5681,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "active_facts_count": active_facts,
                 }
             elif key == "consolidator":
-                scan_path = str(BASE_DIR / "data" / "evelyn_consolidation_offsets.json")
-                scan_st = {}
-                if os.path.exists(scan_path):
-                    with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
-                        raw_st = await asyncio.to_thread(_server_sync_load_json, scan_path)
-                        if isinstance(raw_st, dict):
-                            scan_st = {k: v for k, v in raw_st.items() if re.match(r"^Cat(0[1-9]|1[0-6])-[UA]$", k)}
-                active_cat = task_data.get("phase") if status == "running" else None
-
                 mdb_path = str(BASE_DIR / "data" / "evelyn_memory.db")
                 total_active_facts = 0
                 total_merged_facts = 0
@@ -5710,7 +5701,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         )
                         pending_merge_proposals = mcur.fetchone()[0]
                         mcur.execute(
-                            "SELECT COUNT(*) FROM proposals WHERE type IN ('merge', 'split', 'recategorize') AND status='pending'"
+                            "SELECT COUNT(*) FROM proposals WHERE type IN ('merge', 'split', 'rephrase') AND status='pending'"
                         )
                         pending_proposals = mcur.fetchone()[0]
                     finally:
@@ -5718,21 +5709,15 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
 
                 last_scanned = sub_status.get("last_run_scanned", sub_status.get("total_records", 0)) if sub_status else 0
                 proposals_written = sub_status.get("proposals_written", 0) if sub_status else 0
-                recats_written = sub_status.get("recats_written", 0) if sub_status else 0
 
                 sub_status = {
                     **(sub_status or {}),
-                    "scan_state": scan_st,
-                    "active_category": active_cat or (sub_status.get("active_category") if sub_status else None),
                     "total_active_facts": total_active_facts,
                     "total_merged_facts": total_merged_facts,
-                    "tracked_categories": len(scan_st),
-                    "total_categories": 32,
                     "pending_merge_proposals": pending_merge_proposals,
                     "pending_proposals": pending_proposals,
                     "last_run_scanned": last_scanned,
                     "proposals_written": proposals_written,
-                    "recats_written": recats_written,
                 }
             elif key == "procedure_consolidator":
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
@@ -6327,7 +6312,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
 class EditEntryRequest(BaseModel):
     """Pydantic model representing a request to edit a memory entry."""
 
-    category: str | None = None
+    category: str | None = None  # Deprecated legacy field
     subject: str | None = None
     observation: str | None = None
     tags: str | None = None
@@ -7401,10 +7386,10 @@ async def _apply_proposal_action(
                     source_entries.append(entry)
 
             if prop["type"] == "recategorize":
-                # final_text intentionally unused here — recategorize only moves entries,
-                # it does not write a merged document.
+                # Legacy proposal type — update tags if provided
                 for entry in source_entries:
-                    memory_db.update_entry(entry["id"], category=prop["suggested_category"])
+                    if prop.get("merged_tags"):
+                        memory_db.update_entry(entry["id"], tags=prop["merged_tags"])
                 memory_db.apply_proposal(id)
             elif prop["type"] == "profile_update":
                 # Repurposed suggested_category contains the target filename (e.g. Assistant_Profile.md)
@@ -7621,7 +7606,7 @@ async def _apply_proposal_action(
                                 kept = withhold_unregistered_tags(
                                     cid,
                                     tags,
-                                    origin=f"split fact ({child.get('category', '')})",
+                                    origin=f"split fact (#{source_id})",
                                     reason="Tag proposed by a fact split but not in the "
                                            "controlled vocabulary.",
                                 )
@@ -7641,8 +7626,6 @@ async def _apply_proposal_action(
                 source_id = source_ids[0] if source_ids else None
                 if source_id:
                     update_kwargs: dict[str, Any] = {"observation": final_text}
-                    if prop.get("suggested_category"):
-                        update_kwargs["category"] = prop["suggested_category"]
                     if prop.get("merged_tags"):
                         update_kwargs["tags"] = prop["merged_tags"]
                     topic_str = str(prop.get("topic") or "")
@@ -8274,11 +8257,10 @@ class SplitApplyRequest(BaseModel):
 @app.post("/api/context/split_preview")
 async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(check_auth)):
     """Decompose a compound or over-merged context entry into atomic child entries."""
-    from Evelyn.tools import fact_extractor, memory_db, string_utils
+    from Evelyn.tools import memory_db, string_utils
     from Evelyn.tools.tag_librarian import normalize_tag_format
 
     obs = req.observation
-    cat = req.category
     subj = req.subject
     tags = req.tags
 
@@ -8287,7 +8269,6 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         entry = memory_db.get_entry(req.entry_id)
         if entry:
             obs = obs or entry.get("observation")
-            cat = cat or entry.get("category")
             subj = subj or entry.get("subject")
             tags = tags or entry.get("tags")
             entry_date = entry.get("date")
@@ -8295,21 +8276,17 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
     if not obs or not obs.strip():
         raise HTTPException(status_code=400, detail="Observation text is required for split preview")
 
-    cat00 = fact_extractor.load_cat00_index()
-
     prompt = (
         "You are an expert knowledge decomposition engine for a personal memory system.\n"
         "Analyze the following compound observation and decompose it into 2 or more atomic, self-contained, "
         "durable context facts. Each fact should represent exactly one coherent observation or preference.\n\n"
         f"COMPOUND OBSERVATION:\n{obs}\n\n"
-        f"SOURCE CATEGORY: {cat or f'Cat05-{cfg.SUBJECT_CODE_USER}'}\n"
         f"SOURCE SUBJECT: {subj or cfg.USER_NAME}\n"
         f"SOURCE TAGS: {tags or ''}\n\n"
-        f"CATEGORY REFERENCE:\n{cat00}\n\n"
         "RULES:\n"
         "1. STRICT ATOMICITY & LENGTH CEILING: Each split observation MUST be a single, discrete, atomic fact (MAXIMUM 35 WORDS). NEVER emit a compound or bloated child observation.\n"
         "2. STANDALONE FULLNESS OF CONTEXT (THE VACUUM TEST): Each split observation MUST be completely intelligible and self-contained in isolation ('in a vacuum'). Facts are retrieved independently in vector RAG without access to surrounding entries. NEVER use dangling demonstratives, relative references, or unresolved anaphora such as 'these traits', 'this decision', 'that event', 'the aforementioned', 'such changes', or ambiguous pronouns ('it', 'they', 'them') pointing to something outside this specific observation. If a fact describes a reaction, decision, agreement, or feeling about an entity's traits or actions, you MUST explicitly inline the specific traits/actions (e.g. write '{cfg.USER_NAME} loved the pointed ears and small nose in {cfg.ASSISTANT_NAME}\\'s imagery', NEVER '{cfg.USER_NAME} loved these traits').\n"
-        f"3. ACCURATE ENTITY SUBJECT ATTRIBUTION & NOUN GROUNDING: Explicitly name the subject/actor by name at the beginning. If an observation describes a third-party entity (family, friend, pet), assign 'subject' to that entity name and use suffix -{cfg.SUBJECT_CODE_USER} for User ledger.\n"
+        "3. ACCURATE ENTITY SUBJECT ATTRIBUTION & NOUN GROUNDING: Explicitly name the subject/actor by name at the beginning. If an observation describes a third-party entity (family, friend, pet), assign 'subject' to that entity name.\n"
         f"4. STRIP CONVERSATION DATE CLUTTER BUT PRESERVE INTRINSIC EVENT DATES: The entry conversation date is tracked in metadata and RAG envelopes. DO NOT restate the current conversation's timestamp inside the observation body for routine daily occurrences, moods, or pet activities (e.g. do NOT write 'On YYYY-MM-DD, {cfg.USER_NAME} mowed the lawn' or '...mowed the lawn on YYYY-MM-DD' or 'As of YYYY-MM-DD...'). If an entry documents an evolution across dates (e.g. 'Previously X as of [date1], now Y as of [date2]'), split them into distinct atomic facts. HOWEVER, DO PRESERVE specific calendar dates that are the actual substance of the memory itself — such as birthdays, anniversaries, future scheduled appointments, deadlines, court dates, trips, or historical milestones (e.g. 'Flu shot scheduled for 10:40 AM on 2026-10-12', 'Birthday is May 23rd', 'Named {cfg.ASSISTANT_NAME} on 2025-05-05').\n"
         "5. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
         "6. CONTROLLED VOCABULARY TAGS: Assign flat subject terms for each split item (e.g. "
@@ -8318,21 +8295,17 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         "named entities follow the same rule — no TitleCase, no underscores. Name the "
         "specific subject, never the container: `work`, `home`, `tools`, `pets`, `system` "
         "and the like are folder headings a flat vocabulary removes and narrow nothing. "
-        "Write `firewall` not `work`, `cat` not `pets`.\n"
-        f"7. Assign the most fitting Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} code for each split entry.\n\n"
+        "Write `firewall` not `work`, `cat` not `pets`.\n\n"
         "Output ONLY a fenced YAML block:\n"
         "```yaml\n"
         "entries:\n"
-        f"  - category: Cat05-{cfg.SUBJECT_CODE_USER}\n"
-        f"    subject: {cfg.USER_NAME}\n"
+        f"  - subject: {cfg.USER_NAME}\n"
         '    tags: "python, automation"\n'
         f'    observation: "{cfg.USER_NAME} prefers developing Python backend services using FastAPI."\n'
-        f"  - category: Cat14-{cfg.SUBJECT_CODE_USER}\n"
-        f"    subject: {cfg.USER_NAME}\n"
+        f"  - subject: {cfg.USER_NAME}\n"
         '    tags: "homelab, automation"\n'
         f'    observation: "{cfg.USER_NAME} manages home automation devices using ZWave on a local server."\n'
-        f"  - category: Cat06-{cfg.SUBJECT_CODE_USER}\n"
-        f"    subject: {cfg.USER_NAME}\n"
+        f"  - subject: {cfg.USER_NAME}\n"
         '    tags: "collaboration, software-architecture"\n'
         f'    observation: "{cfg.USER_NAME} and {cfg.ASSISTANT_NAME} made a joint decision to adopt FastAPI for local services."\n'
         "```"
@@ -8362,9 +8335,6 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         entries_list = data
 
     splits = []
-    asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower()
-    asst_code = getattr(cfg, "SUBJECT_CODE_ASSISTANT", "A")
-    user_code = getattr(cfg, "SUBJECT_CODE_USER", "U")
 
     for item in entries_list:
         if not isinstance(item, dict):
@@ -8377,11 +8347,6 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         c_subj = memory_db.normalize_subject_attribution(
             str(item.get("subject", subj or cfg.USER_NAME)).strip(), c_obs
         )
-        c_cat = str(item.get("category", cat or f"Cat05-{user_code}")).strip()
-        cat_base = c_cat.split("-")[0] if "-" in c_cat else c_cat
-        expected_suffix = f"-{asst_code}" if c_subj.lower() == asst_name else f"-{user_code}"
-        if not c_cat.endswith(f"-{asst_code}") and not c_cat.endswith(f"-{user_code}"):
-            c_cat = f"{cat_base}{expected_suffix}"
 
         is_self_contained, vacuum_reason = string_utils.check_standalone_context(c_obs)
         if not is_self_contained:
@@ -8391,7 +8356,6 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         norm_t = ", ".join([normalize_tag_format(t) for t in raw_t.split(",") if t.strip()])
 
         split_dict = {
-            "category": c_cat,
             "subject": c_subj,
             "observation": c_obs,
             "tags": norm_t,
@@ -8402,7 +8366,6 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         "original": {
             "entry_id": req.entry_id,
             "observation": obs,
-            "category": cat,
             "subject": subj,
             "tags": tags,
         },
@@ -8459,7 +8422,7 @@ async def queue_context_merge(req: ContextMergeRequest, _: None = Depends(check_
 
 class ContextEntryUpdateRequest(BaseModel):
     observation: str | None = None
-    category: str | None = None
+    category: str | None = None  # Deprecated legacy field
     subject: str | None = None
     tags: str | None = None
     confidence: str | None = None
@@ -8469,7 +8432,7 @@ class ContextEntryUpdateRequest(BaseModel):
 
 class ContextEntryProposeRequest(BaseModel):
     observation: str
-    category: str | None = None
+    category: str | None = None  # Deprecated legacy field
     subject: str | None = None
     tags: str | None = None
     reason: str | None = None
@@ -8477,7 +8440,7 @@ class ContextEntryProposeRequest(BaseModel):
 
 class ContextEntryCreateRequest(BaseModel):
     observation: str
-    category: str | None = None
+    category: str | None = None  # Deprecated legacy field
     subject: str | None = None
     tags: str | None = None
     confidence: str = "medium"
@@ -8636,12 +8599,12 @@ async def update_context_entry(
 
         # Check tag withholding for unvetted terms
         if body.tags is not None and normalized_tags:
-            cat_label = fields.get("category") or existing.get("category") or "fact"
+            subj_label = fields.get("subject") or existing.get("subject") or "fact"
             with contextlib.suppress(sqlite3.Error, OSError):
                 kept = tag_librarian.withhold_unregistered_tags(
                     id,
                     normalized_tags,
-                    origin=f"context entry edit ({cat_label})",
+                    origin=f"context entry edit ({subj_label})",
                     reason="Tag added via Context Ledger edit but absent from controlled vocabulary.",
                 )
                 if kept != normalized_tags:
@@ -8671,7 +8634,6 @@ async def propose_context_entry_edit(
     altering the live entry immediately.
     """
     from Evelyn.tools import memory_db, tag_librarian
-    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
 
     def _stage_proposal():
         existing = memory_db.get_entry(id)
@@ -8684,12 +8646,6 @@ async def propose_context_entry_edit(
 
         target_subject = (body.subject or existing.get("subject") or "").strip()
         target_subject = memory_db.normalize_subject_attribution(target_subject, clean_obs)
-
-        norm_cat = None
-        if body.category and body.category.strip():
-            norm_cat = validate_and_normalize_category(body.category.strip(), target_subject)
-            if not norm_cat:
-                return None, f"Invalid category code '{body.category}'"
 
         final_tags = None
         if body.tags is not None:
@@ -8714,7 +8670,7 @@ async def propose_context_entry_edit(
             type="rephrase",
             source_ids=[id],
             merged_observation=clean_obs,
-            suggested_category=norm_cat or existing.get("category"),
+            suggested_category=None,
             merged_tags=final_tags if final_tags is not None else existing.get("tags"),
             topic=topic,
             reason=f"User proposed edit: {user_reason}",

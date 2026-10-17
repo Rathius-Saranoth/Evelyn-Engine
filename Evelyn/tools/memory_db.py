@@ -14,7 +14,7 @@ Schema:
   context_entries           — Stores all context facts (live, extracted, pending_review).
                               Columns track RAG access, per-document evolution, observation recurrence,
                               confidence, source, and domain tags.
-  proposals                 — Stores consolidation, split, and recategorization proposals.
+  proposals                 — Stores consolidation, split, and rephrase proposals.
   procedures                — Stores operational instructions, trigger patterns, and step workflows.
   entry_document_evolution  — Tracks granular per-document evolution timestamps for context facts.
   ambient_impressions       — Stores autonomous daytime musings, reflections, and stream items.
@@ -22,8 +22,8 @@ Schema:
 Usage:
   import memory_db
   memory_db.init_db()                         # Idempotent — safe to call on every startup
-  entry_id = memory_db.insert_entry(category='Cat05-U', subject=cfg.USER_NAME, ...)
-  entries  = memory_db.get_entries_by_category('Cat05-U')
+  entry_id = memory_db.insert_entry(subject=cfg.USER_NAME, observation="...", tags="tech, python")
+  entries  = memory_db.get_all_entries(statuses=["live"])
   memory_db.touch_entry_retrieved(entry_id)   # Fire-and-forget RAG retrieval tracking
   memory_db.touch_entry_evolved(entry_id, ts) # Fire-and-forget; called on profile_update approval
   memory_db.increment_entry_observed(entry_id) # Increment observed_count on duplicate merge
@@ -1060,7 +1060,7 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
     Args:
         source_entry_id: Row ID of the composite context entry to split.
         new_entries: List of dicts representing the atomic child entries to insert.
-            Each dict should have keys: category, subject, observation, and optional tags, date, confidence.
+            Each dict should have keys: subject, observation, and optional tags, date, confidence.
 
     Returns:
         list[int]: List of newly generated row IDs.

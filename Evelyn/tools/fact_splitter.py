@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:11:38
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -180,8 +180,8 @@ async def generate_split_proposal(
 
 
 async def process_split_queue(
-    cat00: str,
-    call_ollama_fn: Callable[..., Any],
+    cat00: str = "",
+    call_ollama_fn: Callable[..., Any] | None = None,
 ) -> int:
     """Drain user-queued entries from split_queue."""
     queued_items = memory_db.get_split_queue(status="pending")
@@ -237,8 +237,8 @@ def _split_was_rejected_and_unchanged(entry: dict[str, Any]) -> bool:
 
 async def find_and_split_bloated_facts(
     records: list[dict[str, Any]],
-    cat00: str,
-    call_ollama_fn: Callable[..., Any],
+    cat00: str = "",
+    call_ollama_fn: Callable[..., Any] | None = None,
     word_threshold: int | None = None,
     limit: int = 3,
 ) -> int:

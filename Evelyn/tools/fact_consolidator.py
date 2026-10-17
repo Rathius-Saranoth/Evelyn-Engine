@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-10-16 11:37:13
+# date modified: 2026-10-17 12:44:40
 # tags: #facts, #consolidation, #deduplication, #orchestrator, #governance
 
 """
@@ -9,7 +9,6 @@ fact_consolidator.py — Idle-Time Fact Consolidation & Memory Governance Orches
 Orchestrates idle-time memory maintenance across specialized child engines:
 1. fact_deduplicator: Fast exact deduplication and ChromaDB vector-driven nearest-neighbor clustering.
 2. fact_splitter: Decomposition of compound/bloated context entries (>35 words) into atomic facts.
-3. fact_categorizer: Taxonomy placement audits against Cat00 with anti-flip-flop hysteresis.
 
 Exports:
   run_consolidation()              — Top-level coroutine; called from the server idle loop.
@@ -53,7 +52,6 @@ from Evelyn.tools.fact_categorizer import (
 from Evelyn.tools.fact_deduplicator import (
     fast_deduplicate_exact_matches,
 )
-from Evelyn.tools.fact_extractor import load_cat00_index
 from Evelyn.tools.fact_splitter import generate_split_proposal as generate_split_proposal
 
 logger = logging.getLogger("evelyn.fact_consolidator")
@@ -229,7 +227,6 @@ def scan_context_entries() -> list[dict]:
             "path": str(row["id"]),
             "rel_path": str(row["id"]),
             "category": subj,
-            "cat_num": 0,
             "subject": subj,
             "tags": row.get("tags"),
             "date": entry_date,
@@ -297,16 +294,13 @@ async def _do_consolidation() -> None:
             merges_applied += 1
 
     # Step 4: Fact Splitting / Decomposition
-    cat00 = load_cat00_index()
-    splits_processed = await fact_splitter.process_split_queue(cat00, _call_ollama)
+    splits_processed = await fact_splitter.process_split_queue(call_ollama_fn=_call_ollama)
     auto_splits = 0
     if getattr(cfg, "CONSOLIDATION_SPLIT_ENABLED", True):
         threshold = getattr(cfg, "CONSOLIDATION_SPLIT_WORD_THRESHOLD", 50)
         auto_splits = await fact_splitter.find_and_split_bloated_facts(
-            records, cat00, _call_ollama, word_threshold=threshold, limit=3
+            records, call_ollama_fn=_call_ollama, word_threshold=threshold, limit=3
         )
-
-    recats_applied = 0
 
     # Collect aggregate telemetry
     metrics = memory_db.get_fact_deduplication_metrics()
@@ -330,7 +324,6 @@ async def _do_consolidation() -> None:
             "clusters_evaluated": len(clusters),
             "merges_applied": merges_applied,
             "splits_applied": splits_processed + auto_splits,
-            "recats_applied": recats_applied,
         },
     )
 

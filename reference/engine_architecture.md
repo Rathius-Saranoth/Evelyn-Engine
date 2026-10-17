@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-10-14 01:31:45
+date modified: 2026-10-17 13:49:09
 ---
 # Evelyn Engine Architecture Map
 
@@ -180,7 +180,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[health_manager.py]]**: Health and vitals query engine. Blends live Oura Cloud API metrics with local SQLite Health Connect records for comprehensive health intelligence.
 * **[[time_manager.py]]**: Dedicated temporal management and chronology subsystem. Provides timezone-aware datetime parsing across UNIX epochs, Google Calendar all-day date strings (`YYYY-MM-DD`), and Google Tasks timestamps, evaluates role-agnostic silence gaps, generates structured `<temporal_context>` XML telemetry envelopes for LLM turns, and drives the always-on proactive heartbeat loop.
 * **[[string_utils.py]]**: Canonical string processing, sanitization, and XML envelope constructor library. Houses standard XML escaping (`escape_xml_content`, `escape_xml_attr`), token pruning wrappers (`wrap_xml_envelope`), domain builders (`build_temporal_envelope`, `build_context_retrieval_envelope`, `build_autonomous_trigger_envelope`, `build_system_event_envelope`, `build_memory_context_envelope`), deterministic multi-envelope stacking (`stack_envelopes`), and turn isolation (`inject_envelope_to_turn`). See [[xml_injection_conventions.md]].
-* **[[fact_consolidator.py]]**: Master orchestrator for memory consolidation. Coordinates `fact_deduplicator.py` (SQL exact merges, vector nearest-neighbor candidate clustering, and merge proposal synthesis), `fact_categorizer.py` (taxonomy remediation and 30-day anti-hysteresis suppression), and `fact_splitter.py` (atomic decomposition of compound facts >35 words with parent lineage tracking).
+* **[[fact_consolidator.py]]**: Master orchestrator for memory consolidation. Coordinates `fact_deduplicator.py` (SQL exact merges, vector nearest-neighbor candidate clustering, and merge proposal synthesis) and `fact_splitter.py` (atomic decomposition of compound facts >35 words with parent lineage tracking).
 * **[[grounding_auditor.py]]**: Review-gated subject and pronoun grounding auditor. Scans live context entries for floating pronouns, subject contradictions, and bare verbs, stages non-destructive `rephrase` proposals, and performs ephemeral on-demand FTS5 BM25 source chat retrieval against `evelyn_chat.db`.
 * **[[procedure_consolidator.py]]**: Idle-time procedure consolidation engine. Merges overlapping procedural rules into unified specifications.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Operates on the **Two-Layer Factoid Ledger Architecture** in coordination with `profile_ledger.py`, evaluating atomic delta JSON operations against authoritative fact ledgers (`*_facts.md`), enforcing deterministic intra-tier word budget pruning, and compiling clean presentation documents (`*.md`). Features **thematic section pre-clustering**, **draft ledger persistence** for interrupted runs, and a **dedicated editorial proofreading pass**.

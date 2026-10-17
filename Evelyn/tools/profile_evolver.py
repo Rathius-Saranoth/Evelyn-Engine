@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -56,7 +56,7 @@ def _sync_write_file(path: str, content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Subject and Category-to-document mapping
+# Subject and Document mapping (with deprecated Category mapping for compatibility)
 # ---------------------------------------------------------------------------
 DOCUMENT_SUBJECTS: dict[str, list[str]] = {
     cfg.PERSONA_FILE_ASSISTANT: [cfg.ASSISTANT_NAME],
@@ -64,6 +64,7 @@ DOCUMENT_SUBJECTS: dict[str, list[str]] = {
     cfg.PERSONA_FILE_DIRECTIVES: [cfg.USER_NAME, cfg.ASSISTANT_NAME],
 }
 
+# Deprecated: Retained for backward-compatibility with external callers checking doc in DOCUMENT_CATEGORIES
 DOCUMENT_CATEGORIES: dict[str, list[str]] = {
     cfg.PERSONA_FILE_ASSISTANT: [
         f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -197,7 +198,7 @@ DOMAIN_BANNED_PATTERNS: dict[str, list[re.Pattern]] = {
 
 # ---------------------------------------------------------------------------
 # Canonical structural schema (Required section headers per document)
-# Prevents topical erosion, category merging, or accidental header deletion
+# Prevents topical erosion, section merging, or accidental header deletion
 # ---------------------------------------------------------------------------
 CANONICAL_DOCUMENT_SECTIONS: dict[str, list[str]] = {
     cfg.PERSONA_FILE_ASSISTANT: [
@@ -1210,7 +1211,7 @@ def prune_bullets_to_word_budget(filename: str, document_body: str, target_limit
 
 
 def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: int = 40) -> list[dict]:
-    """Group and organize qualifying memory entries by thematic category and entity.
+    """Group and organize qualifying memory entries by thematic section and entity tags.
 
     Instead of arbitrary chronological chunking, partitions entries into
     thematic batches matching the document's structure, pre-aggregating related
@@ -1242,7 +1243,7 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
         target_tags = {t.lower() for t in theme.get("tags", [])}
         section_header = theme.get("section_header", "")
 
-        # Collect entries matching this theme's tags or legacy categories
+        # Collect entries matching this theme's tags (with backward-compatible category fallback)
         theme_entries = []
         for e in entries:
             e_cat = e.get("category")
@@ -1323,7 +1324,7 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
                 }
             )
 
-    # Catch-all for any unassigned categories
+    # Catch-all for any unassigned entries
     unassigned = [e for e in entries if e.get("id") and e["id"] not in assigned_entry_ids]
     if unassigned:
         unassigned.sort(key=lambda e: max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0))

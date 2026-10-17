@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # audit_and_remediate_past_merges.py
 # date created: 2026-10-12 23:35:00
-# date modified: 2026-10-13 00:43:42
+# date modified: 2026-10-17 12:44:40
 # tags: #memory, #remediation, #merges, #splits, #deduplication
 
 """Audit and remediate historical memory merges in Evelyn's SQLite database.
@@ -59,7 +59,7 @@ def generate_report(con: sqlite3.Connection, word_threshold: int = 35) -> dict:
             "SELECT id, observation FROM context_entries WHERE split_from_id = ?", (mid,)
         ).fetchall()
         secondaries = cur.execute(
-            "SELECT id, observation, date, category, subject, tags FROM context_entries WHERE merged_into_id = ?", (mid,)
+            "SELECT id, observation, date, subject, tags FROM context_entries WHERE merged_into_id = ?", (mid,)
         ).fetchall()
 
         children_text = " ".join([c["observation"].lower() for c in children])
@@ -123,7 +123,6 @@ def recover_orphaned_facts(con: sqlite3.Connection, execute: bool = False) -> in
         try:
             content = (
                 f"Subject: {sec.get('subject', 'Unknown')}\n"
-                f"Category: {sec.get('category', 'Unknown')}\n"
                 f"Date: {sec.get('date') or 'Unknown'}\n"
                 f"Tags: {sec.get('tags') or ''}\n"
                 f"Observation: {sec['observation']}"
@@ -135,7 +134,6 @@ def recover_orphaned_facts(con: sqlite3.Connection, execute: bool = False) -> in
                     "rag_priority": "high",
                     "rag_pinned": False,
                     "subject": sec.get("subject", ""),
-                    "category": sec.get("category", ""),
                     "tags": sec.get("tags") or "",
                 },
                 collection_name=cfg.CHROMA_MEMORY_COLLECTION,
@@ -170,7 +168,7 @@ def unmerge_bloated_masters(con: sqlite3.Connection, word_threshold: int = 35, e
         mid = m["id"]
         # Fetch all secondaries attached to this master
         secs = cur.execute(
-            "SELECT id, category, subject, date, tags, observation FROM context_entries WHERE merged_into_id = ?",
+            "SELECT id, subject, date, tags, observation FROM context_entries WHERE merged_into_id = ?",
             (mid,),
         ).fetchall()
 
@@ -206,7 +204,6 @@ def unmerge_bloated_masters(con: sqlite3.Connection, word_threshold: int = 35, e
         try:
             content = (
                 f"Subject: {s['subject'] or 'Unknown'}\n"
-                f"Category: {s['category'] or 'Unknown'}\n"
                 f"Date: {s['date'] or 'Unknown'}\n"
                 f"Tags: {s['tags'] or ''}\n"
                 f"Observation: {s['observation']}"
@@ -218,7 +215,6 @@ def unmerge_bloated_masters(con: sqlite3.Connection, word_threshold: int = 35, e
                     "rag_priority": "high",
                     "rag_pinned": False,
                     "subject": s["subject"] or "",
-                    "category": s["category"] or "",
                     "tags": s["tags"] or "",
                 },
                 collection_name=cfg.CHROMA_MEMORY_COLLECTION,

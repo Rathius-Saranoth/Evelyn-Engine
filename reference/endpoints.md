@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-16 00:24:33
+date modified: 2026-10-17 13:49:09
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -217,12 +217,12 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `POST /api/context/split_preview`
 * **Purpose**: Decompose a compound or over-merged context entry into atomic child entries with LLM assistance and Vector RAG taxonomy tagging.
-* **Payload**: `SplitPreviewRequest` JSON: `{"entry_id": int, "observation": "string", "category": "string", "subject": "string", "tags": "string"}`.
-* **Response**: `{"original": {...}, "splits": [{"category": "Cat05-U", "subject": "Alex", "observation": "...", "tags": "...", "suggested_tags": [...], "alignment_label": "Aligned", "novelty_score": 0.22}, ...]}`.
+* **Payload**: `SplitPreviewRequest` JSON: `{"entry_id": int, "observation": "string", "subject": "string", "tags": "string"}`.
+* **Response**: `{"original": {...}, "splits": [{"subject": "Alex", "observation": "...", "tags": "...", "suggested_tags": [...], "alignment_label": "Aligned", "novelty_score": 0.22}, ...]}`.
 
 ### `POST /api/context/split_apply`
 * **Purpose**: Atomically soft-delete a compound parent context entry and insert the verified atomic child entries.
-* **Payload**: `SplitApplyRequest` JSON: `{"source_id": 123, "entries": [{"category": "Cat05-U", "subject": "Alex", "observation": "...", "tags": "..."}]}`.
+* **Payload**: `SplitApplyRequest` JSON: `{"source_id": 123, "entries": [{"subject": "Alex", "observation": "...", "tags": "..."}]}`.
 * **Response**: `{"status": "ok", "new_ids": [124, 125]}`. Triggers a background memory refresh automatically.
 
 ### `POST /api/context/{id}/queue_split`

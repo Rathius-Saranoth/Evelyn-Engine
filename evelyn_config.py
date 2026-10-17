@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-10-16 00:13:20
+# date modified: 2026-10-17 12:44:40
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -98,7 +98,7 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 ASSISTANT_NAME = os.getenv("EVELYN_ASSISTANT_NAME", "Evelyn")  # The AI companion's name
 USER_NAME = os.getenv("EVELYN_USER_NAME", "User")  # The human operator's name
 
-# Subject codes used in memory taxonomy (Cat01-U, Cat01-A, etc.)
+# Subject codes used in memory taxonomy and entity attribution
 # These are abstract identifiers — they map to USER_NAME / ASSISTANT_NAME
 # in display contexts.
 SUBJECT_CODE_USER = "U"  # Migrated from "R" (User)
@@ -493,8 +493,8 @@ SQLITE_PRAGMAS = [
     "PRAGMA temp_store=MEMORY;",  # Store intermediate result sets in DRAM
 ]
 
-# Official category names — dynamically generated for consolidator, reviewer, and fact extractor.
-# Sourced from: Context Categories/Cat00 - Index.md
+# Deprecated: Legacy fast memory category names (retained for backward compatibility).
+# Fast memory now utilizes faceted controlled-vocabulary tags and direct entity attribution.
 _CATEGORY_LABELS = [
     "Core Identity",
     "Core Values and Beliefs",
@@ -640,19 +640,6 @@ RAG_TAG_HALF_LIFE_DAYS: dict[str, int] = {
     "architecture": 0,
 }
 
-# Legacy category fallback map (deprecated, retained for backward compatibility)
-RAG_CATEGORY_HALF_LIFE_DAYS: dict[str, int] = {
-    "Cat01": 30,   # Physical State / Health (ephemeral)
-    "Cat02": 30,   # Mood / Energy (ephemeral)
-    "Cat05": 75,   # Routines, Habits & Daily Preferences (adaptive state)
-    "Cat06": 120,  # Assistant Persona, Perception & Dynamics
-    "Cat07": 120,  # Interaction Patterns & Conversational Rapport
-    "Cat04": 365,  # Core Principles, Identity & Boundaries (stable traits)
-    "Cat03": 365,  # Family, Background & Social Circles (stable)
-    "Cat10": 0,    # Major Life Events & Personal History (0 = infinite / no decay)
-    "Cat13": 0,    # System, Cognitive Architecture & Meta Protocols (0 = infinite)
-    "Cat14": 180,  # Environment, Workspaces & Hardware (semi-stable)
-}
 
 # =============================================================================
 # Entry Management
@@ -883,7 +870,7 @@ FACT_EXTRACTION_DEDUP_MIN_OVERLAP = 0.70
 # Idle-Time Consolidation
 # =============================================================================
 # Scans live context entries during server idle time to find duplicates,
-# contradictions, and miscategorized facts. Uses think=True for nuanced
+# contradictions, and redundant facts. Uses think=True for nuanced
 # semantic reasoning. Produces proposal files in PENDING_DIR for review.
 # Nothing is auto-applied to the live vault.
 
@@ -914,21 +901,17 @@ CONSOLIDATION_IDLE_CHECK_INTERVAL = 300  # 5 minutes
 # Default: 5 minutes. The consolidator tracks its own last-run timestamp.
 CONSOLIDATION_COOLDOWN = 300  # 5 minutes
 
-# Maximum number of conflict clusters to process per run.
+# Maximum number of entity/anchor clusters to evaluate per run.
 # Each cluster = one LLM call (detect) + one LLM call (merge). Keep low
 # to bound the idle-time cost to a predictable budget.
 CONSOLIDATION_BATCH_SIZE = 6
 
-# Maximum number of category groups to run the detection LLM call against.
-# Each group = one LLM call. BATCH_SIZE caps proposals; this caps detections.
-# With 30 groups and think=True at ~45s each, limit to avoid monopolizing Ollama.
-# Groups are scanned in category order (Cat01 first); adjust to taste.
+# Maximum number of anchor entries to evaluate for semantic candidate clustering.
 CONSOLIDATION_GROUP_SCAN_LIMIT = 5
 
 # Maximum records shown per group in the detection prompt.
 # Newest-first; older entries are omitted with a count note.
-# Keeps prompts focused and KV cache lean. With the anchor-based scan,
-# all entries are still visited over multiple passes.
+# Keeps prompts focused and KV cache lean.
 CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
 
 # Automatic Fissure/Split detection for bloated compound context entries.

@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-10-16 00:13:19
+# date modified: 2026-10-17 12:44:40
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1454,7 +1454,7 @@ def _apply_priority_boost(chunks: list[dict]) -> list[dict]:
 
 
 def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = None) -> list[dict]:
-    """Adjust each chunk's distance based on category-aware exponential recency decay.
+    """Adjust each chunk's distance based on tag-aware exponential recency decay.
 
     Applies half-life temporal decay to SQLite context entries based on observation date or
     creation timestamp. Recent observations are boosted (closing distance); outdated facts
@@ -1498,7 +1498,6 @@ def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = Non
         except (sqlite3.Error, OSError, ValueError):
             entry_id_map = {}
 
-    half_life_map = getattr(cfg, "RAG_CATEGORY_HALF_LIFE_DAYS", {})
     w_rec = float(getattr(cfg, "RAG_RECENCY_WEIGHT", 0.35))
     current_time = float(now_ts) if now_ts is not None else time.time()
 
@@ -1560,7 +1559,7 @@ def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = Non
 
         age_days = max(0.0, (current_time - entry_ts) / 86400.0)
 
-        # Look up tag-aware or category-specific half-life
+        # Look up tag-aware half-life (defaults to 90 days if untagged)
         half_life_days: int | None = None
         tag_half_life_map = getattr(cfg, "RAG_TAG_HALF_LIFE_DAYS", {})
         raw_tags = str(entry.get("tags") or "").strip()
@@ -1571,10 +1570,7 @@ def _apply_temporal_recency_boost(chunks: list[dict], now_ts: float | None = Non
                     break
 
         if half_life_days is None:
-            cat = str(entry.get("category") or "")
-            cat_prefix_match = re.search(r"Cat(\d{2})", cat)
-            cat_key = f"Cat{cat_prefix_match.group(1)}" if cat_prefix_match else cat
-            half_life_days = half_life_map.get(cat_key, 90)
+            half_life_days = int(getattr(cfg, "RAG_DEFAULT_HALF_LIFE_DAYS", 90))
 
         if half_life_days <= 0:
             # Infinite half-life (e.g. milestones, life events, fundamental protocols): neutral

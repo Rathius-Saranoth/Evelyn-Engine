@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-10-09 23:59:47
+date modified: 2026-10-17 13:49:09
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -62,7 +62,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ## 4. Identity Parameterization & Privacy Boundary
 - **Config as Single Source of Identity**: Identity variables (`ASSISTANT_NAME`, `USER_NAME`, `SUBJECT_CODE_USER = "U"`, `SUBJECT_CODE_ASSISTANT = "A"`) and vault write roots/boundaries live in `evelyn_config.py`. Never hardcode raw persona/operator names or absolute vault subtrees into engine tools, prompts, tests, migrations, or commit logs.
 - **Privacy & Git Tracking Boundary**: Tracked repository files (including `Evelyn/tools/db_migrator.py`, `CHANGELOG.md`, tests, and source code) are backed up to public/remote repositories (GitHub). Never hardcode specific memory entry IDs, personal observations, or raw conversation texts into migrations, tests, or changelogs.
-- **Fast Memory Taxonomy**: Categories strictly follow `Cat##-U` for User facts and `Cat##-A` for Assistant facts. The database `subject` column stores the configured entity name (`cfg.USER_NAME` / `cfg.ASSISTANT_NAME`).
+- **Fast Memory Taxonomy & Attribution**: Context facts are categorized using faceted controlled-vocabulary tags from `master_tag_taxonomy` (per `.agents/rules/vault-tag-taxonomy.md`). The database `subject` column explicitly stores the attributed entity name (`cfg.USER_NAME`, `cfg.ASSISTANT_NAME`, or registered third-party entities) rather than legacy `Cat##-U/A` category codes.
 - **Templates & Private Scripts**: Generic open-source markdown templates reside in `templates/`. Private/machine-specific scripts belong in `scripts/personal/` (gitignored).
 
 ## 5. Versioning, Changelog & Database Migrations
