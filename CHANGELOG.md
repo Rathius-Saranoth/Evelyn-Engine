@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-17 13:49:09
+date modified: 2026-10-17 14:28:25
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.054] - 2026-10-17 — *Editable Fact Merge Proposals in Dev Review Workstation*
+
+### Added
+
+- **Editable Fact Merge Proposal Card (`evelyn_ui/dev.html`)**:
+  - Implemented a dedicated first-class workstation card for memory fact merge proposals (`type === 'merge'` and `type === 'supersede'`).
+  - Added an in-place editable `<textarea id="prop-edit-${item.id}">` allowing operators to refine, expand, or adjust the proposed consolidated observation statement prior to approval.
+  - Added an editable `<input id="prop-tags-${item.id}">` for controlled-vocabulary subject tags to curate or adjust tags on the merged master fact.
+  - Added a dedicated "💾 Save Changes" button (`handleAction('proposals', id, 'edit')`) and background auto-save debouncing (500ms) with a live visual save indicator.
+  - Added a decision guidance modal hint for merge proposals (`REVIEW_HINTS.merge`) accessible via `? Hint` button.
+  - Added `🔀 Fact Merges` filter option and badge counter to the triage filter dropdown (`#triage-type-select`).
+
+### Fixed
+
+- **Proposal Review Endpoint Tag & Content Overrides (`evelyn_server.py`)**:
+  - Updated `_apply_proposal_action` for `action == "edit"` to accept and persist user-curated `tags` alongside `modified_text` into `proposals.merged_tags`.
+  - Updated proposal approval (`action in ("approve", "merge_into_master")`) for `merge` and `supersede` types to apply user-curated tags (`req.tags`) to `memory_db.apply_fact_merge()`, ensuring human tag refinements committed during review are preserved in the master context entry.
+  - Added comprehensive unit and integration tests (`test_merge_proposal_direct_edit_and_approval`, `test_merge_proposal_edit_action` in `Evelyn/tests/test_review_endpoints.py`).
 
 ## [000.008.053] - 2026-10-17 — *Exhaustive Fast Memory Category Removal & Hygiene Convergence*
 

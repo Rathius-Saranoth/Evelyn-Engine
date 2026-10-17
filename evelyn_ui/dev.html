@@ -2280,6 +2280,19 @@
            "If you&rsquo;d never open it, Reject &mdash; it comes back if it gets mentioned a lot more later, so this isn&rsquo;t your last chance."],
         ],
       },
+      merge: {
+        title: 'Should these facts be merged into one?',
+        lede: "Multiple context facts record the same underlying observation or event, creating redundancy in memory.",
+        points: [
+          ["Do these describe the exact same event or trait?",
+           "If they describe the same occurrence or preference with slightly different wording, merging combines them into one definitive fact."],
+          ["Does the proposed content capture the necessary detail?",
+           "You can edit the proposed consolidated observation and tags directly in the card before approving to preserve any subtle nuances."],
+          ["Are they distinct facts that just sound similar?",
+           "If one happened on Monday and another on Friday, or if they represent genuinely distinct preferences, Reject the merge so both stay separate."]
+        ],
+        footer: "Approving updates the master context entry with your edited observation and tags, and soft-deletes the secondary duplicate entries."
+      },
     };
 
     function openHintModal(type) {
@@ -2502,8 +2515,14 @@
             });
           } else {
             const editArea = document.getElementById(`prop-edit-${id}`);
-            if (editArea) {
-              body = JSON.stringify({ modified_text: editArea.value });
+            const tagsInput = document.getElementById(`prop-tags-${id}`);
+            const textToSend = editArea ? editArea.value : (item ? item.merged_observation : '');
+            const tagsToSend = tagsInput ? tagsInput.value : (item ? item.merged_tags : undefined);
+            const payload = {};
+            if (textToSend !== undefined) payload.modified_text = textToSend;
+            if (tagsToSend !== undefined) payload.tags = tagsToSend;
+            if (Object.keys(payload).length > 0) {
+              body = JSON.stringify(payload);
             }
           }
         }
@@ -2523,8 +2542,16 @@
               if (item && body) {
                 try {
                   const b = JSON.parse(body);
-                  if (b.modified_text) item.merged_observation = b.modified_text;
+                  if (b.modified_text !== undefined) item.merged_observation = b.modified_text;
+                  if (b.tags !== undefined) item.merged_tags = b.tags;
                 } catch (_) {}
+              }
+              if (activeBtn) {
+                activeBtn.disabled = false;
+                activeBtn.innerHTML = '✅ Saved!';
+                setTimeout(() => {
+                  if (activeBtn) activeBtn.innerHTML = originalText;
+                }, 1200);
               }
               render();
               return;
@@ -2762,6 +2789,55 @@
           }
         }, 500);
       }
+    }
+
+    function updateProposalMergeLive(id) {
+      const textarea = document.getElementById(`prop-edit-${id}`);
+      const tagsInput = document.getElementById(`prop-tags-${id}`);
+      const indicator = document.getElementById(`save-indicator-${id}`);
+      const item = unifiedItems.find(x => x.id === id);
+      if (item) {
+        if (textarea) item.merged_observation = textarea.value;
+        if (tagsInput) item.merged_tags = tagsInput.value;
+      }
+      if (indicator) {
+        indicator.textContent = 'Saving edits...';
+        indicator.style.color = 'var(--accent)';
+      }
+      if (proposalEditDebounceTimers[id]) clearTimeout(proposalEditDebounceTimers[id]);
+      proposalEditDebounceTimers[id] = setTimeout(async () => {
+        try {
+          const payload = {};
+          if (textarea) payload.modified_text = textarea.value;
+          if (tagsInput) payload.tags = tagsInput.value;
+          const res = await fetch(`${API_BASE}/api/review/proposals/${id}/edit`, {
+            method: 'POST',
+            headers: headers(),
+            body: JSON.stringify(payload)
+          });
+          if (indicator) {
+            if (res.ok) {
+              indicator.textContent = '✅ Edits saved';
+              indicator.style.color = '#34d399';
+              setTimeout(() => {
+                if (indicator) {
+                  indicator.textContent = 'Edits auto-save to proposal';
+                  indicator.style.color = 'var(--text-dim)';
+                }
+              }, 2000);
+            } else {
+              indicator.textContent = '⚠️ Auto-save failed';
+              indicator.style.color = '#f87171';
+            }
+          }
+        } catch (e) {
+          console.warn(`Could not auto-save proposal edit for #${id}:`, e);
+          if (indicator) {
+            indicator.textContent = '⚠️ Network error auto-saving';
+            indicator.style.color = '#f87171';
+          }
+        }
+      }, 500);
     }
 
     function toggleEditSourceEntry(proposalId, entryId) {
@@ -5185,6 +5261,72 @@
           `;
         }
 
+        if (item.type === 'merge' || item.type === 'supersede') {
+          const isSupersede = item.type === 'supersede';
+          return `
+            <div class="card" data-proposal-type="${item.type}" data-proposal-id="${item.id}">
+              <div class="card-header">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span class="badge" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.4); font-weight: 600;" title="Proposal to consolidate overlapping or duplicate context facts into a single unified memory observation">
+                    PROPOSAL: ${isSupersede ? 'FACT SUPERSEDE' : 'FACT MERGE'}
+                  </span>
+                  <span>ID: ${item.id}</span>
+                  ${item.topic ? `<span class="badge" style="background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border);" title="Duplicate fact cluster topic">${escapeHtml(item.topic)}</span>` : ''}
+                  <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" title="Number of source context entries being consolidated">${(item.source_entries || []).length} Sources</span>
+                </div>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px;">Reason / Rationale</div>
+                  <div style="font-size: 13px; color: var(--text); line-height: 1.4;">${escapeHtml(item.reason || '')}</div>
+                </div>
+
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                    <div style="font-size: 11px; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;" title="The consolidated observation statement that will be committed to SQLite memory upon approval">
+                      Proposed Consolidated Content (Editable prior to approval)
+                    </div>
+                    <div id="save-indicator-${item.id}" style="font-size: 11px; color: var(--text-dim); font-style: italic;" title="Changes are automatically persisted to the proposal in the background">
+                      Edits auto-save to proposal
+                    </div>
+                  </div>
+                  <textarea id="prop-edit-${item.id}"
+                    style="width: 100%; min-height: 90px; font-family: inherit; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; resize: vertical; line-height: 1.4; outline: none; box-sizing: border-box;"
+                    placeholder="Enter or edit consolidated observation..."
+                    title="Edit the consolidated observation text before approving. Changes will be saved into active memory upon approval."
+                    oninput="updateProposalMergeLive(${item.id})">${escapeHtml(item.merged_observation || '')}</textarea>
+
+                  <div>
+                    <label for="prop-tags-${item.id}" style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;" title="Controlled vocabulary subject tags for this consolidated memory entry">
+                      Consolidated Tags (Comma-separated)
+                    </label>
+                    <input type="text" id="prop-tags-${item.id}"
+                      value="${escapeHtml(item.merged_tags || '')}"
+                      placeholder="e.g. food, routine"
+                      title="Controlled vocabulary subject tags for this consolidated memory entry (comma-separated, e.g. food, routine)"
+                      style="width: 100%; background: #07070a; border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--text); font-family: monospace; font-size: 12px; box-sizing: border-box; outline: none;"
+                      oninput="updateProposalMergeLive(${item.id})" />
+                  </div>
+                </div>
+
+                <details ${expandedProposalContexts.has(item.id) ? 'open' : ''} ontoggle="toggleProposalContext(${item.id}, this.open)" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px;">
+                  <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;" title="Click to expand or collapse the source context entries contributing to this merge">
+                    Source Context Entries Being Consolidated (${(item.source_entries || []).length})
+                  </summary>
+                  <div class="source-list" style="background: transparent; padding: 10px 0 0 0;">${sourcesHTML}</div>
+                </details>
+              </div>
+              <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)" title="Save edits to this proposed observation and tags without approving yet">💾 Save Changes</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve this merge: updates the master memory entry with the edited observation and tags, and soft-deletes secondary entries">Approve Merge</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this merge proposal without altering active memory">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently delete this proposal record from the database">🗑️ Remove</button>
+                ${hintButton('merge')}
+              </div>
+            </div>
+          `;
+        }
+
         if (item.type === 'procedure_merge') {
           const procData = parseProcedureYaml(item.merged_observation);
           let targetMasterId = (item.suggested_category && !isNaN(item.suggested_category)) ? parseInt(item.suggested_category) : null;
@@ -5685,9 +5827,9 @@
               </details>
             </div>
             <div class="card-actions" style="display: flex; gap: 8px;">
-              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve</button>
-              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve and apply this proposal">Approve</button>
+              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this proposal without altering memory">Reject</button>
+              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently delete this proposal record from the database">🗑️ Remove</button>
             </div>
           </div>
         `;
@@ -5802,12 +5944,16 @@
     }
 
     function captureActiveEdits() {
-      // 1. Profile updates and standard proposal textareas
+      // 1. Profile updates and standard proposal textareas and tags
       document.querySelectorAll('[id^="prop-edit-"]').forEach(el => {
         const id = parseInt(el.id.replace('prop-edit-', ''), 10);
         const item = unifiedItems.find(x => x.id === id);
         if (item) {
           item.merged_observation = el.value;
+          const tagsEl = document.getElementById(`prop-tags-${id}`);
+          if (tagsEl) {
+            item.merged_tags = tagsEl.value;
+          }
         }
       });
 
@@ -5963,6 +6109,7 @@
         const procMergeCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'procedure_merge').length;
         const procSplitCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'procedure_split').length;
         const splitCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'split').length;
+        const mergeCount = unifiedItems.filter(i => i.item_type === 'proposal' && (i.type === 'merge' || i.type === 'supersede')).length;
 
         const mergeBarHtml = selectedExtractionIds.size > 0 ? `
           <div style="display: flex; gap: 12px; align-items: center; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 8px 14px;">
@@ -5981,12 +6128,13 @@
               <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')" title="Filter to operational procedures (new procedures, merges, and splits)">Procedures (${procCount})</button>
 
               <div style="position: relative; display: inline-flex; align-items: center;">
-                <select id="triage-type-select" onchange="setTriageSubtype(this.value)" title="Filter proposals by specific type (e.g. Term Admissions, Ghost Link Stubs, Procedure Merges)" style="background: var(--surface2); border: 1px solid ${isTypeActive ? 'var(--accent)' : 'var(--border)'}; color: ${isTypeActive ? 'var(--accent)' : 'var(--text)'}; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; outline: none;">
+                <select id="triage-type-select" onchange="setTriageSubtype(this.value)" title="Filter proposals by specific type (e.g. Term Admissions, Ghost Link Stubs, Procedure Merges, Fact Merges)" style="background: var(--surface2); border: 1px solid ${isTypeActive ? 'var(--accent)' : 'var(--border)'}; color: ${isTypeActive ? 'var(--accent)' : 'var(--text)'}; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; outline: none;">
                   <option value="all" ${triageFilter === 'all' && triageSubtype === 'all' ? 'selected' : ''}>Filter by Type...</option>
                   <option value="all_proposals" ${triageFilter === 'proposal' && triageSubtype === 'all' ? 'selected' : ''}>All Proposals (${propCount})</option>
                   <option value="prop:tag_admission" ${triageSubtype === 'tag_admission' ? 'selected' : ''}>🏷️ Term Admissions (${tagAdmCount})</option>
                   <option value="prop:ghost_link_stub" ${triageSubtype === 'ghost_link_stub' ? 'selected' : ''}>👻 Ghost Link Stubs (${stubCount})</option>
                   <option value="prop:tag_relation" ${triageSubtype === 'tag_relation' ? 'selected' : ''}>🔗 Term Relations (${relCount})</option>
+                  ${mergeCount > 0 ? `<option value="prop:merge" ${triageSubtype === 'merge' ? 'selected' : ''}>🔀 Fact Merges (${mergeCount})</option>` : ''}
                   ${procMergeCount > 0 ? `<option value="prop:procedure_merge" ${triageSubtype === 'procedure_merge' ? 'selected' : ''}>⚡ Procedure Merges (${procMergeCount})</option>` : ''}
                   ${procSplitCount > 0 ? `<option value="prop:procedure_split" ${triageSubtype === 'procedure_split' ? 'selected' : ''}>⚡ Procedure Splits (${procSplitCount})</option>` : ''}
                   ${splitCount > 0 ? `<option value="prop:split" ${triageSubtype === 'split' ? 'selected' : ''}>✂️ Fact Splits (${splitCount})</option>` : ''}

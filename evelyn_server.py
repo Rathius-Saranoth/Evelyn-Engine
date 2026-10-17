@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-17 12:44:40
+# date modified: 2026-10-17 14:28:25
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -7277,16 +7277,25 @@ async def _apply_proposal_action(
             raise HTTPException(status_code=404, detail="Proposal not found")
         return {"status": "ok"}
     elif action == "edit":
-        if not req or req.modified_text is None:
-            raise HTTPException(status_code=400, detail="edit requires modified_text in request body")
+        if not req or (req.modified_text is None and req.tags is None):
+            raise HTTPException(
+                status_code=400,
+                detail="edit requires modified_text or tags in request body",
+            )
 
         def _edit_proposal():
             proposals = memory_db.get_pending_proposals()
             prop = next((p for p in proposals if p["id"] == id), None)
+            kwargs: dict[str, Any] = {}
+            if req.modified_text is not None:
+                kwargs["merged_observation"] = req.modified_text
+            if req.tags is not None:
+                kwargs["merged_tags"] = req.tags
+
             if not prop:
-                return memory_db.update_proposal(id, merged_observation=req.modified_text)
+                return memory_db.update_proposal(id, **kwargs)
             new_reason = None
-            if prop["type"] == "profile_update" and prop.get("reason"):
+            if prop["type"] == "profile_update" and prop.get("reason") and req.modified_text is not None:
                 try:
                     reason_obj = json.loads(prop["reason"])
                     if isinstance(reason_obj, dict) and reason_obj.get("candidate_ledger"):
@@ -7298,10 +7307,13 @@ async def _apply_proposal_action(
                         reason_obj["candidate_ledger"] = reconciled
                         new_reason = json.dumps(reason_obj, indent=2)
                 except (json.JSONDecodeError, TypeError, KeyError, ValueError, OSError) as e_recon:
-                    print(f"[SERVER WARNING] Could not reconcile candidate ledger on proposal edit: {e_recon}", flush=True)
+                    print(
+                        f"[SERVER WARNING] Could not reconcile candidate ledger on proposal edit: {e_recon}",
+                        flush=True,
+                    )
             if new_reason:
-                return memory_db.update_proposal(id, merged_observation=req.modified_text, reason=new_reason)
-            return memory_db.update_proposal(id, merged_observation=req.modified_text)
+                kwargs["reason"] = new_reason
+            return memory_db.update_proposal(id, **kwargs)
 
         await asyncio.to_thread(_edit_proposal)
         return {"status": "ok"}
@@ -7614,11 +7626,12 @@ async def _apply_proposal_action(
                                     memory_db.update_entry(cid, tags=", ".join(kept))
                 memory_db.apply_proposal(id)
             elif prop["type"] in ("merge", "supersede"):
+                final_tags = req.tags if (req and req.tags is not None) else prop.get("merged_tags")
                 memory_db.apply_fact_merge(
                     source_entries=source_entries,
                     merged_text=final_text,
                     target_category=prop["suggested_category"],
-                    merged_tags=prop.get("merged_tags"),
+                    merged_tags=final_tags,
                 )
                 memory_db.apply_proposal(id)
             elif prop["type"] in ("rephrase", "ground_subject"):
@@ -7626,8 +7639,9 @@ async def _apply_proposal_action(
                 source_id = source_ids[0] if source_ids else None
                 if source_id:
                     update_kwargs: dict[str, Any] = {"observation": final_text}
-                    if prop.get("merged_tags"):
-                        update_kwargs["tags"] = prop["merged_tags"]
+                    final_tags = req.tags if (req and req.tags is not None) else prop.get("merged_tags")
+                    if final_tags:
+                        update_kwargs["tags"] = final_tags
                     topic_str = str(prop.get("topic") or "")
                     if topic_str.startswith("Subject:"):
                         new_subj = topic_str.replace("Subject:", "").strip()

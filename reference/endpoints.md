@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-17 13:49:09
+date modified: 2026-10-17 14:28:25
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -150,18 +150,19 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `POST /api/review/proposals/{id}/{action}`
 * **Purpose**: Action triage on proposals.
-* **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str), `source_id` (int), `target_id` (int), or direct stub override fields (`target_name`, `abstract`, `domain`, `tags`).
+* **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str), `tags` (str), `source_id` (int), `target_id` (int), or direct stub override fields (`target_name`, `abstract`, `domain`, `tags`).
 * **Actions**:
   * `approve`: Executes the proposal based on type:
     * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `entry_document_evolution` for the specific target document on all source entries with the proposal's `created_at` timestamp (recognizing entries modified during review as dirty so they re-qualify), resets the per-document evolution cooldown to the approval timestamp, runs `update_frontmatter.py`, and marks the proposal applied.
     * `ghost_link_stub` — creates a new stub note in the vault (`Stubs/<Domain>/<Target>.md`) using `target_name`, `abstract`, `domain`, and `tags` (falling back to the parsed XML proposal payload), stamps YAML frontmatter, renders harvested citations with context ellipsis surrounds, and marks the proposal applied.
     * `redirect` — redirects a `ghost_link_stub` proposal to an existing canonical note in the vault without creating a stub file. Takes `redirect_target` (string) and optional `add_alias` (bool, default true). Rewrites all occurrences of `[[Ghost Target]]` vault-wide to `[[Canonical Note|Ghost Target]]`, adds `Ghost Target` to the canonical note's frontmatter `aliases:` list, syncs `vault_db` librarian audit stats, and marks the proposal applied.
-    * `merge` / `supersede` — updates the primary master context entry in-place with aggregated longevity counts (`observed_count`, `retrieval_count`, `first_observed`, `last_observed`), unions domain tags, and soft-deletes secondary duplicates via `apply_fact_merge()`.
+    * `merge` / `supersede` — updates the primary master context entry in-place with aggregated longevity counts (`observed_count`, `retrieval_count`, `first_observed`, `last_observed`), applying the user's `modified_text` and `tags` (falling back to proposal `merged_observation` and `merged_tags`), and soft-deletes secondary duplicates via `apply_fact_merge()`.
     * `split` — deletes the source compound entry and inserts decomposed atomic child context facts parsed from `final_text` as YAML/JSON.
     * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
     * `rephrase` / `ground_subject` — updates the source entry's observation text in `context_entries` with `modified_text` (or `merged_observation`), updates domain tags and category if present, and updates `subject` if `topic` starts with `Subject: <new_subject>`. Marks proposal applied.
-    * `deny`: Rejects the proposal (`reject_proposal`). For `profile_update`, stamps source entries in `entry_document_evolution` for that document with proposal `created_at` and advances cooldown to prevent immediate repeat proposals.
-    * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
+  * `edit`: Saves live draft changes to `merged_observation` and/or `merged_tags` on the pending proposal record in SQLite without executing it yet. For `profile_update`, reconciles candidate ledger items against candidate notes.
+  * `deny`: Rejects the proposal (`reject_proposal`). For `profile_update`, stamps source entries in `entry_document_evolution` for that document with proposal `created_at` and advances cooldown to prevent immediate repeat proposals.
+  * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
 
 ### `GET /api/vault/candidates`
 * **Purpose**: Retrieves a lightweight list of all indexed vault note titles and relative paths for UI autocomplete and link retargeting candidate selection.

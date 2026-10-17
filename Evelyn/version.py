@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-17 12:44:40
+# date modified: 2026-10-17 14:28:25
 # tags: #versioning, #release
 
 """
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.008.053"
-__version_info__ = (0, 8, 53)
-__version_name__ = "Exhaustive Fast Memory Category Removal & Hygiene Convergence"
+__version__ = "000.008.054"
+__version_info__ = (0, 8, 54)
+__version_name__ = "Editable Fact Merge Proposals in Dev Review Workstation"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

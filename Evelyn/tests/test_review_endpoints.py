@@ -1,6 +1,6 @@
 # test_review_endpoints.py
 # date created: 2026-09-03 19:47:07
-# date modified: 2026-10-17 12:44:40
+# date modified: 2026-10-17 14:28:25
 # tags:
 
 """
@@ -739,4 +739,113 @@ def test_ghost_link_stub_proposal_redirect():
             cfg.VAULT_DB_PATH = orig_vault_db_cfg
         vault_db.DB_PATH = orig_vault_db_path
         temp_vault_dir.cleanup()
+
+
+def test_merge_proposal_direct_edit_and_approval(monkeypatch):
+    """Verify that a merge proposal can be edited prior to approval and correctly applied."""
+    from Evelyn.tools import chroma_rag
+
+    monkeypatch.setattr(chroma_rag, "enqueue_delete", lambda **kw: None)
+
+    e1_id = memory_db.insert_entry(
+        subject="Alex",
+        observation="Alex drinks black drip coffee in the mornings.",
+        status="live",
+        tags="coffee, routine",
+    )
+    e2_id = memory_db.insert_entry(
+        subject="Alex",
+        observation="Alex regularly enjoys a cup of black coffee each morning.",
+        status="live",
+        tags="coffee, morning",
+    )
+    assert e1_id > 0 and e2_id > 0
+
+    prop_id = memory_db.insert_proposal(
+        type="merge",
+        source_ids=[e1_id, e2_id],
+        topic=f"Duplicate facts on #{e1_id} (Alex)",
+        reason="Factual equivalence regarding morning coffee preference.",
+        merged_observation="Alex drinks black coffee every morning.",
+        merged_tags="coffee, morning",
+        confidence="high",
+    )
+    assert prop_id > 0
+
+    client = TestClient(app)
+    headers = {"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {}
+
+    res_approve = client.post(
+        f"/api/review/proposals/{prop_id}/approve",
+        json={
+            "modified_text": "Alex consistently drinks fresh black drip coffee every morning as part of his daily routine.",
+            "tags": "coffee, routine, breakfast",
+        },
+        headers=headers,
+    )
+    assert res_approve.status_code == 200
+    assert res_approve.json() == {"status": "ok"}
+
+    con = memory_db.get_db()
+    row = con.execute("SELECT status FROM proposals WHERE id = ?", (prop_id,)).fetchone()
+    assert row is not None and row["status"] == "applied"
+
+    master_entry = memory_db.get_entry(e1_id)
+    assert master_entry is not None
+    assert master_entry["observation"] == "Alex consistently drinks fresh black drip coffee every morning as part of his daily routine."
+    assert "coffee" in master_entry["tags"]
+    assert "breakfast" in master_entry["tags"]
+    assert master_entry["status"] == "live"
+
+    sec_entry = memory_db.get_entry(e2_id)
+    assert sec_entry is not None
+    assert sec_entry["status"] == "deleted"
+    assert sec_entry["merged_into_id"] == e1_id
+    con.close()
+
+
+def test_merge_proposal_edit_action():
+    """Verify that POST /api/review/proposals/{id}/edit updates merged_observation and merged_tags on the proposal."""
+    e1_id = memory_db.insert_entry(
+        subject="Alex",
+        observation="Fact 1",
+        status="live",
+        tags="alpha",
+    )
+    e2_id = memory_db.insert_entry(
+        subject="Alex",
+        observation="Fact 2",
+        status="live",
+        tags="beta",
+    )
+
+    prop_id = memory_db.insert_proposal(
+        type="merge",
+        source_ids=[e1_id, e2_id],
+        topic="Duplicate facts",
+        reason="Testing edit action",
+        merged_observation="Original draft",
+        merged_tags="alpha, beta",
+    )
+
+    client = TestClient(app)
+    headers = {"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {}
+
+    res_edit = client.post(
+        f"/api/review/proposals/{prop_id}/edit",
+        json={
+            "modified_text": "Saved draft observation",
+            "tags": "custom, refined",
+        },
+        headers=headers,
+    )
+    assert res_edit.status_code == 200
+    assert res_edit.json() == {"status": "ok"}
+
+    con = memory_db.get_db()
+    p_row = con.execute("SELECT merged_observation, merged_tags FROM proposals WHERE id = ?", (prop_id,)).fetchone()
+    con.close()
+    assert p_row is not None
+    assert p_row["merged_observation"] == "Saved draft observation"
+    assert p_row["merged_tags"] == "custom, refined"
 
