@@ -562,9 +562,159 @@
     .entities-dashboard {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
       min-width: 0;
       width: 100%;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .entities-table-card {
+      padding: 0;
+      overflow: hidden;
+      margin-bottom: 0;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 240px;
+      position: relative;
+    }
+
+    .entities-table-wrapper {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .entities-table-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(6, 182, 212, 0.4) rgba(0, 0, 0, 0.2);
+    }
+
+    .entities-table-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .entities-table-scroll::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 4px;
+    }
+
+    .entities-table-scroll::-webkit-scrollbar-thumb {
+      background: rgba(6, 182, 212, 0.4);
+      border-radius: 4px;
+      border: 1px solid rgba(6, 182, 212, 0.2);
+    }
+
+    .entities-table-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(6, 182, 212, 0.7);
+    }
+
+    .entities-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 12px;
+    }
+
+    .entities-table th {
+      position: sticky;
+      top: 0;
+      background: #0e131f;
+      z-index: 10;
+      padding: 8px 10px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .entities-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      vertical-align: middle;
+      white-space: nowrap;
+      background: var(--bg-card);
+    }
+
+    .entities-table tr:hover td {
+      background: #141c2c;
+    }
+
+    /* Sticky Left Actions Column */
+    .entities-table th.col-actions,
+    .entities-table td.col-actions {
+      position: sticky;
+      left: 0;
+      width: 112px;
+      min-width: 112px;
+      max-width: 112px;
+      box-sizing: border-box;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 2px 0 6px rgba(0, 0, 0, 0.35);
+    }
+
+    .entities-table th.col-actions {
+      top: 0;
+      background: #0e131f;
+      z-index: 30;
+      box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.35);
+    }
+
+    .entities-table td.col-actions {
+      background: #0e131f;
+      z-index: 11;
+    }
+
+    .entities-table tr:hover td.col-actions {
+      background: #162032;
+    }
+
+    /* Scroll affordance right edge hint and gradient */
+    .entities-table-wrapper.has-overflow-right::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 6px;
+      width: 24px;
+      background: linear-gradient(to right, transparent, rgba(6, 182, 212, 0.15));
+      pointer-events: none;
+      z-index: 15;
+      border-right: 2px solid var(--cyan);
+    }
+
+    .scroll-hint-badge {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      font-size: 10.5px;
+      color: var(--cyan);
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      border-radius: 10px;
+      padding: 2px 7px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.2s;
+    }
+
+    .scroll-hint-badge:hover {
+      background: rgba(6, 182, 212, 0.25);
+      border-color: var(--cyan);
+      color: #fff;
     }
 
     .kind-pill-group {
@@ -626,7 +776,44 @@
     .entity-actions {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .entity-action-btn {
+      width: 26px;
+      height: 26px;
+      min-width: 26px;
+      max-width: 26px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11.5px;
+      line-height: 1;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+      box-sizing: border-box;
+    }
+
+    .entity-action-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.28);
+      transform: translateY(-1px);
+    }
+
+    .entity-action-btn.btn-del {
+      color: var(--rose);
+    }
+
+    .entity-action-btn.btn-del:hover {
+      background: rgba(244, 63, 94, 0.16);
+      border-color: rgba(244, 63, 94, 0.4);
     }
 
     .entity-alias-list {
@@ -1275,7 +1462,7 @@
       </div>
 
       <!-- Center: Named Entity Authority Register Dashboard -->
-      <div id="entities-dashboard" style="display: none; min-width: 0; width: 100%;">
+      <div id="entities-dashboard" style="display: none; min-width: 0; width: 100%; height: 100%; min-height: 0; flex-direction: column;">
         <!-- Rendered dynamically -->
       </div>
 
@@ -1573,12 +1760,20 @@
     window.addEventListener('DOMContentLoaded', () => {
       // Hotkey for search
       window.addEventListener('keydown', (e) => {
-        if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+        if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
           e.preventDefault();
           if (navMode === 'entities') {
-            document.getElementById('entity-filter-input')?.focus();
+            const input = document.getElementById('entity-filter-input');
+            if (input) {
+              input.focus();
+              input.select();
+            }
           } else {
-            document.getElementById('tag-search')?.focus();
+            const tagInput = document.getElementById('tag-search');
+            if (tagInput) {
+              tagInput.focus();
+              tagInput.select();
+            }
           }
         }
       });
@@ -1607,6 +1802,7 @@
       setNavMode(navMode);
       loadGraphData();
       loadEntities();
+      window.addEventListener('resize', updateTableScrollAffordance);
     });
 
     function toggleToolbox() {
@@ -1615,6 +1811,7 @@
       const isHidden = ws.classList.toggle('no-toolbox');
       localStorage.setItem('taxonomy_hide_toolbox', isHidden ? '1' : '0');
       if (btn) btn.classList.toggle('active', isHidden);
+      setTimeout(updateTableScrollAffordance, 250);
     }
 
     function showToast(message, isError = false) {
@@ -1657,7 +1854,7 @@
         renderCategoryDashboard();
       } else if (mode === 'entities') {
         if (catDash) catDash.style.display = 'none';
-        if (entDash) entDash.style.display = 'block';
+        if (entDash) entDash.style.display = 'flex';
         if (empty) empty.style.display = 'none';
         if (content) content.style.display = 'none';
         renderEntitiesDashboard();
@@ -2231,11 +2428,6 @@
       renderEntitiesDashboard();
     }
 
-    function handleEntitySearch(val) {
-      entitySearchQuery = (val || '').trim();
-      renderEntitiesDashboard();
-    }
-
     function sortEntities(list) {
       return [...list].sort((a, b) => {
         let cmp = 0;
@@ -2289,10 +2481,130 @@
       if (navMode === 'entities') renderNavList();
     }
 
+    function handleEntitySearch(val) {
+      entitySearchQuery = val || '';
+      const clearBtn = document.getElementById('entity-search-clear');
+      if (clearBtn) clearBtn.style.display = entitySearchQuery ? 'block' : 'none';
+      renderEntitiesDashboard();
+    }
+
+    function clearEntitySearch() {
+      entitySearchQuery = '';
+      const input = document.getElementById('entity-filter-input');
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
+      const clearBtn = document.getElementById('entity-search-clear');
+      if (clearBtn) clearBtn.style.display = 'none';
+      renderEntitiesDashboard();
+    }
+
+    function handleEntitySearchKeydown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (entitySearchQuery) {
+          clearEntitySearch();
+        } else {
+          event.target.blur();
+        }
+      }
+    }
+
+    function scrollEntityTableRight() {
+      const scrollEl = document.getElementById('entity-table-scroll');
+      if (!scrollEl) return;
+      const isNearEnd = scrollEl.scrollLeft + scrollEl.clientWidth >= scrollEl.scrollWidth - 20;
+      if (isNearEnd) {
+        scrollEl.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        scrollEl.scrollTo({ left: scrollEl.scrollLeft + 260, behavior: 'smooth' });
+      }
+    }
+
+    function updateTableScrollAffordance() {
+      const scrollEl = document.getElementById('entity-table-scroll');
+      const wrapper = document.getElementById('entity-table-wrapper');
+      const hint = document.getElementById('entity-scroll-hint');
+      if (!scrollEl) return;
+      const hasOverflow = scrollEl.scrollWidth > scrollEl.clientWidth + 4;
+      const isNearEnd = scrollEl.scrollLeft + scrollEl.clientWidth >= scrollEl.scrollWidth - 10;
+      const hasRightOverflow = hasOverflow && !isNearEnd;
+
+      if (wrapper) {
+        wrapper.classList.toggle('has-overflow-right', hasRightOverflow);
+      }
+      if (hint) {
+        hint.style.display = hasRightOverflow ? 'inline-flex' : 'none';
+      }
+    }
+
+    function renderEntityTableRows(filtered, q) {
+      if (filtered.length === 0) {
+        return `
+          <tr>
+            <td colspan="6" style="padding: 40px; text-align: center; color: var(--text-dim); font-size: 13px;">
+              No entities match the current filter.
+            </td>
+          </tr>
+        `;
+      }
+      return filtered.map(e => {
+        const k = e.kind || 'other';
+        const icon = KIND_ICONS[k] || '🏷️';
+        const label = e.label || e.term.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        return `
+          <tr>
+            <td class="col-actions">
+              <div class="entity-actions">
+                <button type="button" class="entity-action-btn" onclick="openMergeEntityModal('${escapeAttr(e.term)}')" title="Merge duplicate entity into another canonical authority record">🔀</button>
+                <button type="button" class="entity-action-btn" onclick="openEditEntityModal('${escapeAttr(e.term)}')" title="Edit entity display label, taxonomy kind, notes, and aliases">✏️</button>
+                <button type="button" class="entity-action-btn btn-del" onclick="forgetEntity('${escapeAttr(e.term)}', '${escapeAttr(label)}')" title="Unregister entity and return term to vocabulary pool">🗑️</button>
+              </div>
+            </td>
+            <td style="min-width: 140px; max-width: 200px;">
+              <div style="font-weight: 600; color: #fff; font-size: 12.5px; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeAttr(label)}">
+                <span>${icon}</span>
+                <span style="overflow: hidden; text-overflow: ellipsis;">${highlightText(label, q)}</span>
+              </div>
+            </td>
+            <td style="min-width: 130px; max-width: 180px;">
+              <div>
+                <span style="font-family: var(--font-mono); font-size: 11px; color: var(--cyan); background: rgba(6, 182, 212, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(6, 182, 212, 0.2); white-space: nowrap;">
+                  ${highlightText(e.term, q)}
+                </span>
+              </div>
+              ${e.aliases && e.aliases.length > 0 ? `
+                <div class="entity-alias-list" style="margin-top: 3px;">
+                  ${e.aliases.map(a => `
+                    <span class="alias-chip" style="font-size: 10px; padding: 1px 5px;" title="Alternative alias pointing to #${escapeAttr(e.term)}">
+                      <span>↳ ${escapeHtml(a)}</span>
+                      <span class="alias-chip-del" onclick="removeEntityAlias('${escapeAttr(a)}', event)" title="Remove alias '${escapeAttr(a)}'">×</span>
+                    </span>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </td>
+            <td style="width: 90px; min-width: 90px; text-align: center;">
+              <span class="kind-badge kind-${escapeAttr(k)}" style="padding: 2px 6px; font-size: 10px;">
+                ${icon} ${k.toUpperCase()}
+              </span>
+            </td>
+            <td style="width: 70px; min-width: 70px; text-align: center;">
+              <span class="badge-count" style="font-size: 11px; padding: 2px 6px;" title="${e.request_count || 1} corpus requests">${e.request_count || 1}</span>
+            </td>
+            <td style="min-width: 150px; max-width: 280px; color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeAttr(e.note || '')}">
+              ${e.note ? highlightText(e.note, q) : '<span style="color: var(--text-dim); font-style: italic;">—</span>'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
     function renderEntitiesDashboard() {
       const container = document.getElementById('entities-dashboard');
       if (!container) return;
-      container.style.display = 'block';
+      container.style.display = 'flex';
       const empty = document.getElementById('inspector-empty');
       if (empty) empty.style.display = 'none';
       const catDash = document.getElementById('category-dashboard');
@@ -2307,7 +2619,7 @@
         counts[k] = (counts[k] || 0) + 1;
       });
 
-      const q = entitySearchQuery.toLowerCase();
+      const q = entitySearchQuery.trim().toLowerCase();
       let filtered = allEntities.filter(e => {
         if (entityKindFilter !== 'all' && (e.kind || 'other') !== entityKindFilter) return false;
         if (q) {
@@ -2322,15 +2634,104 @@
 
       filtered = sortEntities(filtered);
 
+      const shell = document.getElementById('entities-dashboard-shell');
+      if (shell) {
+        // Fast in-place DOM update: update pills, sorts, counts, and rows without replacing the search input
+        const totalBadge = document.getElementById('entity-total-badge');
+        if (totalBadge) {
+          totalBadge.textContent = filtered.length === allEntities.length
+            ? `${allEntities.length} Total`
+            : `${filtered.length} of ${allEntities.length}`;
+        }
+
+        const pillGroup = document.getElementById('entity-kind-pills');
+        if (pillGroup) {
+          pillGroup.innerHTML = `
+            <div class="kind-pill ${entityKindFilter === 'all' ? 'active' : ''}" onclick="setEntityKindFilter('all')" title="Show all registered entities">
+              All <b style="font-family: var(--font-mono); font-size: 11px;">(${counts.all})</b>
+            </div>
+            ${ENTITY_KINDS.map(k => `
+              <div class="kind-pill ${entityKindFilter === k ? 'active' : ''}" onclick="setEntityKindFilter('${k}')" title="Filter to ${k} entities">
+                ${KIND_ICONS[k] || '🏷️'} ${k.charAt(0).toUpperCase() + k.slice(1)} <b style="font-family: var(--font-mono); font-size: 11px;">(${counts[k] || 0})</b>
+              </div>
+            `).join('')}
+          `;
+        }
+
+        const sortBtns = document.getElementById('entity-sort-buttons');
+        if (sortBtns) {
+          sortBtns.innerHTML = `
+            <button class="btn btn-sm ${entitySortBy === 'display' ? 'btn-primary' : ''}" onclick="setEntitySort('display')" title="Sort entities alphabetically by Display Name (A-Z)">
+              Display ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+            </button>
+            <button class="btn btn-sm ${entitySortBy === 'slug' ? 'btn-primary' : ''}" onclick="setEntitySort('slug')" title="Sort entities alphabetically by Slug Term (A-Z)">
+              Slug ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+            </button>
+            <button class="btn btn-sm ${entitySortBy === 'requests' ? 'btn-primary' : ''}" onclick="setEntitySort('requests')" title="Sort entities by Corpus Request Count">
+              Requests ${entitySortBy === 'requests' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
+            </button>
+            <button class="btn btn-sm" style="color: var(--text-muted); padding: 4px 8px;" onclick="toggleEntitySortDir()" title="Toggle Ascending / Descending (${entitySortDir === 'asc' ? 'Ascending' : 'Descending'})">
+              ${entitySortDir === 'asc' ? '↑' : '↓'}
+            </button>
+          `;
+        }
+
+        const thead = document.getElementById('entity-table-head');
+        if (thead) {
+          thead.innerHTML = `
+            <tr>
+              <th class="col-actions">Actions</th>
+              <th style="min-width: 140px; max-width: 200px; cursor: pointer; user-select: none;" onclick="setEntitySort('display')" title="Sort by Display Label (${entitySortBy === 'display' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
+                Display Label ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+              </th>
+              <th style="min-width: 130px; max-width: 180px; cursor: pointer; user-select: none;" onclick="setEntitySort('slug')" title="Sort by Slug Term (${entitySortBy === 'slug' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
+                Slug Term ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+              </th>
+              <th style="width: 90px; min-width: 90px; text-align: center;">Kind</th>
+              <th style="width: 70px; min-width: 70px; text-align: center; cursor: pointer; user-select: none;" onclick="setEntitySort('requests')" title="Sort by Corpus Request Count (${entitySortBy === 'requests' && entitySortDir === 'desc' ? 'Click for ascending' : 'Click for descending'})">
+                Requests ${entitySortBy === 'requests' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+              </th>
+              <th style="min-width: 150px; max-width: 280px;">Context / Note</th>
+            </tr>
+          `;
+        }
+
+        const searchInput = document.getElementById('entity-filter-input');
+        if (searchInput && document.activeElement !== searchInput && searchInput.value !== entitySearchQuery) {
+          searchInput.value = entitySearchQuery;
+        }
+
+        const clearBtn = document.getElementById('entity-search-clear');
+        if (clearBtn) {
+          clearBtn.style.display = entitySearchQuery ? 'block' : 'none';
+        }
+
+        const tbody = document.getElementById('entity-table-body');
+        if (tbody) {
+          tbody.innerHTML = renderEntityTableRows(filtered, q);
+        }
+
+        setTimeout(updateTableScrollAffordance, 10);
+        return;
+      }
+
+      // Shell does not exist yet: capture previous focus if any, then build outer structure
+      const prevInput = document.getElementById('entity-filter-input');
+      const hadFocus = (prevInput && document.activeElement === prevInput);
+      const selStart = hadFocus ? prevInput.selectionStart : null;
+      const selEnd = hadFocus ? prevInput.selectionEnd : null;
+
       container.innerHTML = `
-        <div class="entities-dashboard">
+        <div class="entities-dashboard" id="entities-dashboard-shell">
           <!-- Top Banner -->
           <div class="dashboard-banner">
             <div>
               <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cyan); font-weight: 600; margin-bottom: 3px;">Authority Control · Name Authority Register</div>
               <h2 style="font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
                 👤 Named Entity Authority Register
-                <span class="badge-count" style="font-size: 12px; background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid rgba(6, 182, 212, 0.3);">${allEntities.length} Total</span>
+                <span class="badge-count" id="entity-total-badge" style="font-size: 12px; background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid rgba(6, 182, 212, 0.3);">
+                  ${filtered.length === allEntities.length ? `${allEntities.length} Total` : `${filtered.length} of ${allEntities.length}`}
+                </span>
               </h2>
               <p style="font-size: 12.5px; color: var(--text-dim); margin-top: 4px; max-width: 640px;">
                 Discrete individuals, personas, pets, projects, and organizations maintained as distinct entities outside the subject tag taxonomy.
@@ -2344,9 +2745,9 @@
           </div>
 
           <!-- Controls: Kind Filter Pills, Sort & Search -->
-          <div class="card" style="padding: 12px 16px; margin-bottom: 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-              <div class="kind-pill-group">
+          <div class="card" style="padding: 10px 14px; margin-bottom: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div class="kind-pill-group" id="entity-kind-pills">
                 <div class="kind-pill ${entityKindFilter === 'all' ? 'active' : ''}" onclick="setEntityKindFilter('all')" title="Show all registered entities">
                   All <b style="font-family: var(--font-mono); font-size: 11px;">(${counts.all})</b>
                 </div>
@@ -2361,7 +2762,7 @@
                 <!-- Sort Selector -->
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 600;">Sort:</span>
-                  <div class="sort-btn-group">
+                  <div class="sort-btn-group" id="entity-sort-buttons">
                     <button class="btn btn-sm ${entitySortBy === 'display' ? 'btn-primary' : ''}" onclick="setEntitySort('display')" title="Sort entities alphabetically by Display Name (A-Z)">
                       Display ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : ''}
                     </button>
@@ -2377,97 +2778,62 @@
                   </div>
                 </div>
 
-                <!-- Search Input -->
-                <div style="min-width: 200px; flex-shrink: 0;">
-                  <input type="text" id="entity-filter-input" class="search-input" value="${escapeAttr(entitySearchQuery)}" placeholder="Search entities... (/)" oninput="handleEntitySearch(this.value)" style="padding: 6px 12px; font-size: 12.5px;" title="Filter entities by name, slug term, or note">
+                <!-- Scroll Hint & Search Input -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span id="entity-scroll-hint" class="scroll-hint-badge" onclick="scrollEntityTableRight()" title="More columns hidden off-screen — click to scroll right">
+                    ↔ More columns →
+                  </span>
+                  <div class="search-input-wrap" style="min-width: 220px; flex-shrink: 0;">
+                    <input type="text" id="entity-filter-input" class="search-input" value="${escapeAttr(entitySearchQuery)}" placeholder="Search entities... (/)" oninput="handleEntitySearch(this.value)" onkeydown="handleEntitySearchKeydown(event)" style="padding-top: 6px; padding-bottom: 6px; font-size: 12.5px;" title="Filter entities by name, slug term, or note">
+                    <span class="search-clear" id="entity-search-clear" onclick="clearEntitySearch()" style="display: ${entitySearchQuery ? 'block' : 'none'};" title="Clear entity search query (Escape)">✕</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Entities Table -->
-          <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 0;">
-            <div class="table-responsive" style="max-height: calc(100vh - 280px); overflow-y: auto;">
-              <table class="leaderboard-table" style="table-layout: auto;">
-                <thead>
-                  <tr style="position: sticky; top: 0; background: #0e131f; z-index: 10;">
-                    <th style="padding: 10px 14px; width: 220px; cursor: pointer; user-select: none;" onclick="setEntitySort('display')" title="Sort by Display Label (${entitySortBy === 'display' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
-                      Display Label ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
-                    </th>
-                    <th style="padding: 10px 14px; width: 220px; cursor: pointer; user-select: none;" onclick="setEntitySort('slug')" title="Sort by Slug Term (${entitySortBy === 'slug' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
-                      Slug Term ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
-                    </th>
-                    <th style="padding: 10px 14px; width: 130px;">Kind</th>
-                    <th style="padding: 10px 14px;">Context / Note</th>
-                    <th style="padding: 10px 14px; width: 100px; text-align: center; cursor: pointer; user-select: none;" onclick="setEntitySort('requests')" title="Sort by Corpus Request Count (${entitySortBy === 'requests' && entitySortDir === 'desc' ? 'Click for ascending' : 'Click for descending'})">
-                      Requests ${entitySortBy === 'requests' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
-                    </th>
-                    <th style="padding: 10px 14px; width: 110px; text-align: right;">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${filtered.length === 0 ? `
+          <!-- Entities Table Card -->
+          <div class="card entities-table-card">
+            <div class="entities-table-wrapper" id="entity-table-wrapper">
+              <div class="entities-table-scroll" id="entity-table-scroll" onscroll="updateTableScrollAffordance()">
+                <table class="entities-table" style="table-layout: auto;">
+                  <thead id="entity-table-head">
                     <tr>
-                      <td colspan="6" style="padding: 40px; text-align: center; color: var(--text-dim); font-size: 13px;">
-                        No entities match the current filter.
-                      </td>
+                      <th class="col-actions">Actions</th>
+                      <th style="min-width: 140px; max-width: 200px; cursor: pointer; user-select: none;" onclick="setEntitySort('display')" title="Sort by Display Label (${entitySortBy === 'display' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
+                        Display Label ${entitySortBy === 'display' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+                      </th>
+                      <th style="min-width: 130px; max-width: 180px; cursor: pointer; user-select: none;" onclick="setEntitySort('slug')" title="Sort by Slug Term (${entitySortBy === 'slug' && entitySortDir === 'asc' ? 'Click for descending' : 'Click for ascending'})">
+                        Slug Term ${entitySortBy === 'slug' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+                      </th>
+                      <th style="width: 90px; min-width: 90px; text-align: center;">Kind</th>
+                      <th style="width: 70px; min-width: 70px; text-align: center; cursor: pointer; user-select: none;" onclick="setEntitySort('requests')" title="Sort by Corpus Request Count (${entitySortBy === 'requests' && entitySortDir === 'desc' ? 'Click for ascending' : 'Click for descending'})">
+                        Requests ${entitySortBy === 'requests' ? (entitySortDir === 'asc' ? '▲' : '▼') : '<span style="opacity: 0.3; font-size: 10px;">⇅</span>'}
+                      </th>
+                      <th style="min-width: 150px; max-width: 280px;">Context / Note</th>
                     </tr>
-                  ` : filtered.map(e => {
-                    const k = e.kind || 'other';
-                    const icon = KIND_ICONS[k] || '🏷️';
-                    const label = e.label || e.term.replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
-                    return `
-                      <tr>
-                        <td style="padding: 10px 14px;">
-                          <div style="font-weight: 600; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                            <span>${icon}</span>
-                            <span>${highlightText(label, entitySearchQuery)}</span>
-                          </div>
-                        </td>
-                        <td style="padding: 10px 14px;">
-                          <div>
-                            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--cyan); background: rgba(6, 182, 212, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(6, 182, 212, 0.2);">
-                              ${highlightText(e.term, entitySearchQuery)}
-                            </span>
-                          </div>
-                          ${e.aliases && e.aliases.length > 0 ? `
-                            <div class="entity-alias-list">
-                              ${e.aliases.map(a => `
-                                <span class="alias-chip" title="Alternative alias pointing to #${escapeAttr(e.term)}">
-                                  <span>↳ ${escapeHtml(a)}</span>
-                                  <span class="alias-chip-del" onclick="removeEntityAlias('${escapeAttr(a)}', event)" title="Remove alias '${escapeAttr(a)}'">×</span>
-                                </span>
-                              `).join('')}
-                            </div>
-                          ` : ''}
-                        </td>
-                        <td style="padding: 10px 14px;">
-                          <span class="kind-badge kind-${escapeAttr(k)}">
-                            ${icon} ${k.toUpperCase()}
-                          </span>
-                        </td>
-                        <td style="padding: 10px 14px; color: var(--text-muted); font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
-                          ${e.note ? highlightText(e.note, entitySearchQuery) : '<span style="color: var(--text-dim); font-style: italic;">—</span>'}
-                        </td>
-                        <td style="padding: 10px 14px; text-align: center;">
-                          <span class="badge-count" style="font-size: 11px;">${e.request_count || 1}</span>
-                        </td>
-                        <td style="padding: 10px 14px; text-align: right;">
-                          <div class="entity-actions" style="justify-content: flex-end;">
-                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px;" onclick="openMergeEntityModal('${escapeAttr(e.term)}')" title="Merge this duplicate entity into another canonical entity">🔀</button>
-                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px;" onclick="openEditEntityModal('${escapeAttr(e.term)}')" title="Edit entity label, kind, note, and aliases">✏️</button>
-                            <button class="btn btn-sm" style="padding: 3px 8px; font-size: 11.5px; color: var(--rose);" onclick="forgetEntity('${escapeAttr(e.term)}', '${escapeAttr(label)}')" title="Unregister entity and return term to vocabulary pool">🗑️</button>
-                          </div>
-                        </td>
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody id="entity-table-body">
+                    ${renderEntityTableRows(filtered, q)}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
       `;
+
+      if (hadFocus) {
+        const newInput = document.getElementById('entity-filter-input');
+        if (newInput) {
+          newInput.focus();
+          if (selStart !== null && selEnd !== null) {
+            newInput.setSelectionRange(selStart, selEnd);
+          }
+        }
+      }
+
+      setTimeout(updateTableScrollAffordance, 10);
     }
 
     function renderEntitiesNavMode(container) {

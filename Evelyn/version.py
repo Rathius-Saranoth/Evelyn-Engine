@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-17 14:28:25
+# date modified: 2026-10-17 15:32:24
 # tags: #versioning, #release
 
 """
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.008.054"
-__version_info__ = (0, 8, 54)
-__version_name__ = "Editable Fact Merge Proposals in Dev Review Workstation"
+__version__ = "000.008.057"
+__version_info__ = (0, 8, 57)
+__version_name__ = "Taxonomy UI Actions Header 2D Sticky Stacking Context Fix"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

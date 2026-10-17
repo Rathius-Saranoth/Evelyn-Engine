@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-17 14:28:25
+date modified: 2026-10-17 15:32:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,47 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.057] - 2026-10-17 — *Taxonomy UI Actions Header 2D Sticky Stacking Context Fix*
+
+### Fixed
+
+- **Actions Table Header Sticky Elevation in 2D Scrolling (`evelyn_ui/taxonomy.html`)**:
+  - Fixed an issue where scrolling down caused the "Actions" column header to scroll away / be covered by scrolling action buttons instead of remaining anchored at the top like other column headers.
+  - Resolved root-cause stacking context trap where `thead tr` held an inline `style="position: sticky; top: 0; z-index: 10;"`, creating a local stacking context of `z-index: 10` that trapped child `th.col-actions` and allowed body rows' `td.col-actions` (`z-index: 11`) to paint directly on top of the "Actions" header.
+  - Stripped redundant inline sticky styling from `thead tr`, letting `.entities-table th` control vertical sticky anchoring.
+  - Elevated `.entities-table th.col-actions` to `z-index: 30` with explicit `top: 0; left: 0;` and multi-directional elevation box shadow, ensuring the corner header perpetually floats above both vertically scrolled rows (`z-index: 11`) and horizontally scrolled column headers (`z-index: 10`).
+
+## [000.008.056] - 2026-10-17 — *Taxonomy UI Actions Column Width and Boundary Alignment Fix*
+
+### Fixed
+
+- **Actions Column Boundary Overflow & Button Containment (`evelyn_ui/taxonomy.html`)**:
+  - Fixed an overflow defect where the 3 action buttons (`🔀`, `✏️`, `🗑️`) exceeded the sticky `Actions` column width, causing the unregister/remove button (`🗑️`) to cross over the right divider line into the `Display Label` column.
+  - Widened the sticky `col-actions` column from `90px` to `112px` and enforced `box-sizing: border-box;`.
+  - Introduced dedicated `.entity-action-btn` CSS with fixed `26x26px` square dimensions (`box-sizing: border-box; padding: 0;`), standardizing button width and ensuring the entire 3-button cluster deterministically occupies `86px`, leaving a generous 16px buffer to the right divider line.
+  - Added subtle hover elevation and state transitions, including rose-tinted warning styling for the delete action button.
+  - Updated all action button tooltips to follow UI Usability & Tooltip Standards.
+
+## [000.008.055] - 2026-10-17 — *Taxonomy UI Entity Search Focus & Compact Results Table Overhaul*
+
+### Fixed
+
+- **Named Entity Authority Register Search Focus Retention (`evelyn_ui/taxonomy.html`)**:
+  - Resolved input focus loss bug where every keystroke in `#entity-filter-input` triggered a full dashboard re-render (`container.innerHTML = ...`), replacing the active `<input>` node and forcing users to re-click the search box after each character typed.
+  - Decoupled table row rendering into `renderEntityTableRows(filtered, q)` and implemented in-place DOM updates for existing dashboard shells, preserving the exact `<input id="entity-filter-input">` node across character inputs, kind-pill switches, and column sorting.
+  - Added dedicated search input wrapper with clear button (`#entity-search-clear` ✕) and `Escape` key shortcut handling to quickly clear search queries or blur focus.
+  - Updated global `/` search hotkey to focus and select `#entity-filter-input` when in entities mode while ignoring active textareas.
+  - Added fallback focus and selection range restoration in case of full outer shell re-mounts.
+
+### Changed
+
+- **Compact Search Results Table & Viewport Scroll Overhaul (`evelyn_ui/taxonomy.html`)**:
+  - **Reordered Columns with Far-Left Sticky Actions**: Moved the `Actions` column (`🔀`, `✏️`, `🗑️`) to the far left as the very first column (`[Actions] [Display Label] [Slug Term] [Kind] [Requests] [Context / Note]`) and configured it with `position: sticky; left: 0;` so quick actions remain permanently anchored and visible even when horizontally scrolling wide tables.
+  - **Compacted Column Spacing & Density**: Reduced cell padding (`padding: 7px 10px;`) and min-widths across all columns so `Requests` and entity metadata fit comfortably within standard viewports without pushing columns off-screen.
+  - **In-Viewport Horizontal Scrollbar**: Fixed the issue where the horizontal scrollbar was buried below the viewport fold by constraining `#entities-dashboard` to flex column height with `.entities-table-scroll` containing internal overflow, ensuring horizontal and vertical scrollbars are visible without needing to scroll down the page.
+  - **Visual Overflow Indicators & Scroll Affordance**: Added a right-edge gradient shadow indicator (`.has-overflow-right::after`) and an interactive `#entity-scroll-hint` badge (`↔ More columns →`) in the search controls bar that pulses when columns are overflowed (such as when the right-hand toolbox is open) and smoothly scrolls the table horizontally when clicked.
+  - **Dynamically Synchronized Scroll State**: Bound `updateTableScrollAffordance()` to horizontal scroll events, window resizing, and sidebar toolbox toggling.
 
 ## [000.008.054] - 2026-10-17 — *Editable Fact Merge Proposals in Dev Review Workstation*
 
